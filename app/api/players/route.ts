@@ -6,19 +6,58 @@ export async function GET() {
   const sessions = await dbService.getSessions();
   const bannedIps = await dbService.getBannedIps();
 
-  // Annotate sessions with live status and active duration
   const now = Date.now();
-  const enriched = sessions.map((s) => {
+  const HEARTBEAT_TIMEOUT_MS = 5000; // After 5 seconds of no heartbeat, user is determined disconnected
+  const DISCONNECT_REMOVAL_GRACE_MS = 5000; // Show "Disconnected" for 5 seconds before removing player card
+
+  const enriched = [];
+  const deadSessionIds: string[] = [];
+
+  for (const s of sessions) {
     const lastPing = new Date(s.last_heartbeat).getTime();
-    const isOnline = s.status === "active" && now - lastPing < 6000;
-    const durationSeconds = Math.max(0, Math.floor((now - new Date(s.session_started).getTime()) / 1000));
-    return {
+    const startTime = new Date(s.session_started).getTime();
+    const pingElapsed = Math.max(0, now - lastPing);
+
+    // After 5 seconds if no heartbeat, determine user is no longer using the script
+    const isTimedOut = pingElapsed >= HEARTBEAT_TIMEOUT_MS;
+    const isOnline = s.status === "active" && !isTimedOut;
+
+    // Freeze timer when disconnected! Do not put the timer on them once quit
+    const effectiveEndTime = isOnline ? now : lastPing;
+    const durationSeconds = Math.max(0, Math.floor((effectiveEndTime - startTime) / 1000));
+
+    // Time since disconnection was triggered
+    const timeSinceDisconnect = isTimedOut ? pingElapsed - HEARTBEAT_TIMEOUT_MS : 0;
+
+    // If disconnected for more than grace period, prune card from tab and database
+    if (isTimedOut && timeSinceDisconnect > DISCONNECT_REMOVAL_GRACE_MS) {
+      deadSessionIds.push(s.id);
+      continue;
+    }
+
+    const derivedStatus = isOnline
+      ? "active"
+      : s.status === "kicked"
+      ? "kicked"
+      : "disconnected";
+
+    enriched.push({
       ...s,
+      status: derivedStatus,
       is_online: isOnline,
       duration_seconds: durationSeconds,
       is_banned: Boolean(bannedIps[s.ip_address]),
-    };
-  });
+      last_ping_sec: Math.floor(pingElapsed / 1000),
+      time_since_disconnect_sec: Math.floor(timeSinceDisconnect / 1000),
+    });
+  }
+
+  // Auto clean up dead sessions
+  if (deadSessionIds.length > 0) {
+    for (const id of deadSessionIds) {
+      dbService.deleteSession(id).catch(() => {});
+    }
+  }
 
   return NextResponse.json({
     sessions: enriched,
@@ -49,6 +88,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, message: "Message dispatched." });
     }
 
+    if (action === "remove_card" || action === "delete_session") {
+      if (!session_id) return NextResponse.json({ error: "Missing session_id" }, { status: 400 });
+      await dbService.deleteSession(session_id);
+      return NextResponse.json({ success: true, message: "Player card removed." });
+    }
+
     if (action === "ban_ip") {
       if (!ip_address) return NextResponse.json({ error: "Missing ip_address" }, { status: 400 });
       await dbService.banIp(ip_address, reason || "Manual IP ban from Players dashboard");
@@ -64,6 +109,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : "Error executing player action";
+    return NextResponse.json({ error: errorMsg }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const sessionId = searchParams.get("session_id") || searchParams.get("id");
+    if (!sessionId) return NextResponse.json({ error: "Missing session_id" }, { status: 400 });
+
+    await dbService.deleteSession(sessionId);
+    return NextResponse.json({ success: true, message: "Player card deleted." });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Error deleting player card";
     return NextResponse.json({ error: errorMsg }, { status: 500 });
   }
 }

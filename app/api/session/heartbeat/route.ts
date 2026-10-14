@@ -49,9 +49,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Calculate live online user count (active within last 6 seconds)
+    // Calculate live online user count (active within last 5 seconds)
     const allSessions = await dbService.getSessions();
-    const threshold = Date.now() - 6000;
+    const threshold = Date.now() - 5000;
     const onlineCount = allSessions.filter((s) => {
       const pingTime = new Date(s.last_heartbeat).getTime();
       return s.status === "active" && pingTime >= threshold;

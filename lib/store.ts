@@ -789,6 +789,21 @@ export const dbService = {
     return cmds;
   },
 
+  async deleteSession(sessionId: string): Promise<boolean> {
+    const db = readLocalDb();
+    db.sessions = db.sessions.filter((s) => s.id !== sessionId);
+    writeLocalDb(db);
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase.from("sessions").delete().eq("id", sessionId);
+      } catch (err) {
+        console.error("Supabase deleteSession error:", err);
+      }
+    }
+    return true;
+  },
+
   // IP Bans
   async isIpBanned(ip: string): Promise<boolean> {
     const db = readLocalDb();
