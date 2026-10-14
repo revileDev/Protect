@@ -1,9 +1,25 @@
 // app/api/scripts/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { dbService } from "@/lib/store";
+import { isAuthenticated } from "@/lib/auth";
 
 export async function GET() {
   const scripts = await dbService.getScripts();
+  const authed = isAuthenticated();
+  if (!authed) {
+    const publicScripts = scripts
+      .filter((s) => s.is_active !== false)
+      .map(({ id, name, slug, is_active, use_auth, watermark_text, created_at }) => ({
+        id,
+        name,
+        slug,
+        is_active,
+        use_auth,
+        watermark_text,
+        created_at,
+      }));
+    return NextResponse.json({ scripts: publicScripts });
+  }
   return NextResponse.json({ scripts });
 }
 

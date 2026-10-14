@@ -1,22 +1,53 @@
 // app/page.tsx
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
-import { Key, ShieldCheck, FileCode, Cpu, Shield, Lock } from "lucide-react";
+import {
+  Key,
+  ShieldCheck,
+  Cpu,
+  Shield,
+  Lock,
+  Terminal,
+  Sparkles,
+  ChevronRight,
+  Layers,
+  ArrowRight,
+} from "lucide-react";
 import { dbService } from "@/lib/store";
+import ClaimScriptModal, { ScriptSummary } from "@/components/ClaimScriptModal";
+
+export const revalidate = 0;
 
 export default async function HomePage() {
-  const settings = await dbService.getSettings();
+  const [settings, allScripts] = await Promise.all([
+    dbService.getSettings(),
+    dbService.getScripts(),
+  ]);
+
+  const activeScripts: ScriptSummary[] = (allScripts || [])
+    .filter((s) => s.is_active !== false)
+    .map((s) => ({
+      id: s.id,
+      name: s.name,
+      slug: s.slug,
+      use_auth: s.use_auth !== false,
+      watermark_text: s.watermark_text,
+    }));
 
   return (
     <div className="min-h-screen flex flex-col bg-[#090b10] text-gray-200">
-      <Navbar />
+      <Navbar scripts={activeScripts} />
 
       {/* Main Hero Header */}
-      <section className="py-20 sm:py-28 px-4 sm:px-6 lg:px-8 border-b border-gray-800/80">
-        <div className="mx-auto max-w-3xl text-center">
-          <div className="inline-flex items-center gap-2 rounded-full border border-gray-800 bg-[#12141e] px-3.5 py-1 text-xs text-gray-400 mb-6">
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
-            Script Verification & Access Portal
+      <section className="py-20 sm:py-28 px-4 sm:px-6 lg:px-8 border-b border-gray-800/80 relative overflow-hidden">
+        {/* Glow Effects */}
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute top-1/3 left-1/3 w-64 h-64 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="mx-auto max-w-3xl text-center relative z-10">
+          <div className="inline-flex items-center gap-2 rounded-full border border-gray-800 bg-[#12141e] px-4 py-1.5 text-xs text-gray-400 mb-6 shadow-sm">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>ATOM PROTECT • Script Verification & Access Portal</span>
           </div>
 
           <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-white mb-5 leading-tight">
@@ -28,19 +59,18 @@ export default async function HomePage() {
           </p>
 
           <div className="flex flex-wrap items-center justify-center gap-3">
-            <Link
-              href="/claim"
-              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-semibold text-white hover:bg-blue-500 transition-colors shadow-lg shadow-blue-600/20"
-            >
-              <Key className="w-4 h-4" />
-              <span>Claim Your Key</span>
-            </Link>
+            {/* Modal Trigger Button */}
+            <ClaimScriptModal
+              scripts={activeScripts}
+              buttonText="Claim Your Key"
+            />
+
             {settings.discord_invite_url && (
               <a
                 href={settings.discord_invite_url}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-2 rounded-xl border border-gray-700 bg-gray-800/70 px-4 py-2.5 text-xs font-semibold text-gray-200 hover:bg-gray-800 hover:text-white transition-colors"
+                className="inline-flex items-center gap-2 rounded-xl border border-gray-700 bg-gray-800/70 px-5 py-3 text-xs sm:text-sm font-semibold text-gray-200 hover:bg-gray-800 hover:text-white transition-colors"
               >
                 <span>Join Discord Community</span>
               </a>
@@ -48,6 +78,63 @@ export default async function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* Active Protected Scripts Showcase */}
+      {activeScripts.length > 0 && (
+        <section className="py-12 px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto w-full">
+          <div className="flex items-center justify-between mb-4 pb-2 border-b border-gray-800/80">
+            <div className="flex items-center gap-2">
+              <Terminal className="w-4 h-4 text-blue-400" />
+              <h2 className="text-xs sm:text-sm font-bold text-white uppercase tracking-wider">
+                Available Protected Scripts ({activeScripts.length})
+              </h2>
+            </div>
+            <span className="text-[11px] text-gray-500">
+              Click any script to claim its key
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            {activeScripts.map((s) => (
+              <Link
+                key={s.id}
+                href={`/claim?script=${encodeURIComponent(s.slug)}`}
+                className="p-4 rounded-xl border border-gray-800/90 bg-[#11131c] hover:bg-[#161a29] hover:border-blue-500/50 transition-all flex items-center justify-between group shadow-sm hover:shadow-blue-500/10"
+              >
+                <div className="space-y-1.5 flex-1 pr-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-bold text-white group-hover:text-blue-300 transition-colors">
+                      {s.name}
+                    </span>
+                    <span className="text-[10px] font-mono bg-blue-500/10 text-blue-400 border border-blue-500/20 px-1.5 py-0.5 rounded">
+                      /{s.slug}
+                    </span>
+                    {s.use_auth !== false ? (
+                      <span className="text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded">
+                        Auth Key
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-semibold bg-gray-700/50 text-gray-400 px-1.5 py-0.5 rounded">
+                        Direct
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-gray-400">
+                    {s.use_auth !== false
+                      ? "Requires authorized license key • Locked to claimant IP"
+                      : "Direct execution without license key"}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-1 text-xs font-semibold text-blue-400 group-hover:translate-x-1 transition-transform flex-shrink-0">
+                  <span>Claim</span>
+                  <ChevronRight className="w-4 h-4" />
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Public Technical Information */}
       <section className="py-14 px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto w-full">
@@ -108,9 +195,9 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* Subtle discreet footer with hidden admin link */}
+      {/* Discreet footer with hidden admin link */}
       <footer className="py-4 px-6 border-t border-gray-900 bg-[#07080c] flex items-center justify-between text-[11px] text-gray-600">
-        <span>&copy; {new Date().getFullYear()} Aero Auth. All rights reserved.</span>
+        <span>&copy; {new Date().getFullYear()} ATOM PROTECT. All rights reserved.</span>
         <Link
           href="/login"
           className="text-gray-800 hover:text-gray-600 transition-colors p-1"
