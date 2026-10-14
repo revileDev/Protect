@@ -11,9 +11,7 @@ import {
   ArrowRight,
   ShieldCheck,
   Sparkles,
-  Layers,
   ChevronRight,
-  Zap,
 } from "lucide-react";
 
 export interface ScriptSummary {
@@ -63,11 +61,7 @@ export default function ClaimScriptModal({
 
   const handleSelectScript = (slug: string) => {
     setIsOpen(false);
-    if (slug === "all") {
-      router.push("/claim");
-    } else {
-      router.push(`/claim?script=${encodeURIComponent(slug)}`);
-    }
+    router.push(`/claim?script=${encodeURIComponent(slug)}`);
   };
 
   return (
@@ -112,7 +106,7 @@ export default function ClaimScriptModal({
                       <Sparkles className="w-4 h-4 text-amber-400" />
                     </h2>
                     <p className="text-xs text-gray-400 mt-0.5">
-                      Choose which script you want to generate an authorized license key for.
+                      Choose which script you want to claim an authorized key for.
                     </p>
                   </div>
                 </div>
@@ -144,43 +138,12 @@ export default function ClaimScriptModal({
 
             {/* Modal Body / Script List */}
             <div className="p-4 sm:p-6 overflow-y-auto space-y-2.5 flex-1 custom-scrollbar">
-              {/* Option 1: Universal All Scripts */}
-              <button
-                onClick={() => handleSelectScript("all")}
-                className="w-full text-left p-3.5 rounded-xl border border-blue-500/30 bg-gradient-to-r from-blue-950/40 via-blue-900/20 to-transparent hover:from-blue-900/50 hover:border-blue-500/60 transition-all flex items-center justify-between group"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xs border border-blue-500/30">
-                    <Layers className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs sm:text-sm font-bold text-white group-hover:text-blue-300 transition-colors">
-                        All Scripts (Universal Key)
-                      </span>
-                      <span className="text-[10px] font-semibold bg-blue-500/20 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded">
-                        Universal
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-gray-400 mt-0.5">
-                      Claims a master key valid across all enabled games and loaders.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1 text-xs font-semibold text-blue-400 group-hover:translate-x-1 transition-transform pl-2">
-                  <span>Claim</span>
-                  <ChevronRight className="w-4 h-4" />
-                </div>
-              </button>
-
-              {/* Specific Active Scripts */}
               {filteredScripts.length > 0 ? (
                 filteredScripts.map((s) => (
                   <button
                     key={s.id}
                     onClick={() => handleSelectScript(s.slug)}
-                    className="w-full text-left p-3.5 rounded-xl border border-gray-800/90 bg-[#121522] hover:bg-[#181c2d] hover:border-gray-700 transition-all flex items-center justify-between group"
+                    className="w-full text-left p-3.5 rounded-xl border border-gray-800/90 bg-[#121522] hover:bg-[#181c2d] hover:border-blue-500/50 transition-all flex items-center justify-between group"
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-9 h-9 rounded-lg bg-gray-800/80 border border-gray-700/60 text-gray-300 group-hover:text-blue-400 group-hover:border-blue-500/40 flex items-center justify-center transition-colors">
@@ -191,7 +154,7 @@ export default function ClaimScriptModal({
                           <span className="text-xs sm:text-sm font-bold text-white group-hover:text-blue-300 transition-colors">
                             {s.name}
                           </span>
-                          <span className="text-[10px] font-mono bg-gray-800 text-gray-300 border border-gray-700 px-1.5 py-0.5 rounded">
+                          <span className="text-[10px] font-mono bg-blue-500/10 text-blue-400 border border-blue-500/20 px-1.5 py-0.5 rounded">
                             /{s.slug}
                           </span>
                           {s.use_auth !== false ? (
@@ -205,7 +168,7 @@ export default function ClaimScriptModal({
                           )}
                         </div>
                         <p className="text-[11px] text-gray-400 mt-0.5">
-                          Click to complete checkpoints and claim a key bound to this script.
+                          Keys claimed here are locked strictly to {s.name}.
                         </p>
                       </div>
                     </div>
@@ -217,20 +180,14 @@ export default function ClaimScriptModal({
                   </button>
                 ))
               ) : scripts.length === 0 ? (
-                <div className="text-center py-6 border border-dashed border-gray-800 rounded-xl bg-[#0a0c13]">
-                  <ShieldCheck className="w-7 h-7 text-gray-500 mx-auto mb-1.5" />
+                <div className="text-center py-8 border border-dashed border-gray-800 rounded-xl bg-[#0a0c13]">
+                  <ShieldCheck className="w-8 h-8 text-gray-600 mx-auto mb-2" />
                   <p className="text-xs font-semibold text-gray-300">
-                    No custom scripts published yet
+                    No active scripts currently available
                   </p>
-                  <p className="text-[11px] text-gray-500 mt-0.5">
-                    You can still claim a universal key via our security portal.
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    Please check back later or contact administrators in Discord.
                   </p>
-                  <button
-                    onClick={() => handleSelectScript("all")}
-                    className="mt-3 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition-colors"
-                  >
-                    Proceed to Key Portal
-                  </button>
                 </div>
               ) : (
                 <div className="text-center py-6 text-xs text-gray-500">
@@ -243,7 +200,7 @@ export default function ClaimScriptModal({
             <div className="p-3.5 sm:p-4 border-t border-gray-800/80 bg-[#0a0c13] flex items-center justify-between text-[11px] text-gray-400">
               <span className="flex items-center gap-1">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                IP-Bound & Anti-Tamper Protected
+                Single-Script IP Lock Enabled
               </span>
               <span className="text-gray-500">
                 {scripts.length} script{scripts.length === 1 ? "" : "s"} active

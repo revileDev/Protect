@@ -25,6 +25,7 @@ import {
   Link2,
   Clock,
   Lock,
+  ChevronRight,
 } from "lucide-react";
 import { CheckpointItem, CreatorProfile, CreatorEmblem } from "@/lib/store";
 
@@ -37,6 +38,7 @@ export default function ClaimKeyPage() {
   const [scriptSlug, setScriptSlug] = useState("");
   const [claimId, setClaimId] = useState("");
   const [targetScript, setTargetScript] = useState<{ id: string; name: string; slug: string } | null>(null);
+  const [availableScripts, setAvailableScripts] = useState<Array<{ id: string; name: string; slug: string }>>([]);
 
   // Checkpoints & Profile State
   const [checkpoints, setCheckpoints] = useState<CheckpointItem[]>([]);
@@ -86,6 +88,21 @@ export default function ClaimKeyPage() {
       setScriptSlug(slug);
       setClaimId(id);
     }
+
+    // Fetch active scripts
+    fetch("/api/scripts")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.scripts) {
+          const active = data.scripts.filter((s: any) => s.is_active !== false);
+          setAvailableScripts(active);
+          if (!slug && active.length === 1) {
+            setScriptSlug(active[0].slug);
+            setTargetScript(active[0]);
+          }
+        }
+      })
+      .catch(() => {});
 
     // Fetch system settings
     fetch("/api/settings")
@@ -175,6 +192,11 @@ export default function ClaimKeyPage() {
     checkpoints.length > 0 && checkpoints.every((cp) => completedCpIds.includes(cp.id));
 
   const handleClaimKey = async () => {
+    if (!scriptSlug && availableScripts.length > 0) {
+      setError("Please select which script you want to claim a key for.");
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -426,6 +448,73 @@ export default function ClaimKeyPage() {
             {/* =================================================================== */}
             {step === "verification" && !vpnDetected && (
               <div className="space-y-5">
+                {/* Script Selector Banner if not pre-selected */}
+                {!scriptSlug && availableScripts.length > 0 ? (
+                  <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/30 space-y-3">
+                    <div className="flex items-center justify-between text-xs font-bold text-white">
+                      <span className="flex items-center gap-1.5 text-blue-300">
+                        <Lock className="w-4 h-4 text-blue-400" />
+                        Select Target Script
+                      </span>
+                      <span className="text-[10px] text-amber-400 font-semibold bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/20">
+                        Selection Required
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-300">
+                      Keys are uniquely restricted to a single script. Please select the script you want to claim a key for:
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                      {availableScripts.map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => {
+                            setScriptSlug(s.slug);
+                            setTargetScript(s);
+                            setError(null);
+                            fetch(`/api/checkpoints?script_slug=${encodeURIComponent(s.slug)}`)
+                              .then((r) => r.json())
+                              .then((d) => {
+                                if (d.checkpoints && d.checkpoints.length > 0) setCheckpoints(d.checkpoints);
+                                if (d.script) setTargetScript(d.script);
+                              });
+                          }}
+                          className="p-3 rounded-xl border border-gray-700 bg-[#121422] hover:border-blue-500 hover:bg-[#181c2f] text-left transition-all flex items-center justify-between group"
+                        >
+                          <div>
+                            <span className="text-xs font-bold text-white group-hover:text-blue-300 block">
+                              {s.name}
+                            </span>
+                            <span className="text-[10px] font-mono text-gray-400">/{s.slug}</span>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-gray-500 group-hover:text-blue-400 group-hover:translate-x-0.5 transition-all" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : targetScript ? (
+                  <div className="p-3 rounded-xl bg-[#0f1322] border border-blue-500/30 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2">
+                      <Lock className="w-3.5 h-3.5 text-blue-400" />
+                      <span className="text-gray-300">
+                        Target Script: <strong className="text-white">{targetScript.name}</strong> <span className="text-[10px] text-blue-400 font-mono">({targetScript.slug})</span>
+                      </span>
+                    </div>
+                    {availableScripts.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setScriptSlug("");
+                          setTargetScript(null);
+                        }}
+                        className="text-[11px] text-blue-400 hover:text-blue-300 underline font-medium"
+                      >
+                        Change Script
+                      </button>
+                    )}
+                  </div>
+                ) : null}
+
                 {claimMethod === "discord_oauth" ? (
                   /* Discord OAuth alternative mode */
                   <div className="p-4 rounded-xl bg-[#0e1018] border border-gray-800 space-y-3">
