@@ -1,0 +1,17 @@
+{
+  "token": "YOUR_DISCORD_BOT_TOKEN",
+  "clientId": "YOUR_DISCORD_CLIENT_ID",
+  "guildId": "YOUR_DISCORD_GUILD_ID",
+  "verification": {
+    "channelId": "",
+    "logsChannelId": "",
+    "joinRoleId": "",
+    "verifiedRoleId": ""
+  },
+  "tickets": {
+    "panelChannelId": "",
+    "categoryId": "",
+    "transcriptChannelId": "",
+    "helperRoleId": ""
+  }
+}

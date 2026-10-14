@@ -1,0 +1,137 @@
+// app/api/claim/route.ts
+import { NextRequest, NextResponse } from "next/server";
+import { dbService } from "@/lib/store";
+
+function getClientIp(req: NextRequest): string {
+  const cf = req.headers.get("cf-connecting-ip");
+  if (cf) return cf.trim();
+  const forwarded = req.headers.get("x-forwarded-for");
+  if (forwarded) return forwarded.split(",")[0].trim();
+  const real = req.headers.get("x-real-ip");
+  if (real) return real.trim();
+  return "127.0.0.1";
+}
+
+async function isVpnOrProxy(req: NextRequest, ip: string): Promise<boolean> {
+  const via = req.headers.get("via");
+  const forwardHeader = req.headers.get("x-forwarded-proto");
+  const proxyConnection = req.headers.get("proxy-connection");
+
+  if (via || proxyConnection) return true;
+
+  if (ip === "127.0.0.1" || ip === "::1" || ip.startsWith("192.168.") || ip.startsWith("10.")) {
+    return false;
+  }
+
+  try {
+    const res = await fetch(`http://ip-api.com/json/${ip}?fields=status,message,proxy,hosting`, {
+      cache: "no-store",
+      headers: { "User-Agent": "AeroAuthProxyCheck/1.0" },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.proxy === true || data.hosting === true) {
+        return true;
+      }
+    }
+  } catch {
+    // If external service is unavailable, fail open
+  }
+
+  return false;
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { action, script_slug, script_id, discord_user } = body;
+    const ip = getClientIp(req);
+
+    // If client is pinging that checkpoint validation has started
+    if (action === "start_checkpoint") {
+      await dbService.recordCheckpoint("started", ip);
+      return NextResponse.json({ status: "checkpoint_started" });
+    }
+
+    const settings = await dbService.getSettings();
+
+    // 1. IP Ban check
+    if (await dbService.isIpBanned(ip)) {
+      return NextResponse.json(
+        { error: "Access Denied: Your IP is banned from claiming keys." },
+        { status: 403 }
+      );
+    }
+
+    // 2. VPN Detection check
+    if (settings.vpn_detection_enabled) {
+      const vpnDetected = await isVpnOrProxy(req, ip);
+      if (vpnDetected) {
+        return NextResponse.json(
+          {
+            error: "VPN or Proxy Detected! Please turn off your VPN/Proxy and reload this page to claim a key.",
+            is_vpn: true,
+          },
+          { status: 403 }
+        );
+      }
+    }
+
+    // 3. Resolve target script ID
+    let targetScriptId = script_id || "";
+    if (!targetScriptId && script_slug) {
+      const script = await dbService.getScriptBySlug(script_slug);
+      if (script) targetScriptId = script.id;
+    }
+
+    // 4. Validate claim method
+    if (settings.claim_method === "discord_oauth") {
+      if (!discord_user || !discord_user.id) {
+        return NextResponse.json(
+          { error: "Discord authentication required. Please join our Discord and link your account." },
+          { status: 400 }
+        );
+      }
+    }
+
+    // 5. Enforce 1 key per user / IP: Check if an active unexpired key is already bound to this IP
+    const existingActiveKey = await dbService.getActiveKeyForIp(ip, targetScriptId);
+    if (existingActiveKey) {
+      return NextResponse.json({
+        success: true,
+        key: existingActiveKey.key_string,
+        duration_hours: existingActiveKey.duration_hours,
+        bound_ip: existingActiveKey.claimed_ip,
+        expires_at: existingActiveKey.expires_at,
+        already_claimed: true,
+        message: "Active key found for your IP address.",
+      });
+    }
+
+    // 6. Claim fresh key from pool and bind to IP and Discord
+    const claimedKey = await dbService.claimKey(targetScriptId, ip, discord_user);
+
+    if (!claimedKey) {
+      return NextResponse.json(
+        {
+          error: "No available keys in the pool! Please contact the administrator to generate more keys.",
+        },
+        { status: 404 }
+      );
+    }
+
+    // Record checkpoint completion
+    await dbService.recordCheckpoint("completed", ip);
+
+    return NextResponse.json({
+      success: true,
+      key: claimedKey.key_string,
+      duration_hours: claimedKey.duration_hours,
+      bound_ip: claimedKey.claimed_ip,
+      expires_at: claimedKey.expires_at,
+    });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Error claiming key";
+    return NextResponse.json({ error: errorMsg }, { status: 500 });
+  }
+}
