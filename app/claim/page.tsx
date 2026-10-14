@@ -58,7 +58,7 @@ export default function ClaimKeyPage() {
       { id: "3", label: "Tamper Proof", icon: "shield", color: "#10b981" },
     ],
     socials: {
-      discord: "https://discord.gg/yourserver",
+      discord: "https://discord.gg/AeCYnnQmq5",
       youtube: "https://youtube.com/@revile",
       twitter: "https://x.com/revile",
       github: "https://github.com/",
@@ -75,7 +75,7 @@ export default function ClaimKeyPage() {
 
   // Settings
   const [claimMethod, setClaimMethod] = useState<"checkpoints" | "discord_oauth">("checkpoints");
-  const [discordInvite, setDiscordInvite] = useState("https://discord.gg/");
+  const [discordInvite, setDiscordInvite] = useState("https://discord.gg/AeCYnnQmq5");
   const [discordJoined, setDiscordJoined] = useState(false);
 
   useEffect(() => {

@@ -65,16 +65,20 @@ export default async function HomePage() {
               buttonText="Claim Your Key"
             />
 
-            {settings.discord_invite_url && (
-              <a
-                href={settings.discord_invite_url}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-2 rounded-xl border border-gray-700 bg-gray-800/70 px-5 py-3 text-xs sm:text-sm font-semibold text-gray-200 hover:bg-gray-800 hover:text-white transition-colors"
-              >
-                <span>Join Discord Community</span>
-              </a>
-            )}
+            <a
+              href={
+                settings.discord_invite_url &&
+                settings.discord_invite_url !== "https://discord.gg/" &&
+                settings.discord_invite_url !== "https://discord.gg/yourserver"
+                  ? settings.discord_invite_url
+                  : "https://discord.gg/AeCYnnQmq5"
+              }
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 rounded-xl border border-gray-700 bg-gray-800/70 px-5 py-3 text-xs sm:text-sm font-semibold text-gray-200 hover:bg-gray-800 hover:text-white transition-colors"
+            >
+              <span>Join Discord Community</span>
+            </a>
           </div>
         </div>
       </section>
