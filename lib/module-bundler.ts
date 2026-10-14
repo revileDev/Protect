@@ -12,17 +12,30 @@ export interface ModuleBundle {
  */
 export function bundleModularScript(bundle: ModuleBundle): string {
   const { entryFile, files } = bundle;
-  const entryContent = files[entryFile] || files["init.lua"] || files["main.lua"] || "";
+  // Normalize entry file lookup
+  const cleanEntry = entryFile.replace(/\\/g, "/");
+  const entryBase = cleanEntry.split("/").pop() || cleanEntry;
+  const entryContent =
+    files[entryFile] ||
+    files[cleanEntry] ||
+    files[entryBase] ||
+    files["init.lua"] ||
+    files["main.lua"] ||
+    Object.values(files)[0] ||
+    "";
 
   // Prepare modules table
   const moduleEntries: string[] = [];
+  const registeredKeys = new Set<string>();
 
   for (const [filePath, content] of Object.entries(files)) {
-    if (filePath === entryFile) continue;
+    if (filePath === entryFile || filePath === cleanEntry) continue;
 
-    // Normalize path keys (support both "modules/combat" and "modules/combat.lua")
+    // Normalize path keys (support both "modules/combat", "modules/combat.lua", and basenames)
     const cleanKey = filePath.replace(/\\/g, "/");
     const keyWithoutExt = cleanKey.replace(/\.lua$/i, "");
+    const baseName = cleanKey.split("/").pop() || cleanKey;
+    const baseNameWithoutExt = baseName.replace(/\.lua$/i, "");
 
     // Escape Lua string or wrap as function
     const escapedContent = `function()
@@ -30,10 +43,17 @@ export function bundleModularScript(bundle: ModuleBundle): string {
 ${content}
 end`;
 
-    moduleEntries.push(`    ["${cleanKey}"] = ${escapedContent}`);
-    if (keyWithoutExt !== cleanKey) {
-      moduleEntries.push(`    ["${keyWithoutExt}"] = ${escapedContent}`);
-    }
+    const registerKey = (k: string) => {
+      if (!registeredKeys.has(k)) {
+        registeredKeys.add(k);
+        moduleEntries.push(`    ["${k}"] = ${escapedContent}`);
+      }
+    };
+
+    registerKey(cleanKey);
+    if (keyWithoutExt !== cleanKey) registerKey(keyWithoutExt);
+    if (baseName !== cleanKey) registerKey(baseName);
+    if (baseNameWithoutExt !== keyWithoutExt && baseNameWithoutExt !== baseName) registerKey(baseNameWithoutExt);
   }
 
   const modulesTable = moduleEntries.join(",\n");

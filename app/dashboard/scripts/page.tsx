@@ -3,8 +3,9 @@
 
 import React, { useState, useEffect } from "react";
 import ModularScriptUploader from "@/components/ModularScriptUploader";
+import ScriptUpdateModal from "@/components/ScriptUpdateModal";
 import { LoaderConfigRecord, ScriptRecord } from "@/lib/store";
-import { Terminal, Copy, Check, Trash2, Sliders, ExternalLink, ShieldCheck } from "lucide-react";
+import { Terminal, Copy, Check, Trash2, Sliders, ExternalLink, ShieldCheck, FileEdit } from "lucide-react";
 import Link from "next/link";
 
 export default function ScriptsPage() {
@@ -12,6 +13,7 @@ export default function ScriptsPage() {
   const [loaderConfigs, setLoaderConfigs] = useState<LoaderConfigRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [updatingScript, setUpdatingScript] = useState<ScriptRecord | null>(null);
 
   const fetchData = async () => {
     try {
@@ -38,11 +40,17 @@ export default function ScriptsPage() {
     setScripts((prev) => [newScript, ...prev.filter((s) => s.id !== newScript.id)]);
   };
 
+  const handleScriptUpdated = (updatedScript: ScriptRecord) => {
+    setScripts((prev) => prev.map((s) => (s.id === updatedScript.id ? updatedScript : s)));
+    setUpdatingScript(updatedScript);
+  };
+
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this script?")) return;
     try {
       await fetch(`/api/scripts?id=${id}`, { method: "DELETE" });
       setScripts((prev) => prev.filter((s) => s.id !== id));
+      if (updatingScript?.id === id) setUpdatingScript(null);
     } catch (err) {
       console.error("Error deleting script", err);
     }
@@ -90,13 +98,25 @@ export default function ScriptsPage() {
               Active loadstrings for your executors and Roblox players.
             </p>
           </div>
-          <Link
-            href="/dashboard/loader-builder"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs font-semibold text-gray-200 border border-gray-700 transition-all"
-          >
-            <Sliders className="w-3.5 h-3.5 text-purple-400" />
-            Build Auth Loader
-          </Link>
+          <div className="flex items-center gap-2">
+            {scripts.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setUpdatingScript(scripts[0])}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 border border-blue-500/30 text-xs font-semibold transition-all"
+              >
+                <FileEdit className="w-3.5 h-3.5" />
+                Update Script Files
+              </button>
+            )}
+            <Link
+              href="/dashboard/loader-builder"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs font-semibold text-gray-200 border border-gray-700 transition-all"
+            >
+              <Sliders className="w-3.5 h-3.5 text-purple-400" />
+              Build Auth Loader
+            </Link>
+          </div>
         </div>
 
         {loading ? (
@@ -172,6 +192,15 @@ export default function ScriptsPage() {
 
                   {/* Actions */}
                   <div className="flex items-center gap-2 pt-2 md:pt-0">
+                    <button
+                      type="button"
+                      onClick={() => setUpdatingScript(s)}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 hover:text-blue-300 border border-blue-500/30 text-xs font-semibold transition-all shadow-sm"
+                      title="Update script files without resetting loadstring"
+                    >
+                      <FileEdit className="w-3.5 h-3.5" />
+                      Update Files
+                    </button>
                     <a
                       href={`/api/loader/${s.slug}`}
                       target="_blank"
@@ -196,6 +225,14 @@ export default function ScriptsPage() {
           </div>
         )}
       </div>
+
+      {/* Script Update Modal */}
+      <ScriptUpdateModal
+        script={updatingScript}
+        isOpen={!!updatingScript}
+        onClose={() => setUpdatingScript(null)}
+        onScriptUpdated={handleScriptUpdated}
+      />
     </div>
   );
 }
