@@ -600,16 +600,21 @@ export const dbService = {
   },
 
   async getActiveKeyForIp(ip: string, scriptId?: string): Promise<KeyRecord | null> {
-    const db = readLocalDb();
-    const normalizeIp = (addr: string | null) => (addr === "::1" ? "127.0.0.1" : addr);
+    const normalizeIp = (addr: string | null) => (addr === "::1" ? "127.0.0.1" : addr?.trim() || "");
     const target = normalizeIp(ip);
     const now = new Date();
 
-    const existing = db.keys.find((k) => {
+    const matchesActiveKey = (k: KeyRecord) => {
       if (isStaffReviewKey(k) || k.is_staff_review) return false;
       if (k.status !== "claimed" && k.status !== "active") return false;
       if (normalizeIp(k.claimed_ip) !== target) return false;
-      if (scriptId && k.script_id && k.script_id !== scriptId && k.script_id !== "all") return false;
+
+      // If scriptId is specified, check compatibility
+      if (scriptId && scriptId !== "all") {
+        if (k.script_id && k.script_id !== "all" && k.script_id !== scriptId) {
+          return false;
+        }
+      }
 
       // Check if expired
       if (k.expires_at) {
@@ -617,28 +622,101 @@ export const dbService = {
         if (now > expires) return false;
       }
       return true;
-    });
+    };
 
+    // 1. Check Supabase first if configured
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from("keys")
+          .select("*")
+          .in("status", ["claimed", "active"]);
+
+        if (data && !error && data.length > 0) {
+          const match = (data as KeyRecord[]).find(matchesActiveKey);
+          if (match) return match;
+        }
+      } catch (err) {
+        console.error("Supabase getActiveKeyForIp error:", err);
+      }
+    }
+
+    // 2. Check local DB fallback
+    const db = readLocalDb();
+    const existing = db.keys.find(matchesActiveKey);
     return existing || null;
   },
 
   async claimKey(scriptId: string, ip: string, discord?: { id: string; tag: string }): Promise<KeyRecord | null> {
-    const db = readLocalDb();
-    const key = db.keys.find(
-      (k) =>
-        k.status === "unclaimed" &&
-        !isStaffReviewKey(k) &&
-        !k.is_staff_review &&
-        k.claimed_discord_tag !== "STAFF_REVIEW" &&
-        (!scriptId || !k.script_id || (k.script_id === scriptId && k.script_id !== "all"))
-    );
+    const isEligibleKey = (k: KeyRecord) => {
+      if (k.status !== "unclaimed") return false;
+      if (isStaffReviewKey(k) || k.is_staff_review) return false;
+      if (k.claimed_discord_tag === "STAFF_REVIEW" || k.claimed_discord_id === "STAFF_REVIEW") return false;
+
+      // Universal keys (script_id is "all", null, or empty) are eligible for ANY script
+      if (!k.script_id || k.script_id === "all" || k.script_id === "") return true;
+
+      // If claimant didn't ask for a specific script, any non-staff key is eligible
+      if (!scriptId || scriptId === "all") return true;
+
+      // Otherwise, the key's script_id must match the requested scriptId
+      return k.script_id === scriptId;
+    };
+
+    let key: KeyRecord | null = null;
+
+    // 1. Query Supabase first if configured (where production keys are stored)
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from("keys")
+          .select("*")
+          .eq("status", "unclaimed")
+          .order("created_at", { ascending: true })
+          .limit(200);
+
+        if (data && !error && data.length > 0) {
+          const typedData = data as KeyRecord[];
+          // Prefer a script-specific key first if one exists, otherwise fallback to universal
+          const specificMatch =
+            scriptId && scriptId !== "all"
+              ? typedData.find((k) => k.script_id === scriptId && isEligibleKey(k))
+              : null;
+
+          const match = specificMatch || typedData.find(isEligibleKey);
+          if (match) {
+            key = { ...match };
+          }
+        }
+      } catch (err) {
+        console.error("Supabase claimKey search error:", err);
+      }
+    }
+
+    // 2. Fall back to local DB if not found in Supabase
+    if (!key) {
+      const db = readLocalDb();
+      const specificMatch =
+        scriptId && scriptId !== "all"
+          ? db.keys.find((k) => k.script_id === scriptId && isEligibleKey(k))
+          : null;
+
+      const match = specificMatch || db.keys.find(isEligibleKey);
+      if (match) {
+        key = { ...match };
+      }
+    }
+
     if (!key) return null;
 
+    // 3. Mark key as claimed and bind to claimant IP / Discord
     const now = new Date();
     key.status = "claimed";
     key.claimed_ip = ip;
     key.claimed_at = now.toISOString();
-    if (scriptId && (!key.script_id || key.script_id === "all")) {
+
+    // If key was universal and claimed for a specific script, bind it to that script
+    if (scriptId && scriptId !== "all" && (!key.script_id || key.script_id === "all")) {
       key.script_id = scriptId;
     }
     if (discord) {
@@ -647,25 +725,69 @@ export const dbService = {
     }
     key.expires_at = null;
     key.activated_at = null;
+
+    // 4. Update in local DB
+    const db = readLocalDb();
+    const localIdx = db.keys.findIndex((k) => k.id === key!.id);
+    if (localIdx >= 0) {
+      db.keys[localIdx] = { ...key };
+    } else {
+      db.keys.unshift({ ...key });
+    }
     writeLocalDb(db);
 
+    // 5. Update in Supabase
     if (isSupabaseConfigured && supabase) {
       try {
-        const { error } = await supabase.from("keys").update(key).eq("id", key.id);
+        const { error } = await supabase
+          .from("keys")
+          .update({
+            status: key.status,
+            claimed_ip: key.claimed_ip,
+            claimed_at: key.claimed_at,
+            script_id: key.script_id,
+            claimed_discord_id: key.claimed_discord_id,
+            claimed_discord_tag: key.claimed_discord_tag,
+            expires_at: key.expires_at,
+            activated_at: key.activated_at,
+          })
+          .eq("id", key.id);
+
         if (error) {
-          const { activated_at, ...rest } = key;
-          await supabase.from("keys").update(rest).eq("id", key.id);
+          console.warn("Supabase update key on claim failed, retrying base fields:", error.message);
+          await supabase
+            .from("keys")
+            .update({
+              status: key.status,
+              claimed_ip: key.claimed_ip,
+              claimed_at: key.claimed_at,
+              script_id: key.script_id,
+            })
+            .eq("id", key.id);
         }
       } catch (err) {
-        console.error("Supabase claimKey error:", err);
+        console.error("Supabase claimKey update error:", err);
       }
     }
+
     return key;
   },
 
   async activateKey(id: string): Promise<KeyRecord | null> {
+    let key: KeyRecord | null = null;
     const db = readLocalDb();
-    const key = db.keys.find((k) => k.id === id);
+    const local = db.keys.find((k) => k.id === id);
+    if (local) {
+      key = local;
+    } else if (isSupabaseConfigured && supabase) {
+      try {
+        const { data } = await supabase.from("keys").select("*").eq("id", id).maybeSingle();
+        if (data) key = data as KeyRecord;
+      } catch (err) {
+        console.error("Supabase activateKey find error:", err);
+      }
+    }
+
     if (!key) return null;
 
     const now = new Date();
@@ -679,6 +801,13 @@ export const dbService = {
         const expires = new Date(now.getTime() + key.duration_hours * 3600 * 1000);
         key.expires_at = expires.toISOString();
       }
+    }
+
+    const localIdx = db.keys.findIndex((k) => k.id === id);
+    if (localIdx >= 0) {
+      db.keys[localIdx] = { ...key };
+    } else {
+      db.keys.unshift({ ...key });
     }
     writeLocalDb(db);
 
