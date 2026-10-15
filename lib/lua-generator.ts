@@ -404,7 +404,7 @@ end)
 -- =======================================================
 -- BACKGROUND TELEMETRY & WATERMARK RUNTIME
 -- =======================================================
-local function startProtectedRuntime(sessionToken, payloadCode)
+local function startProtectedRuntime(sessionToken, payloadCode, isAdminKey)
     -- Destroy Loader GUI smoothly
     ScreenGui:Destroy()
 ${
@@ -432,15 +432,15 @@ ${
 
     local WStroke = Instance.new("UIStroke")
     WStroke.Thickness = 1
-    WStroke.Color = Color3.fromRGB(${accent.r}, ${accent.g}, ${accent.b})
+    WStroke.Color = isAdminKey and Color3.fromRGB(180, 120, 255) or Color3.fromRGB(${accent.r}, ${accent.g}, ${accent.b})
     WStroke.Transparency = 0.5
     WStroke.Parent = WatermarkFrame
 
     local WLabel = Instance.new("TextLabel")
     WLabel.Size = UDim2.new(1, 0, 1, 0)
     WLabel.BackgroundTransparency = 1
-    WLabel.Text = "${watermarkTitle} | Online: 1"
-    WLabel.TextColor3 = Color3.fromRGB(${text.r}, ${text.g}, ${text.b})
+    WLabel.Text = isAdminKey and "★ Staff Review Mode | Untracked" or "${watermarkTitle} | Online: 1"
+    WLabel.TextColor3 = isAdminKey and Color3.fromRGB(220, 190, 255) or Color3.fromRGB(${text.r}, ${text.g}, ${text.b})
     WLabel.TextSize = 11
     WLabel.Font = appFont
     WLabel.Parent = WatermarkFrame
@@ -598,10 +598,16 @@ VerifyBtn.MouseButton1Click:Connect(function()
         pcall(function() data = HttpService:JSONDecode(response.Body) end)
 
         if response.StatusCode == 200 and data and data.success then
-            StatusLabel.TextColor3 = Color3.fromRGB(50, 220, 120)
-            StatusLabel.Text = "Verified! Launching script..."
+            local isAdmin = data.is_staff_review or data.is_admin_key
+            if isAdmin then
+                StatusLabel.TextColor3 = Color3.fromRGB(180, 120, 255)
+                StatusLabel.Text = "★ Admin Review Key Verified! Launching..."
+            else
+                StatusLabel.TextColor3 = Color3.fromRGB(50, 220, 120)
+                StatusLabel.Text = "Verified! Launching script..."
+            end
             task.wait(0.4)
-            startProtectedRuntime(data.session_token, data.payload)
+            startProtectedRuntime(data.session_token, data.payload, isAdmin)
         else
             local err = (data and (data.error or data.message)) or ("Auth failed (HTTP " .. tostring(response.StatusCode) .. ")")
             StatusLabel.TextColor3 = Color3.fromRGB(240, 80, 80)

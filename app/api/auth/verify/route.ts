@@ -223,8 +223,15 @@ export async function POST(req: NextRequest) {
     }
 
     // 6. STAFF REVIEW KEY FAST-PATH:
-    // Completely lifetime, zero logging, zero telemetry, zero session tracking, infinite users
+    // Completely lifetime, zero user PII, anonymous staff review session tracking
     if (isStaff) {
+      const staffReview = await dbService.createStaffReview({
+        key_id: keyRecord.id,
+        script_id: script.id,
+        script_name: script.name,
+        key_label: keyRecord.notes || "Staff Review Key",
+      });
+
       const payload = bundleModularScript({
         entryFile: script.entry_file || "init.lua",
         files: script.modules || {},
@@ -232,7 +239,9 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        session_token: "staff_review_" + crypto.randomUUID(),
+        session_token: staffReview.id,
+        is_staff_review: true,
+        is_admin_key: true,
         payload,
       });
     }

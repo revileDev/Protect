@@ -53,9 +53,26 @@ export async function GET() {
     });
   }
 
+  const staffReviews = await dbService.getStaffReviews();
+  const staffActive = staffReviews
+    .filter((r) => {
+      const pingElapsed = now - new Date(r.last_heartbeat).getTime();
+      return r.status === "reviewing" && pingElapsed <= 6000;
+    })
+    .map((r) => {
+      const startTime = new Date(r.review_started).getTime();
+      return {
+        ...r,
+        duration_seconds: Math.max(0, Math.floor((now - startTime) / 1000)),
+        is_reviewing: true,
+      };
+    });
+
   return NextResponse.json({
     sessions: enriched,
     banned_ips: bannedIps,
+    staff_active: staffActive,
+    staff_history: staffReviews,
   });
 }
 

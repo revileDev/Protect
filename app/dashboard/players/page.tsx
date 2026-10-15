@@ -19,7 +19,24 @@ import {
   WifiOff,
   Wifi,
   X,
+  Shield,
+  EyeOff,
+  UserCheck,
 } from "lucide-react";
+
+interface StaffReviewItem {
+  id: string;
+  key_id: string;
+  script_id: string;
+  script_name: string;
+  key_label: string;
+  status: "reviewing" | "completed";
+  review_started: string;
+  last_heartbeat: string;
+  duration_seconds: number;
+  created_at: string;
+  is_reviewing?: boolean;
+}
 
 interface SessionItem {
   id: string;
@@ -42,9 +59,11 @@ interface SessionItem {
 
 export default function PlayersPage() {
   const [sessions, setSessions] = useState<SessionItem[]>([]);
+  const [staffActive, setStaffActive] = useState<StaffReviewItem[]>([]);
+  const [staffHistory, setStaffHistory] = useState<StaffReviewItem[]>([]);
   const [bannedIps, setBannedIps] = useState<Record<string, { reason: string; banned_at: string }>>({});
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"sessions" | "bans">("sessions");
+  const [activeTab, setActiveTab] = useState<"sessions" | "staff" | "bans">("sessions");
   const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
   const [now, setNow] = useState(Date.now());
 
@@ -67,6 +86,8 @@ export default function PlayersPage() {
         setSessions(fresh);
       }
       if (data.banned_ips) setBannedIps(data.banned_ips);
+      if (data.staff_active) setStaffActive(data.staff_active);
+      if (data.staff_history) setStaffHistory(data.staff_history);
     } catch (err) {
       console.error(err);
     } finally {
@@ -304,13 +325,30 @@ export default function PlayersPage() {
         <button
           type="button"
           onClick={() => setActiveTab("sessions")}
-          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
             activeTab === "sessions"
               ? "bg-emerald-600 text-white shadow-sm"
               : "text-gray-400 hover:text-white hover:bg-gray-800/60"
           }`}
         >
-          Active Players ({onlineCount})
+          <span>Active Players ({onlineCount})</span>
+          {staffActive.length > 0 && (
+            <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-purple-500 text-white font-bold animate-pulse">
+              {staffActive.length} Staff
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("staff")}
+          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            activeTab === "staff"
+              ? "bg-purple-600 text-white shadow-sm"
+              : "text-gray-400 hover:text-white hover:bg-gray-800/60"
+          }`}
+        >
+          <Shield className="w-3.5 h-3.5" />
+          <span>Staff History ({staffHistory.length})</span>
         </button>
         <button
           type="button"
@@ -327,19 +365,118 @@ export default function PlayersPage() {
 
       {/* SESSIONS TAB */}
       {activeTab === "sessions" && (
-        <div>
+        <div className="space-y-6">
+          {/* Active Staff Reviews (Zero Logging / Protected) */}
+          {staffActive.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full bg-purple-400 animate-ping" />
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-purple-300 flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-purple-400" />
+                    Staff Review Active ({staffActive.length})
+                  </h2>
+                </div>
+                <span className="text-[10px] text-purple-400/80 font-mono">
+                  Anonymous Session • Zero Telemetry Stored
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {staffActive.map((staff) => {
+                  const startTime = new Date(staff.review_started).getTime();
+                  const liveDuration = Math.max(0, Math.floor((now - startTime) / 1000));
+
+                  return (
+                    <div
+                      key={staff.id}
+                      className="bg-gradient-to-br from-purple-950/40 via-[#0f1118] to-purple-950/20 border-2 border-purple-500/50 rounded-2xl p-4 flex flex-col justify-between relative overflow-hidden shadow-2xl shadow-purple-950/50"
+                    >
+                      {/* Top Ambient Accent */}
+                      <div className="absolute -top-10 -right-10 w-24 h-24 bg-purple-600/20 blur-xl rounded-full pointer-events-none" />
+
+                      <div>
+                        {/* Header: Title and Status Badge */}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-300 shrink-0 shadow-inner">
+                              <Shield className="w-5 h-5 animate-pulse" />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <h3 className="text-sm font-bold text-white">Staff Reviewing</h3>
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-purple-500/30 text-purple-200 border border-purple-500/40 uppercase">
+                                  STAFF
+                                </span>
+                              </div>
+                              <span className="text-[11px] text-purple-300/80 block mt-0.5">
+                                Official Script Review
+                              </span>
+                            </div>
+                          </div>
+
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-sm shrink-0">
+                            <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-ping"></span>
+                            Reviewing
+                          </span>
+                        </div>
+
+                        {/* Review Duration & Script Info */}
+                        <div className="mt-4 p-3.5 rounded-xl bg-purple-900/10 border border-purple-500/20 space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider flex items-center gap-1.5">
+                              <Clock className="w-3.5 h-3.5 text-purple-400" />
+                              Review Duration
+                            </span>
+                            <span className="text-sm font-mono font-bold text-purple-200 animate-pulse">
+                              {formatDuration(liveDuration)}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-2 border-t border-purple-500/15 text-xs">
+                            <span className="text-[10px] text-gray-400 font-medium">Target Script:</span>
+                            <span className="font-semibold text-white truncate max-w-[170px]" title={staff.script_name}>
+                              {staff.script_name || "All Scripts"}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-[10px] text-gray-400 font-medium">Started At:</span>
+                            <span className="font-mono text-[11px] text-gray-300">
+                              {new Date(staff.review_started).toLocaleTimeString()}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Anonymity / Zero-Logging Guarantee Notice */}
+                        <div className="mt-3 p-2.5 rounded-xl bg-black/40 border border-purple-500/20 text-[10px] text-purple-200/90 flex items-center gap-2">
+                          <EyeOff className="w-4 h-4 text-purple-400 shrink-0" />
+                          <span>
+                            Zero logs stored. Reviewer identity, IP, and HWID are fully protected and untracked.
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {loading ? (
             <div className="text-center py-12 text-xs text-gray-500 bg-[#12141d] rounded-2xl border border-gray-800">
               Loading player telemetry...
             </div>
           ) : processedSessions.length === 0 ? (
-            <div className="text-center py-16 bg-[#12141d] border border-gray-800/80 rounded-2xl p-6">
-              <Users className="w-10 h-10 text-gray-600 mx-auto mb-3" />
-              <p className="text-sm text-gray-300 font-semibold">No active players right now</p>
-              <p className="text-xs text-gray-500 mt-1 max-w-md mx-auto">
-                Players currently executing your script in Roblox will show up here live with real-time ping telemetry.
-              </p>
-            </div>
+            staffActive.length === 0 && (
+              <div className="text-center py-16 bg-[#12141d] border border-gray-800/80 rounded-2xl p-6">
+                <Users className="w-10 h-10 text-gray-600 mx-auto mb-3" />
+                <p className="text-sm text-gray-300 font-semibold">No active players right now</p>
+                <p className="text-xs text-gray-500 mt-1 max-w-md mx-auto">
+                  Players currently executing your script in Roblox will show up here live with real-time ping telemetry.
+                </p>
+              </div>
+            )
           ) : viewMode === "cards" ? (
             /* CARDS GRID VIEW */
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -626,6 +763,116 @@ export default function PlayersPage() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* STAFF HISTORY TAB */}
+      {activeTab === "staff" && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-[#12141d] border border-gray-800 rounded-2xl">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400">
+                <Shield className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                  Staff Review History
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                    {staffHistory.length} Total
+                  </span>
+                </h2>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Complete audit log of past and ongoing staff script reviews and durations. All reviewer details are completely unlogged.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-[#12141d] border border-gray-800 rounded-xl overflow-hidden shadow-xl">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[#0b0d14] border-b border-gray-800 text-gray-400 font-semibold uppercase tracking-wider text-[10px]">
+                  <tr>
+                    <th className="p-3.5">Status</th>
+                    <th className="p-3.5">Target Script</th>
+                    <th className="p-3.5">Review Key Label</th>
+                    <th className="p-3.5">Review Started</th>
+                    <th className="p-3.5">Review Duration</th>
+                    <th className="p-3.5 text-right">Logging Policy</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800/60">
+                  {staffHistory.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="text-center py-12 text-gray-500">
+                        <Shield className="w-8 h-8 text-gray-600 mx-auto mb-2 opacity-60" />
+                        <p className="text-sm text-gray-300 font-semibold">No staff reviews logged yet</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          When staff execute your script using a Staff Review Key, review durations will record here automatically.
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    staffHistory.map((item) => {
+                      const isCurrentlyActive = staffActive.some((a) => a.id === item.id);
+                      const startTime = new Date(item.review_started).getTime();
+                      const liveDurationSec = isCurrentlyActive
+                        ? Math.max(0, Math.floor((now - startTime) / 1000))
+                        : item.duration_seconds;
+
+                      return (
+                        <tr key={item.id} className="hover:bg-gray-800/30 transition-colors">
+                          <td className="p-3.5">
+                            {isCurrentlyActive ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                                <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-ping"></span>
+                                Active Reviewing
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-gray-800 text-gray-300 border border-gray-700">
+                                <Check className="w-3 h-3 text-emerald-400" />
+                                Review Completed
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3.5">
+                            <span className="font-semibold text-white">
+                              {item.script_name || "All Scripts"}
+                            </span>
+                            <span className="text-[10px] font-mono text-gray-500 block">
+                              ID: {item.script_id}
+                            </span>
+                          </td>
+                          <td className="p-3.5">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-purple-500/10 text-purple-300 border border-purple-500/30">
+                              {item.key_label || "Staff Review Key"}
+                            </span>
+                          </td>
+                          <td className="p-3.5 text-gray-300 font-mono text-[11px]">
+                            <div>{new Date(item.review_started).toLocaleDateString()}</div>
+                            <div className="text-[10px] text-gray-500">
+                              {new Date(item.review_started).toLocaleTimeString()}
+                            </div>
+                          </td>
+                          <td className="p-3.5">
+                            <span className="font-mono font-bold text-white bg-gray-800/80 px-2 py-1 rounded border border-gray-700/80">
+                              {formatDuration(liveDurationSec)}
+                            </span>
+                          </td>
+                          <td className="p-3.5 text-right">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                              <EyeOff className="w-3 h-3" />
+                              Zero Data Stored
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
 

@@ -12,9 +12,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ status: "ok", action: "ok" });
     }
 
-    // Staff review sessions: completely untracked, zero logging, always succeed
+    // Staff review sessions: keep reviewing timer updated, completely anonymous, always succeed
     if (typeof session_token === "string" && session_token.startsWith("staff_review")) {
-      return NextResponse.json({ status: "ok", action: "ok", online_users: 1 });
+      await dbService.updateStaffReviewHeartbeat(session_token);
+      return NextResponse.json({ status: "ok", action: "ok", is_staff: true, online_users: 1 });
     }
 
     const forwarded = req.headers.get("x-forwarded-for");

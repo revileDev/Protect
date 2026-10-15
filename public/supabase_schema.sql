@@ -170,3 +170,18 @@ CREATE TABLE IF NOT EXISTS public.creator_profiles (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
+-- 11. Staff Review Sessions & History (Zero user tracking, review duration and script telemetry only)
+CREATE TABLE IF NOT EXISTS public.staff_reviews (
+    id TEXT PRIMARY KEY,
+    key_id TEXT NOT NULL,
+    script_id TEXT NOT NULL,
+    script_name TEXT NOT NULL,
+    key_label TEXT NOT NULL DEFAULT 'Staff Key',
+    status TEXT NOT NULL DEFAULT 'reviewing',
+    review_started TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    last_heartbeat TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    duration_seconds INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+CREATE INDEX IF NOT EXISTS idx_staff_reviews_started ON public.staff_reviews(review_started);
+

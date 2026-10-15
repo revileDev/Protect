@@ -160,6 +160,19 @@ export interface SystemSettings {
   tos_content: string;
 }
 
+export interface StaffReviewRecord {
+  id: string;
+  key_id: string;
+  script_id: string;
+  script_name: string;
+  key_label: string;
+  status: "reviewing" | "completed";
+  review_started: string;
+  last_heartbeat: string;
+  duration_seconds: number;
+  created_at: string;
+}
+
 interface LocalDatabase {
   loader_configs: LoaderConfigRecord[];
   scripts: ScriptRecord[];
@@ -171,6 +184,7 @@ interface LocalDatabase {
   creator_profile: CreatorProfile;
   banned_ips: Record<string, { reason: string; banned_at: string }>;
   settings: SystemSettings;
+  staff_reviews: StaffReviewRecord[];
 }
 
 const DB_DIR = path.join(process.cwd(), "data");
@@ -248,6 +262,7 @@ const initialDb: LocalDatabase = {
     vpn_detection_enabled: true,
     tos_content: `1. Acceptance of Terms: By obtaining or using any script or key from this service, you agree to these Terms.\n2. No Tampering: Decompiling, reverse engineering, dumping bytecode, or bypassing heartbeat checks is strictly prohibited.\n3. IP Binding: License keys are uniquely tied to the IP address and identity of the claimant. Sharing keys is not permitted.\n4. Violations: Any violation results in an automatic, permanent IP and session ban without prior notice.`,
   },
+  staff_reviews: [],
 };
 
 function readLocalDb(): LocalDatabase {
@@ -265,6 +280,7 @@ function readLocalDb(): LocalDatabase {
       checkpoint_logs: data.checkpoint_logs || [],
       checkpoints: data.checkpoints && data.checkpoints.length > 0 ? data.checkpoints : defaultCheckpoints,
       creator_profile: data.creator_profile ? { ...defaultCreatorProfile, ...data.creator_profile } : defaultCreatorProfile,
+      staff_reviews: data.staff_reviews || [],
     };
   } catch (err) {
     console.error("Error reading local db, resetting to fallback", err);
@@ -590,6 +606,7 @@ export const dbService = {
     const now = new Date();
 
     const existing = db.keys.find((k) => {
+      if (isStaffReviewKey(k) || k.is_staff_review) return false;
       if (k.status !== "claimed" && k.status !== "active") return false;
       if (normalizeIp(k.claimed_ip) !== target) return false;
       if (scriptId && k.script_id && k.script_id !== scriptId && k.script_id !== "all") return false;
@@ -610,7 +627,10 @@ export const dbService = {
     const key = db.keys.find(
       (k) =>
         k.status === "unclaimed" &&
-        (!scriptId || !k.script_id || k.script_id === "all" || k.script_id === scriptId)
+        !isStaffReviewKey(k) &&
+        !k.is_staff_review &&
+        k.claimed_discord_tag !== "STAFF_REVIEW" &&
+        (!scriptId || !k.script_id || (k.script_id === scriptId && k.script_id !== "all"))
     );
     if (!key) return null;
 
@@ -883,6 +903,125 @@ export const dbService = {
       }
     }
     return true;
+  },
+
+  // Staff Reviews
+  async createStaffReview(review: {
+    key_id: string;
+    script_id: string;
+    script_name: string;
+    key_label: string;
+  }): Promise<StaffReviewRecord> {
+    const now = new Date().toISOString();
+    const record: StaffReviewRecord = {
+      id: "staff_review_" + crypto.randomUUID(),
+      key_id: review.key_id,
+      script_id: review.script_id,
+      script_name: review.script_name,
+      key_label: review.key_label,
+      status: "reviewing",
+      review_started: now,
+      last_heartbeat: now,
+      duration_seconds: 0,
+      created_at: now,
+    };
+
+    const db = readLocalDb();
+    if (!db.staff_reviews) db.staff_reviews = [];
+    db.staff_reviews.unshift(record);
+    writeLocalDb(db);
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase.from("staff_reviews").insert(record);
+      } catch {
+        // Fallback gracefully if table not yet migrated
+      }
+    }
+
+    return record;
+  },
+
+  async updateStaffReviewHeartbeat(sessionToken: string): Promise<StaffReviewRecord | null> {
+    const db = readLocalDb();
+    if (!db.staff_reviews) db.staff_reviews = [];
+    const review = db.staff_reviews.find((r) => r.id === sessionToken);
+    if (!review) return null;
+
+    const now = new Date();
+    const startTime = new Date(review.review_started).getTime();
+    review.last_heartbeat = now.toISOString();
+    review.status = "reviewing";
+    review.duration_seconds = Math.max(0, Math.floor((now.getTime() - startTime) / 1000));
+
+    writeLocalDb(db);
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase
+          .from("staff_reviews")
+          .update({
+            last_heartbeat: review.last_heartbeat,
+            duration_seconds: review.duration_seconds,
+            status: "reviewing",
+          })
+          .eq("id", review.id);
+      } catch {
+        // ignore
+      }
+    }
+
+    return review;
+  },
+
+  async getStaffReviews(): Promise<StaffReviewRecord[]> {
+    const db = readLocalDb();
+    if (!db.staff_reviews) db.staff_reviews = [];
+    const now = Date.now();
+    const TIMEOUT_MS = 6000; // 6s without heartbeat -> marked completed review
+
+    let modified = false;
+    for (const r of db.staff_reviews) {
+      const pingTime = new Date(r.last_heartbeat).getTime();
+      const startTime = new Date(r.review_started).getTime();
+      const elapsed = now - pingTime;
+
+      if (r.status === "reviewing" && elapsed > TIMEOUT_MS) {
+        r.status = "completed";
+        r.duration_seconds = Math.max(0, Math.floor((pingTime - startTime) / 1000));
+        modified = true;
+      }
+    }
+
+    if (modified) {
+      writeLocalDb(db);
+    }
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from("staff_reviews")
+          .select("*")
+          .order("review_started", { ascending: false });
+        if (data && !error && data.length > 0) {
+          const merged = [...db.staff_reviews];
+          for (const item of data) {
+            if (!merged.some((m) => m.id === item.id)) {
+              merged.push(item);
+            }
+          }
+          return merged.sort(
+            (a, b) => new Date(b.review_started).getTime() - new Date(a.review_started).getTime()
+          );
+        }
+      } catch {
+        // fallback
+      }
+    }
+
+    return db.staff_reviews.sort(
+      (a, b) => new Date(b.review_started).getTime() - new Date(a.review_started).getTime()
+    );
   },
 
   // IP Bans
