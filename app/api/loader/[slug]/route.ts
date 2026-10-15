@@ -286,6 +286,41 @@ export async function GET(
 
   // If script has use_auth === false (Direct Run Mode - Auth Bypassed)
   if (script.use_auth === false) {
+    const forwarded = req.headers.get("x-forwarded-for");
+    const clientIp = forwarded ? forwarded.split(",")[0].trim() : req.headers.get("x-real-ip") || "127.0.0.1";
+    const userAgent = (req.headers.get("user-agent") || "").toLowerCase();
+
+    let execName = "Unknown Executor";
+    if (userAgent.includes("synapse")) execName = "Synapse X";
+    else if (userAgent.includes("krnl")) execName = "Krnl";
+    else if (userAgent.includes("fluxus")) execName = "Fluxus";
+    else if (userAgent.includes("delta")) execName = "Delta";
+    else if (userAgent.includes("codex")) execName = "Codex";
+    else if (userAgent.includes("roblox")) execName = "Roblox Client";
+
+    const osName =
+      userAgent.includes("android") || userAgent.includes("mobile")
+        ? "Mobile (Android)"
+        : userAgent.includes("iphone") || userAgent.includes("ipad")
+        ? "Mobile (iOS)"
+        : userAgent.includes("mac")
+        ? "Mac OS"
+        : "Desktop (Windows)";
+
+    dbService.recordExecution({
+      script_id: script.id,
+      script_name: script.name,
+      roblox_username: "Direct Runner",
+      roblox_user_id: null,
+      ip_address: clientIp,
+      isp: "Direct Execution",
+      os: osName,
+      executor: execName,
+      key_last4: "DIRECT",
+      status: "success",
+      failure_reason: null,
+    }).catch(() => {});
+
     const directPayload = bundleModularScript({
       entryFile: script.entry_file || "init.lua",
       files: script.modules || {},

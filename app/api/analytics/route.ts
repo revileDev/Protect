@@ -6,10 +6,21 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const timeframe = searchParams.get("timeframe") || "all";
-    const data = await dbService.getAnalytics(timeframe);
+    const scriptId = searchParams.get("script_id") || undefined;
+    const data = await dbService.getAnalytics(timeframe, scriptId);
     return NextResponse.json(data);
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : "Error fetching analytics";
+    return NextResponse.json({ error: errorMsg }, { status: 500 });
+  }
+}
+
+export async function DELETE() {
+  try {
+    await dbService.clearAnalytics();
+    return NextResponse.json({ success: true, message: "Analytics logs cleared successfully." });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Error clearing analytics";
     return NextResponse.json({ error: errorMsg }, { status: 500 });
   }
 }

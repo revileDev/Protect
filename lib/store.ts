@@ -961,34 +961,99 @@ export const dbService = {
     }
   },
 
-  async getAnalytics(timeframe = "all") {
+  async getAnalytics(timeframe = "all", scriptId?: string) {
     const cutoff = getTimeCutoff(timeframe);
+    let executions: ExecutionLog[] = [];
+    let checkpoints: CheckpointLog[] = [];
+
+    // 1. Fetch remote logs from Supabase if configured
+    if (isSupabaseConfigured && supabase) {
+      try {
+        let execQuery = supabase
+          .from("execution_logs")
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        if (cutoff) {
+          execQuery = execQuery.gte("created_at", new Date(cutoff).toISOString());
+        }
+
+        const { data: remoteLogs, error: execErr } = await execQuery.limit(2500);
+        if (remoteLogs && !execErr) {
+          executions = remoteLogs;
+        }
+
+        let cpQuery = supabase
+          .from("checkpoint_logs")
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        if (cutoff) {
+          cpQuery = cpQuery.gte("created_at", new Date(cutoff).toISOString());
+        }
+
+        const { data: remoteCp, error: cpErr } = await cpQuery.limit(2500);
+        if (remoteCp && !cpErr) {
+          checkpoints = remoteCp;
+        }
+      } catch (err) {
+        console.error("Supabase getAnalytics error:", err);
+      }
+    }
+
+    // 2. Fallback and merge with local database (de-duplicated by id)
     const db = readLocalDb();
+    const execMap = new Map<string, ExecutionLog>();
+    for (const log of executions) execMap.set(log.id, log);
+    for (const log of db.execution_logs || []) {
+      if (!execMap.has(log.id)) {
+        if (cutoff && new Date(log.created_at).getTime() < cutoff) continue;
+        execMap.set(log.id, log);
+      }
+    }
+    let allExecs = Array.from(execMap.values()).sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
 
-    const filteredExecutions = db.execution_logs.filter((log) => {
-      if (!cutoff) return true;
-      return new Date(log.created_at).getTime() >= cutoff;
-    });
+    // Filter by specific script if requested
+    if (scriptId && scriptId !== "all") {
+      allExecs = allExecs.filter(
+        (e) =>
+          e.script_id === scriptId ||
+          e.script_name?.toLowerCase() === scriptId.toLowerCase()
+      );
+    }
 
-    const filteredCheckpoints = db.checkpoint_logs.filter((log) => {
-      if (!cutoff) return true;
-      return new Date(log.created_at).getTime() >= cutoff;
-    });
+    const cpMap = new Map<string, CheckpointLog>();
+    for (const cp of checkpoints) cpMap.set(cp.id, cp);
+    for (const cp of db.checkpoint_logs || []) {
+      if (!cpMap.has(cp.id)) {
+        if (cutoff && new Date(cp.created_at).getTime() < cutoff) continue;
+        cpMap.set(cp.id, cp);
+      }
+    }
+    const allCps = Array.from(cpMap.values());
 
-    const totalExecutions = filteredExecutions.length;
-    const passedExecutions = filteredExecutions.filter((e) => e.status === "success").length;
-    const failedExecutions = filteredExecutions.filter((e) => e.status === "failed").length;
+    // 3. Compute KPI Metrics
+    const totalExecutions = allExecs.length;
+    const passedExecutions = allExecs.filter((e) => e.status === "success").length;
+    const failedExecutions = allExecs.filter((e) => e.status === "failed").length;
     const passRate = totalExecutions > 0 ? Math.round((passedExecutions / totalExecutions) * 100) : 100;
 
+    const uniqueUsers = new Set(
+      allExecs.map((e) => e.roblox_user_id || e.roblox_username || e.ip_address).filter(Boolean)
+    ).size;
+    const uniqueIps = new Set(allExecs.map((e) => e.ip_address).filter(Boolean)).size;
+
     // Checkpoint metrics
-    const checkpointsStarted = filteredCheckpoints.filter((c) => c.stage === "started").length;
-    const checkpointsCompleted = filteredCheckpoints.filter((c) => c.stage === "completed").length;
+    const checkpointsStarted = allCps.filter((c) => c.stage === "started").length;
+    const checkpointsCompleted = allCps.filter((c) => c.stage === "completed").length;
     const checkpointConversionRate =
       checkpointsStarted > 0 ? Math.round((checkpointsCompleted / checkpointsStarted) * 100) : 100;
 
     // Failure reason breakdown
     const failureReasons: Record<string, number> = {};
-    filteredExecutions
+    allExecs
       .filter((e) => e.status === "failed" && e.failure_reason)
       .forEach((e) => {
         const reason = e.failure_reason || "Unknown";
@@ -997,17 +1062,59 @@ export const dbService = {
 
     // Top executors
     const executors: Record<string, number> = {};
-    filteredExecutions.forEach((e) => {
-      const exec = e.executor || "Unknown";
+    allExecs.forEach((e) => {
+      const exec = e.executor || "Unknown Executor";
       executors[exec] = (executors[exec] || 0) + 1;
     });
 
     // Top OS
     const operatingSystems: Record<string, number> = {};
-    filteredExecutions.forEach((e) => {
-      const os = e.os || "Unknown";
+    allExecs.forEach((e) => {
+      const os = e.os || "Desktop (Windows)";
       operatingSystems[os] = (operatingSystems[os] || 0) + 1;
     });
+
+    // Scripts breakdown
+    const scriptsBreakdown: Record<string, { total: number; passed: number; failed: number }> = {};
+    allExecs.forEach((e) => {
+      const sName = e.script_name || "Unknown Script";
+      if (!scriptsBreakdown[sName]) {
+        scriptsBreakdown[sName] = { total: 0, passed: 0, failed: 0 };
+      }
+      scriptsBreakdown[sName].total += 1;
+      if (e.status === "success") scriptsBreakdown[sName].passed += 1;
+      else scriptsBreakdown[sName].failed += 1;
+    });
+
+    // Activity timeline (grouped by hour if past day, or by date otherwise)
+    const isDay = timeframe === "day";
+    const timelineMap: Record<string, { label: string; passed: number; failed: number; total: number }> = {};
+
+    allExecs.forEach((e) => {
+      const d = new Date(e.created_at);
+      let key = "";
+      let label = "";
+
+      if (isDay) {
+        const hour = d.getHours();
+        key = `${hour.toString().padStart(2, "0")}:00`;
+        label = key;
+      } else {
+        key = d.toISOString().split("T")[0];
+        label = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      }
+
+      if (!timelineMap[key]) {
+        timelineMap[key] = { label, passed: 0, failed: 0, total: 0 };
+      }
+      timelineMap[key].total += 1;
+      if (e.status === "success") timelineMap[key].passed += 1;
+      else timelineMap[key].failed += 1;
+    });
+
+    const timeline = Object.entries(timelineMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, val]) => ({ key, ...val }));
 
     return {
       timeframe,
@@ -1015,14 +1122,35 @@ export const dbService = {
       passedExecutions,
       failedExecutions,
       passRate,
+      uniqueUsers,
+      uniqueIps,
       checkpointsStarted,
       checkpointsCompleted,
       checkpointConversionRate,
       failureReasons,
       executors,
       operatingSystems,
-      recentLogs: filteredExecutions.slice(0, 100),
+      scriptsBreakdown,
+      timeline,
+      recentLogs: allExecs.slice(0, 200),
     };
+  },
+
+  async clearAnalytics(): Promise<boolean> {
+    const db = readLocalDb();
+    db.execution_logs = [];
+    db.checkpoint_logs = [];
+    writeLocalDb(db);
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase.from("execution_logs").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+        await supabase.from("checkpoint_logs").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      } catch (err) {
+        console.error("Supabase clearAnalytics error:", err);
+      }
+    }
+    return true;
   },
 
   // Checkpoints Management
