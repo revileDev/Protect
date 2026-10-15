@@ -432,6 +432,7 @@ export const dbService = {
               ...remote,
               modules: remote.modules || loc?.modules || {},
               use_auth: remote.use_auth ?? loc?.use_auth ?? true,
+              loader_config_id: remote.loader_config_id || loc?.loader_config_id || null,
             };
           });
         }
@@ -453,6 +454,7 @@ export const dbService = {
             ...data,
             modules: data.modules || local?.modules || {},
             use_auth: data.use_auth ?? local?.use_auth ?? true,
+            loader_config_id: data.loader_config_id || local?.loader_config_id || null,
           };
         }
       } catch (err) {
@@ -480,7 +482,7 @@ export const dbService = {
     writeLocalDb(db);
 
     if (isSupabaseConfigured && supabase) {
-      const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       const sanitizedLoaderConfigId =
         record.loader_config_id && UUID_REGEX.test(record.loader_config_id.trim())
           ? record.loader_config_id.trim()

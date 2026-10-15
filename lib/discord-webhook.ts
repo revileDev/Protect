@@ -15,7 +15,8 @@ export interface WebhookExecutionPayload {
 }
 
 export async function sendExecutionWebhook(data: WebhookExecutionPayload) {
-  if (!data.webhookUrl || !data.webhookUrl.startsWith("http")) return;
+  const url = data.webhookUrl?.trim();
+  if (!url || !url.startsWith("http")) return;
 
   const color = data.success ? 0x22c55e : 0xef4444; // Green or Red
   const statusTitle = data.success
@@ -76,15 +77,64 @@ export async function sendExecutionWebhook(data: WebhookExecutionPayload) {
   };
 
   try {
-    await fetch(data.webhookUrl, {
+    const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "AeroAuth-WebhookBot/1.0 (compatible; DiscordBot)",
+      },
       body: JSON.stringify({
         username: "Aero Auth Logger",
         embeds: [embed],
       }),
     });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error(`Discord webhook returned HTTP ${res.status}: ${errText}`);
+    }
   } catch (err) {
     console.error("Failed to dispatch Discord webhook:", err);
+  }
+}
+
+export async function sendTestWebhook(rawUrl: string): Promise<{ success: boolean; error?: string }> {
+  const url = rawUrl?.trim();
+  if (!url || !url.startsWith("https://discord.com/api/webhooks/")) {
+    return { success: false, error: "Invalid Discord webhook URL format." };
+  }
+
+  const embed = {
+    title: "🔔 [AERO AUTH] Webhook Test Successful!",
+    description: "Your Discord execution webhook is active and connected to Aero Auth. You will receive real-time notifications whenever users authenticate or launch your script.",
+    color: 0x3b82f6,
+    fields: [
+      { name: "Status", value: "✅ Online & Verified", inline: true },
+      { name: "Timestamp", value: `<t:${Math.floor(Date.now() / 1000)}:R>`, inline: true },
+    ],
+    footer: { text: "Aero Auth Webhook Verification" },
+    timestamp: new Date().toISOString(),
+  };
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "AeroAuth-WebhookBot/1.0 (compatible; DiscordBot)",
+      },
+      body: JSON.stringify({
+        username: "Aero Auth Logger",
+        embeds: [embed],
+      }),
+    });
+
+    if (res.ok || res.status === 204) {
+      return { success: true };
+    }
+    const errText = await res.text();
+    return { success: false, error: `Discord returned HTTP ${res.status}: ${errText}` };
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : "Network error" };
   }
 }

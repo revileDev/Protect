@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { dbService, isStaffReviewKey } from "@/lib/store";
+import { dbService, isStaffReviewKey, type ScriptRecord } from "@/lib/store";
 import { bundleModularScript } from "@/lib/module-bundler";
 import { sendExecutionWebhook } from "@/lib/discord-webhook";
 
@@ -59,21 +59,38 @@ export async function POST(req: NextRequest) {
     }
 
     // Resolve script and loader config early for webhook and logging
-    let script = null;
+    let script: ScriptRecord | null = null;
     if (script_slug) {
       script = await dbService.getScriptBySlug(script_slug);
     }
     if (script) {
       targetScriptName = script.name;
       targetScriptId = script.id;
-      if (script.loader_config_id) {
-        const loaderConfig = await dbService.getLoaderConfigById(script.loader_config_id);
-        if (loaderConfig?.webhook_enabled && loaderConfig.webhook_url) {
-          webhookEnabled = true;
-          webhookUrl = loaderConfig.webhook_url;
+    }
+
+    const resolveWebhook = async (sc?: ScriptRecord | null) => {
+      if (sc?.loader_config_id) {
+        const loaderConfig = await dbService.getLoaderConfigById(sc.loader_config_id);
+        if (loaderConfig?.webhook_enabled && loaderConfig.webhook_url?.trim()) {
+          return { enabled: true, url: loaderConfig.webhook_url.trim() };
         }
       }
-    }
+      // Fallback: check all loader configs in database for an active webhook
+      try {
+        const allConfigs = await dbService.getLoaderConfigs();
+        const activeConfig = allConfigs.find((c) => c.webhook_enabled && c.webhook_url?.trim()?.startsWith("http"));
+        if (activeConfig && activeConfig.webhook_url) {
+          return { enabled: true, url: activeConfig.webhook_url.trim() };
+        }
+      } catch (err) {
+        console.error("Error looking up fallback loader webhook:", err);
+      }
+      return { enabled: false, url: "" };
+    };
+
+    const initialWh = await resolveWebhook(script);
+    webhookEnabled = initialWh.enabled;
+    webhookUrl = initialWh.url;
 
     const isp = await lookupIsp(clientIp);
 
@@ -91,6 +108,12 @@ export async function POST(req: NextRequest) {
         status: "failed",
         failure_reason: reason,
       });
+
+      if (!webhookEnabled || !webhookUrl) {
+        const wh = await resolveWebhook(script);
+        webhookEnabled = wh.enabled;
+        webhookUrl = wh.url;
+      }
 
       if (webhookEnabled && webhookUrl) {
         await sendExecutionWebhook({
@@ -213,12 +236,10 @@ export async function POST(req: NextRequest) {
       if (script) {
         targetScriptName = script.name;
         targetScriptId = script.id;
-        if (script.loader_config_id) {
-          const loaderConfig = await dbService.getLoaderConfigById(script.loader_config_id);
-          if (loaderConfig?.webhook_enabled && loaderConfig.webhook_url) {
-            webhookEnabled = true;
-            webhookUrl = loaderConfig.webhook_url;
-          }
+        if (!webhookEnabled || !webhookUrl) {
+          const wh = await resolveWebhook(script);
+          webhookEnabled = wh.enabled;
+          webhookUrl = wh.url;
         }
       }
     }
@@ -269,7 +290,7 @@ export async function POST(req: NextRequest) {
 
     // 7. Normal User Key Flow:
     // Activate key and start its expiration countdown upon first execution
-    await dbService.activateKey(keyRecord.id);
+    await dbService.activateKey(keyRecord.id, clientIp);
 
     // Create active in-game session
     const session = await dbService.createSession({
@@ -297,6 +318,12 @@ export async function POST(req: NextRequest) {
       status: "success",
       failure_reason: null,
     });
+
+    if (!webhookEnabled || !webhookUrl) {
+      const finalWh = await resolveWebhook(script);
+      webhookEnabled = finalWh.enabled;
+      webhookUrl = finalWh.url;
+    }
 
     if (webhookEnabled && webhookUrl) {
       await sendExecutionWebhook({

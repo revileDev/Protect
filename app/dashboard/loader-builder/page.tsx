@@ -67,6 +67,42 @@ export default function LoaderBuilderPage() {
   // Webhook State
   const [webhookEnabled, setWebhookEnabled] = useState(false);
   const [webhookUrl, setWebhookUrl] = useState("");
+  const [testingWebhook, setTestingWebhook] = useState(false);
+  const [testWebhookStatus, setTestWebhookStatus] = useState<"success" | "error" | null>(null);
+
+  const handleTestWebhook = async () => {
+    const url = webhookUrl.trim();
+    if (!url || !url.startsWith("https://discord.com/api/webhooks/")) {
+      setValidationError("Please enter a valid Discord webhook URL before testing.");
+      return;
+    }
+    setTestingWebhook(true);
+    setTestWebhookStatus(null);
+    setValidationError(null);
+    try {
+      const res = await fetch("/api/loader-configs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "test_webhook",
+          webhook_url: url,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTestWebhookStatus("success");
+      } else {
+        setTestWebhookStatus("error");
+        setValidationError(data.error || "Discord rejected the webhook.");
+      }
+    } catch (err: unknown) {
+      setTestWebhookStatus("error");
+      setValidationError(err instanceof Error ? err.message : "Failed to connect to Discord.");
+    } finally {
+      setTestingWebhook(false);
+      setTimeout(() => setTestWebhookStatus(null), 5000);
+    }
+  };
 
   useEffect(() => {
     fetchConfigs();
@@ -277,9 +313,8 @@ export default function LoaderBuilderPage() {
 
       const data = await res.json();
       if (data.config) {
-        setConfigId(data.config.id);
-
-        if (selectedScriptId) {
+        // Always link scripts so execution webhooks and loader styles apply
+        if (selectedScriptId && selectedScriptId !== "all") {
           const targetScript = scripts.find((s) => s.id === selectedScriptId);
           if (targetScript) {
             await fetch("/api/scripts", {
@@ -290,6 +325,20 @@ export default function LoaderBuilderPage() {
                 loader_config_id: data.config.id,
               }),
             });
+          }
+        } else {
+          // Link all scripts that do not have a custom loader config or when "all" is selected
+          for (const s of scripts) {
+            if (!s.loader_config_id || s.loader_config_id === data.config.id || selectedScriptId === "all") {
+              await fetch("/api/scripts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  ...s,
+                  loader_config_id: data.config.id,
+                }),
+              });
+            }
           }
         }
 
@@ -629,13 +678,34 @@ export default function LoaderBuilderPage() {
                 <label className="block text-[11px] font-medium text-gray-300">
                   Discord Webhook URL <span className="text-rose-400">*</span>
                 </label>
-                <input
-                  type="url"
-                  value={webhookUrl}
-                  onChange={(e) => setWebhookUrl(e.target.value)}
-                  placeholder="https://discord.com/api/webhooks/..."
-                  className="w-full bg-[#12141e] border border-purple-500/50 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-500 outline-none focus:border-purple-400"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    value={webhookUrl}
+                    onChange={(e) => setWebhookUrl(e.target.value)}
+                    placeholder="https://discord.com/api/webhooks/..."
+                    className="flex-1 bg-[#12141e] border border-purple-500/50 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-500 outline-none focus:border-purple-400 font-mono text-[11px]"
+                  />
+                  <button
+                    type="button"
+                    disabled={testingWebhook || !webhookUrl}
+                    onClick={handleTestWebhook}
+                    className="px-3 py-1.5 rounded-lg bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-500/40 text-[11px] font-semibold transition-all disabled:opacity-50 shrink-0 flex items-center gap-1.5"
+                  >
+                    {testingWebhook ? (
+                      <span>Sending...</span>
+                    ) : testWebhookStatus === "success" ? (
+                      <span className="text-emerald-400">✓ Sent!</span>
+                    ) : (
+                      <span>Test Webhook</span>
+                    )}
+                  </button>
+                </div>
+                {testWebhookStatus === "success" && (
+                  <p className="text-[10px] text-emerald-400 font-medium">
+                    ✓ Test notification sent! Check your Discord channel.
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -742,7 +812,7 @@ export default function LoaderBuilderPage() {
               onChange={(e) => setSelectedScriptId(e.target.value)}
               className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-purple-500"
             >
-              <option value="">Do not attach right now</option>
+              <option value="all">Apply to All Scripts (Default)</option>
               {scripts.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name} (/{s.slug})
@@ -750,7 +820,7 @@ export default function LoaderBuilderPage() {
               ))}
             </select>
             <p className="text-[10px] text-gray-500 mt-1">
-              Selecting a script binds this custom loader style to its loadstring.
+              Binds this custom loader style and Discord execution webhook to the selected script(s).
             </p>
           </div>
         </div>
