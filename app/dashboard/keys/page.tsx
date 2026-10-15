@@ -2,8 +2,18 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { KeyRecord, ScriptRecord, isStaffReviewKey } from "@/lib/store";
+import type { KeyRecord, ScriptRecord } from "@/lib/store";
 import { Key, Plus, Copy, Check, Trash2, Ban, ShieldCheck, Filter, Clock, CheckCircle2, Shield } from "lucide-react";
+
+function isStaffReviewKey(k: KeyRecord | null | undefined): boolean {
+  if (!k) return false;
+  return (
+    k.is_staff_review === true ||
+    k.claimed_discord_tag === "STAFF_REVIEW" ||
+    k.claimed_discord_id === "STAFF_REVIEW" ||
+    Boolean(k.key_string && (k.key_string.startsWith("STAFF-") || k.key_string.startsWith("STAFF_")))
+  );
+}
 
 export default function KeysPage() {
   const [keys, setKeys] = useState<KeyRecord[]>([]);

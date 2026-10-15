@@ -19,7 +19,7 @@ import {
   Radio,
   FileCode,
 } from "lucide-react";
-import { ExecutionLog } from "@/lib/store";
+import type { ExecutionLog } from "@/lib/store";
 
 interface TimelinePoint {
   key: string;

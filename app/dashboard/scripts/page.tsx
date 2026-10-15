@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from "react";
 import ModularScriptUploader from "@/components/ModularScriptUploader";
 import ScriptUpdateModal from "@/components/ScriptUpdateModal";
-import { LoaderConfigRecord, ScriptRecord } from "@/lib/store";
+import type { LoaderConfigRecord, ScriptRecord } from "@/lib/store";
 import { Terminal, Copy, Check, Trash2, Sliders, ExternalLink, ShieldCheck, FileEdit } from "lucide-react";
 import Link from "next/link";
 

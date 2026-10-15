@@ -8,7 +8,7 @@ import RobloxLoaderPreview, {
   LayoutPositions,
   DEFAULT_LAYOUT_POSITIONS,
 } from "@/components/RobloxLoaderPreview";
-import { LoaderConfigRecord, ScriptRecord } from "@/lib/store";
+import type { LoaderConfigRecord, ScriptRecord } from "@/lib/store";
 import {
   Sliders,
   Save,

@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { CheckpointItem, CreatorProfile, CreatorEmblem, ScriptRecord } from "@/lib/store";
+import type { CheckpointItem, CreatorProfile, CreatorEmblem, ScriptRecord } from "@/lib/store";
 import {
   CheckCircle2,
   ExternalLink,

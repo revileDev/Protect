@@ -27,7 +27,7 @@ import {
   Lock,
   ChevronRight,
 } from "lucide-react";
-import { CheckpointItem, CreatorProfile, CreatorEmblem } from "@/lib/store";
+import type { CheckpointItem, CreatorProfile, CreatorEmblem } from "@/lib/store";
 
 export default function ClaimKeyPage() {
   const [step, setStep] = useState<"verification" | "claimed">("verification");

@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { SystemSettings } from "@/lib/store";
+import type { SystemSettings } from "@/lib/store";
 import { Settings, Database, Check, ShieldCheck, Copy, Code, Save, Radio } from "lucide-react";
 
 export default function SettingsPage() {
