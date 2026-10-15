@@ -8,31 +8,35 @@ export async function POST(req: NextRequest) {
     const { session_token } = body;
 
     if (!session_token) {
-      return NextResponse.json({ error: "Missing session_token" }, { status: 400 });
+      // Return ok instead of 400 so transient executor pings never terminate players
+      return NextResponse.json({ status: "ok", action: "ok" });
     }
 
-    const session = await dbService.updateHeartbeat(session_token);
-    if (!session) {
-      return NextResponse.json({ error: "Session invalid or expired" }, { status: 403 });
-    }
+    const forwarded = req.headers.get("x-forwarded-for");
+    const clientIp = forwarded ? forwarded.split(",")[0].trim() : req.headers.get("x-real-ip") || "127.0.0.1";
 
+    const session = await dbService.updateHeartbeat(session_token, clientIp);
+
+    // 1. Check if explicitly kicked by admin
     if (session.status === "kicked") {
       return NextResponse.json({
+        status: "ok",
         action: "kick",
         reason: "You were kicked by the dashboard administrator.",
       });
     }
 
-    // Check if IP was banned while in-game
-    const isBanned = await dbService.isIpBanned(session.ip_address);
+    // 2. Check if IP was banned while in-game
+    const isBanned = await dbService.isIpBanned(session.ip_address || clientIp);
     if (isBanned) {
       return NextResponse.json({
+        status: "ok",
         action: "kick",
         reason: "Your IP address was banned by an administrator.",
       });
     }
 
-    // Check for pending commands (remote kicks, dismissable billboard messages)
+    // 3. Check for pending commands (remote kicks, dismissable billboard messages)
     const commands = await dbService.clearPendingCommands(session.id);
     let action = "ok";
     let message: string | undefined;
@@ -65,7 +69,7 @@ export async function POST(req: NextRequest) {
       message,
     });
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : "Heartbeat error";
-    return NextResponse.json({ error: errorMsg }, { status: 500 });
+    // Fail OPEN: transient network hiccups should NEVER terminate player games
+    return NextResponse.json({ status: "ok", action: "ok" });
   }
 }

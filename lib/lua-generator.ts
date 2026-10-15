@@ -508,10 +508,10 @@ ${
         end)
     end
 
-    -- 2. Heartbeat Background Loop (every 1 second)
+    -- 2. Heartbeat Background Loop (telemetry & remote admin commands)
     task.spawn(function()
         local pingUrl = BASE_URL .. "/api/session/heartbeat"
-        while task.wait(1) do
+        while task.wait(2.5) do
             local success, res = pcall(function()
                 return httpRequest({
                     Url = pingUrl,
@@ -535,15 +535,13 @@ ${
                 end`
                     : ""
                 }
+                -- Only terminate if the administrator explicitly dispatches a remote kick or bans the user
                 if data and data.action == "kick" then
-                    LocalPlayer:Kick("[${config.brand_name || "AERO"}] Administrator notice: " .. (data.reason or "Session terminated."))
+                    LocalPlayer:Kick("[${config.brand_name || "ATOM"}] " .. (data.reason or "You were kicked by the dashboard administrator."))
                     break
                 elseif data and data.action == "message" and data.message then
                     showRemoteMessage(data.message)
                 end
-            elseif success and res and res.StatusCode == 403 then
-                LocalPlayer:Kick("[${config.brand_name || "AERO"}] Session terminated by server.")
-                break
             end
         end
     end)

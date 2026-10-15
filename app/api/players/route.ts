@@ -29,9 +29,9 @@ export async function GET() {
     // Time since disconnection was triggered
     const timeSinceDisconnect = isTimedOut ? pingElapsed - HEARTBEAT_TIMEOUT_MS : 0;
 
-    // If disconnected for more than grace period, prune card from tab and database
+    // If disconnected for more than grace period, omit card from active dashboard tab
+    // BUT DO NOT delete from DB so lag spikes never terminate player games!
     if (isTimedOut && timeSinceDisconnect > DISCONNECT_REMOVAL_GRACE_MS) {
-      deadSessionIds.push(s.id);
       continue;
     }
 
@@ -50,13 +50,6 @@ export async function GET() {
       last_ping_sec: Math.floor(pingElapsed / 1000),
       time_since_disconnect_sec: Math.floor(timeSinceDisconnect / 1000),
     });
-  }
-
-  // Auto clean up dead sessions
-  if (deadSessionIds.length > 0) {
-    for (const id of deadSessionIds) {
-      dbService.deleteSession(id).catch(() => {});
-    }
   }
 
   return NextResponse.json({

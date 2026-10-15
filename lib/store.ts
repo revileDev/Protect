@@ -730,21 +730,73 @@ export const dbService = {
     return record;
   },
 
-  async updateHeartbeat(sessionId: string): Promise<SessionRecord | null> {
+  async updateHeartbeat(sessionId: string, ip?: string): Promise<SessionRecord> {
     const db = readLocalDb();
-    const session = db.sessions.find((s) => s.id === sessionId);
-    if (!session) return null;
+    let session = db.sessions.find((s) => s.id === sessionId);
 
-    session.last_heartbeat = new Date().toISOString();
-    writeLocalDb(db);
-
-    if (isSupabaseConfigured && supabase) {
+    // 1. Query Supabase if not present in ephemeral local container memory
+    if (!session && isSupabaseConfigured && supabase) {
       try {
-        await supabase.from("sessions").update({ last_heartbeat: session.last_heartbeat }).eq("id", sessionId);
+        const { data, error } = await supabase.from("sessions").select("*").eq("id", sessionId).maybeSingle();
+        if (data && !error) {
+          session = data;
+          db.sessions.unshift(data);
+          writeLocalDb(db);
+        }
       } catch (err) {
-        console.error("Supabase updateHeartbeat error:", err);
+        console.error("Supabase updateHeartbeat lookup error:", err);
       }
     }
+
+    const now = new Date().toISOString();
+
+    // 2. If session wasn't found anywhere (e.g. serverless cold start / fresh deployment),
+    // NEVER terminate legitimate users due to ephemeral memory loss. Revive gracefully!
+    if (!session) {
+      session = {
+        id: sessionId,
+        key_id: "active",
+        script_id: "active",
+        ip_address: ip || "127.0.0.1",
+        hwid: null,
+        roblox_username: "Player",
+        roblox_user_id: null,
+        status: "active",
+        tamper_flags: [],
+        pending_commands: [],
+        session_started: now,
+        last_heartbeat: now,
+        created_at: now,
+      };
+      db.sessions.unshift(session);
+      writeLocalDb(db);
+
+      if (isSupabaseConfigured && supabase) {
+        try {
+          await supabase.from("sessions").upsert([session]);
+        } catch {
+          // ignore
+        }
+      }
+    } else {
+      session.last_heartbeat = now;
+      if (session.status === "disconnected") {
+        session.status = "active"; // Player reconnected
+      }
+      writeLocalDb(db);
+
+      if (isSupabaseConfigured && supabase) {
+        try {
+          await supabase
+            .from("sessions")
+            .update({ last_heartbeat: now, status: session.status })
+            .eq("id", sessionId);
+        } catch {
+          // ignore
+        }
+      }
+    }
+
     return session;
   },
 
