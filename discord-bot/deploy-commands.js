@@ -37,6 +37,29 @@ const commands = [
         .setRequired(false)
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+  new SlashCommandBuilder()
+    .setName("updatesecond")
+    .setDescription("Transfer all members from one role to another role (Admin only)")
+    .addRoleOption((option) =>
+      option
+        .setName("from")
+        .setDescription("The role to transfer members FROM (leave blank to select interactively)")
+        .setRequired(false)
+    )
+    .addRoleOption((option) =>
+      option
+        .setName("to")
+        .setDescription("The role to transfer members TO (leave blank to select interactively)")
+        .setRequired(false)
+    )
+    .addBooleanOption((option) =>
+      option
+        .setName("remove_old_role")
+        .setDescription("Remove the old role after adding the new one? (Default: True)")
+        .setRequired(false)
+    )
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 ].map((cmd) => cmd.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(token);

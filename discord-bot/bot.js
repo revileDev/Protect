@@ -52,6 +52,7 @@ const client = new Client({
 // Setup state caches for interactive wizards
 const setupSessions = new Map();
 const ticketSetupSessions = new Map();
+const updateSecondSessions = new Map();
 
 client.once("ready", () => {
   console.log(`[AeroBot] Logged in as ${client.user.tag}`);
@@ -259,6 +260,129 @@ async function assignRoleToMembersWithoutRoles(interaction, targetRole) {
     .addFields(
       { name: "Target Role", value: `<@&${targetRole.id}>`, inline: true },
       { name: "Successfully Assigned", value: `**${assignedCount}** / ${total}`, inline: true },
+      { name: "Failed", value: `${failedCount}`, inline: true }
+    )
+    .setTimestamp();
+
+  return interaction.editReply({
+    content: null,
+    embeds: [embed],
+    components: [],
+  });
+}
+
+// ============================================================================
+// HELPER: TRANSFER MEMBERS FROM ONE ROLE TO ANOTHER ROLE
+// ============================================================================
+async function transferRoleMembers(interaction, fromRole, toRole, removeOldRole = true) {
+  const botMember = await interaction.guild.members.fetchMe();
+  if (!botMember.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
+    return interaction.editReply({
+      content: "❌ The bot lacks the **Manage Roles** permission. Please grant the bot this permission in server settings and try again.",
+      components: [],
+    });
+  }
+
+  if (fromRole.id === interaction.guild.id || toRole.id === interaction.guild.id) {
+    return interaction.editReply({
+      content: "❌ You cannot transfer members to or from the `@everyone` role.",
+      components: [],
+    });
+  }
+
+  if (fromRole.id === toRole.id) {
+    return interaction.editReply({
+      content: "❌ The source and destination roles must be different.",
+      components: [],
+    });
+  }
+
+  if (toRole.managed) {
+    return interaction.editReply({
+      content: `❌ The destination role **${toRole.name}** is managed by an integration or bot and cannot be assigned manually.`,
+      components: [],
+    });
+  }
+
+  if (removeOldRole && fromRole.managed) {
+    return interaction.editReply({
+      content: `❌ The source role **${fromRole.name}** is managed by an integration or bot and cannot be removed.`,
+      components: [],
+    });
+  }
+
+  if (toRole.position >= botMember.roles.highest.position) {
+    return interaction.editReply({
+      content: `❌ The destination role **${toRole.name}** is positioned higher than or equal to my highest role (**${botMember.roles.highest.name}**). Please move my bot role higher in Server Settings > Roles.`,
+      components: [],
+    });
+  }
+
+  if (removeOldRole && fromRole.position >= botMember.roles.highest.position) {
+    return interaction.editReply({
+      content: `❌ The source role **${fromRole.name}** is positioned higher than or equal to my highest role (**${botMember.roles.highest.name}**). Please move my bot role higher in Server Settings > Roles.`,
+      components: [],
+    });
+  }
+
+  await interaction.editReply({
+    content: `🔍 Scanning server members holding <@&${fromRole.id}>...`,
+    components: [],
+  });
+
+  const allMembers = await interaction.guild.members.fetch();
+  const sourceMembers = allMembers.filter((m) => !m.user.bot && m.roles.cache.has(fromRole.id));
+
+  if (sourceMembers.size === 0) {
+    return interaction.editReply({
+      content: `⚠️ No human members currently have the role <@&${fromRole.id}>. No actions taken.`,
+      components: [],
+    });
+  }
+
+  const total = sourceMembers.size;
+  const actionText = removeOldRole ? "Transferring" : "Copying";
+  await interaction.editReply({
+    content: `⏳ Found **${total}** member(s) with <@&${fromRole.id}>. ${actionText} to <@&${toRole.id}>...`,
+    components: [],
+  });
+
+  let transferredCount = 0;
+  let failedCount = 0;
+
+  for (const [, member] of sourceMembers) {
+    try {
+      if (!member.roles.cache.has(toRole.id)) {
+        await member.roles.add(toRole);
+      }
+      if (removeOldRole && member.roles.cache.has(fromRole.id)) {
+        await member.roles.remove(fromRole);
+      }
+      transferredCount++;
+    } catch (err) {
+      console.error(`[AeroBot] Failed to transfer role for ${member.user.tag}:`, err);
+      failedCount++;
+    }
+
+    if (total > 5) {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle("Role Transfer Complete")
+    .setColor(0x10b981)
+    .setDescription(
+      removeOldRole
+        ? `Successfully transferred members from <@&${fromRole.id}> to <@&${toRole.id}>.`
+        : `Successfully copied members from <@&${fromRole.id}> to <@&${toRole.id}> (kept source role).`
+    )
+    .addFields(
+      { name: "Source Role", value: `<@&${fromRole.id}>`, inline: true },
+      { name: "Destination Role", value: `<@&${toRole.id}>`, inline: true },
+      { name: "Action Mode", value: removeOldRole ? "Transfer (Removed old role)" : "Copy (Kept old role)", inline: true },
+      { name: "Total Members Found", value: `${total}`, inline: true },
+      { name: "Successfully Processed", value: `**${transferredCount}** / ${total}`, inline: true },
       { name: "Failed", value: `${failedCount}`, inline: true }
     )
     .setTimestamp();
@@ -607,6 +731,125 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     return assignRoleToMembersWithoutRoles(interaction, targetRole);
+  }
+
+  // --------------------------------------------------------------------------
+  // /updatesecond (Transfer members from one role to another)
+  // --------------------------------------------------------------------------
+  if (interaction.isChatInputCommand() && interaction.commandName === "updatesecond") {
+    if (!isOwner) {
+      return interaction.reply({
+        content: "Only the server owner or administrators can run this command.",
+        ephemeral: true,
+      });
+    }
+
+    const fromRole = interaction.options.getRole("from");
+    const toRole = interaction.options.getRole("to");
+    const removeOldRole = interaction.options.getBoolean("remove_old_role") ?? true;
+
+    // If both roles were supplied directly in the command
+    if (fromRole && toRole) {
+      await interaction.deferReply({ ephemeral: true });
+      return transferRoleMembers(interaction, fromRole, toRole, removeOldRole);
+    }
+
+    // If fromRole was supplied but toRole was not
+    if (fromRole && !toRole) {
+      updateSecondSessions.set(interaction.user.id, {
+        fromRoleId: fromRole.id,
+        removeOldRole,
+      });
+
+      const toSelect = new RoleSelectMenuBuilder()
+        .setCustomId("update_second_select_to_role")
+        .setPlaceholder("Select the destination role to transfer members TO");
+
+      const row = new ActionRowBuilder().addComponents(toSelect);
+
+      return interaction.reply({
+        content: `Selected source role: <@&${fromRole.id}>.\nNow select the destination role to transfer these members to:`,
+        components: [row],
+        ephemeral: true,
+      });
+    }
+
+    // If neither role was supplied, start interactive wizard (Step 1: Select source role)
+    updateSecondSessions.set(interaction.user.id, {
+      removeOldRole,
+    });
+
+    const fromSelect = new RoleSelectMenuBuilder()
+      .setCustomId("update_second_select_from_role")
+      .setPlaceholder("Select the role you want to transfer members FROM");
+
+    const row = new ActionRowBuilder().addComponents(fromSelect);
+
+    return interaction.reply({
+      content: "**Step 1/2:** Select the role containing the members you want to transfer:",
+      components: [row],
+      ephemeral: true,
+    });
+  }
+
+  // Handle Step 1 Selection for /updatesecond
+  if (interaction.isRoleSelectMenu() && interaction.customId === "update_second_select_from_role") {
+    if (!isOwner) {
+      return interaction.reply({
+        content: "Only the server owner or administrators can perform this action.",
+        ephemeral: true,
+      });
+    }
+
+    const session = updateSecondSessions.get(interaction.user.id) || { removeOldRole: true };
+    session.fromRoleId = interaction.values[0];
+    updateSecondSessions.set(interaction.user.id, session);
+
+    const toSelect = new RoleSelectMenuBuilder()
+      .setCustomId("update_second_select_to_role")
+      .setPlaceholder("Select the destination role to transfer members TO");
+
+    const row = new ActionRowBuilder().addComponents(toSelect);
+
+    return interaction.update({
+      content: `**Step 2/2:** Source role set to <@&${session.fromRoleId}>.\nNow select the destination role to transfer these members to:`,
+      components: [row],
+    });
+  }
+
+  // Handle Step 2 Selection for /updatesecond
+  if (interaction.isRoleSelectMenu() && interaction.customId === "update_second_select_to_role") {
+    if (!isOwner) {
+      return interaction.reply({
+        content: "Only the server owner or administrators can perform this action.",
+        ephemeral: true,
+      });
+    }
+
+    const session = updateSecondSessions.get(interaction.user.id);
+    if (!session || !session.fromRoleId) {
+      return interaction.update({
+        content: "❌ Session expired or invalid. Please run `/updatesecond` again.",
+        components: [],
+      });
+    }
+
+    await interaction.deferUpdate();
+
+    const fromRole = interaction.guild.roles.cache.get(session.fromRoleId);
+    const toRole = interaction.guild.roles.cache.get(interaction.values[0]);
+    const removeOldRole = session.removeOldRole ?? true;
+
+    updateSecondSessions.delete(interaction.user.id);
+
+    if (!fromRole || !toRole) {
+      return interaction.editReply({
+        content: "❌ One or both selected roles could not be found.",
+        components: [],
+      });
+    }
+
+    return transferRoleMembers(interaction, fromRole, toRole, removeOldRole);
   }
 
   // --------------------------------------------------------------------------
