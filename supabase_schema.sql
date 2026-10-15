@@ -100,12 +100,20 @@ CREATE TABLE IF NOT EXISTS public.keys (
     claimed_at TIMESTAMPTZ DEFAULT NULL,
     activated_at TIMESTAMPTZ DEFAULT NULL,
     expires_at TIMESTAMPTZ DEFAULT NULL,
+    is_staff_review BOOLEAN DEFAULT FALSE,
+    notes TEXT DEFAULT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
 -- Migration for existing keys
 ALTER TABLE public.keys
     ADD COLUMN IF NOT EXISTS activated_at TIMESTAMPTZ DEFAULT NULL;
+
+ALTER TABLE public.keys
+    ADD COLUMN IF NOT EXISTS is_staff_review BOOLEAN DEFAULT FALSE;
+
+ALTER TABLE public.keys
+    ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT NULL;
 
 -- ----------------------------------------------------------------------------
 -- 4. In-Game Sessions & Telemetry

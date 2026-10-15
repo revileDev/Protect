@@ -55,6 +55,8 @@ CREATE TABLE IF NOT EXISTS public.keys (
     claimed_discord_tag TEXT DEFAULT NULL,
     claimed_at TIMESTAMPTZ DEFAULT NULL,
     expires_at TIMESTAMPTZ DEFAULT NULL,
+    is_staff_review BOOLEAN DEFAULT FALSE,
+    notes TEXT DEFAULT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 

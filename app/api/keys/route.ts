@@ -18,7 +18,37 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { count = 1, prefix = "KEY", script_id = "", duration_hours = null } = body;
+    const {
+      count = 1,
+      prefix = "KEY",
+      script_id = "",
+      duration_hours = null,
+      is_staff_review = false,
+      custom_key = "",
+      notes = "",
+    } = body;
+
+    if (is_staff_review) {
+      const staffKeyString =
+        custom_key && custom_key.trim()
+          ? custom_key.trim().toUpperCase()
+          : generateRandomKey(prefix && prefix !== "KEY" ? prefix : "STAFF-REV");
+
+      const created = await dbService.createKeys([
+        {
+          key_string: staffKeyString,
+          script_id: script_id || "all",
+          duration_hours: null,
+          is_staff_review: true,
+          status: "active",
+          claimed_discord_tag: "STAFF_REVIEW",
+          claimed_discord_id: "STAFF_REVIEW",
+          notes: notes && notes.trim() ? notes.trim() : "Staff Review Key",
+        },
+      ]);
+
+      return NextResponse.json({ success: true, count: 1, keys: created });
+    }
 
     const numKeys = Math.min(Math.max(1, Number(count)), 100);
     const generatedList = [];

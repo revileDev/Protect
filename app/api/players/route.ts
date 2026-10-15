@@ -14,6 +14,7 @@ export async function GET() {
   const deadSessionIds: string[] = [];
 
   for (const s of sessions) {
+    if (s.id && s.id.startsWith("staff_review")) continue;
     const lastPing = new Date(s.last_heartbeat).getTime();
     const startTime = new Date(s.session_started).getTime();
     const pingElapsed = Math.max(0, now - lastPing);

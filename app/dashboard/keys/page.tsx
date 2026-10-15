@@ -2,8 +2,8 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { KeyRecord, ScriptRecord } from "@/lib/store";
-import { Key, Plus, Copy, Check, Trash2, Ban, ShieldCheck, Filter, Clock, CheckCircle2 } from "lucide-react";
+import { KeyRecord, ScriptRecord, isStaffReviewKey } from "@/lib/store";
+import { Key, Plus, Copy, Check, Trash2, Ban, ShieldCheck, Filter, Clock, CheckCircle2, Shield } from "lucide-react";
 
 export default function KeysPage() {
   const [keys, setKeys] = useState<KeyRecord[]>([]);
@@ -12,13 +12,21 @@ export default function KeysPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>("all");
 
-  // Generator modal
+  // Generator modal (Regular batch)
   const [showGenModal, setShowGenModal] = useState(false);
   const [genCount, setGenCount] = useState(10);
   const [genPrefix, setGenPrefix] = useState("AERO");
   const [genScriptId, setGenScriptId] = useState("");
   const [genDuration, setGenDuration] = useState<string>("lifetime");
   const [generating, setGenerating] = useState(false);
+
+  // Staff Review Key modal
+  const [showStaffModal, setShowStaffModal] = useState(false);
+  const [staffScriptId, setStaffScriptId] = useState("all");
+  const [staffKeyMode, setStaffKeyMode] = useState<"auto" | "custom">("auto");
+  const [staffCustomKey, setStaffCustomKey] = useState("");
+  const [staffNotes, setStaffNotes] = useState("");
+  const [staffGenerating, setStaffGenerating] = useState(false);
 
   useEffect(() => {
     fetchKeys();
@@ -87,6 +95,34 @@ export default function KeysPage() {
     }
   };
 
+  const handleCreateStaffReviewKey = async () => {
+    setStaffGenerating(true);
+    try {
+      const res = await fetch("/api/keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          is_staff_review: true,
+          script_id: staffScriptId || "all",
+          custom_key: staffKeyMode === "custom" ? staffCustomKey.trim() : "",
+          notes: staffNotes.trim() || "Staff Review Key",
+        }),
+      });
+
+      const data = await res.json();
+      if (data.keys) {
+        setKeys((prev) => [...data.keys, ...prev]);
+        setShowStaffModal(false);
+        setStaffCustomKey("");
+        setStaffNotes("");
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setStaffGenerating(false);
+    }
+  };
+
   const handleStatusToggle = async (key: KeyRecord) => {
     const newStatus = key.status === "banned" ? (key.activated_at ? "active" : "claimed") : "banned";
     try {
@@ -121,16 +157,27 @@ export default function KeysPage() {
 
   const filteredKeys = keys.filter((k) => {
     if (filterStatus === "all") return true;
+    if (filterStatus === "staff") return isStaffReviewKey(k);
+    if (isStaffReviewKey(k)) return false;
     return k.status === filterStatus;
   });
 
-  const unclaimedCount = keys.filter((k) => k.status === "unclaimed").length;
-  const claimedNotActivatedCount = keys.filter((k) => k.status === "claimed").length;
-  const activatedCount = keys.filter((k) => k.status === "active").length;
+  const staffCount = keys.filter((k) => isStaffReviewKey(k)).length;
+  const unclaimedCount = keys.filter((k) => !isStaffReviewKey(k) && k.status === "unclaimed").length;
+  const claimedNotActivatedCount = keys.filter((k) => !isStaffReviewKey(k) && k.status === "claimed").length;
+  const activatedCount = keys.filter((k) => !isStaffReviewKey(k) && k.status === "active").length;
   const bannedCount = keys.filter((k) => k.status === "banned").length;
 
-  const renderStatusBadge = (status: KeyRecord["status"]) => {
-    switch (status) {
+  const renderStatusBadge = (key: KeyRecord) => {
+    if (isStaffReviewKey(key)) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-purple-500/15 text-purple-300 border border-purple-500/40 shadow-sm shadow-purple-500/10">
+          <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
+          <span>( Staff Review Key )</span>
+        </span>
+      );
+    }
+    switch (key.status) {
       case "unclaimed":
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30 shadow-sm">
@@ -159,7 +206,7 @@ export default function KeysPage() {
       default:
         return (
           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-700 text-gray-300">
-            {status}
+            {key.status}
           </span>
         );
     }
@@ -179,18 +226,37 @@ export default function KeysPage() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setShowGenModal(true)}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-lg shadow-blue-600/20 transition-all"
-        >
-          <Plus className="w-4 h-4" />
-          Generate Keys Batch
-        </button>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setShowStaffModal(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-lg shadow-purple-600/25 transition-all border border-purple-500/30"
+          >
+            <Shield className="w-4 h-4 text-purple-200" />
+            + New Staff Review Key
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowGenModal(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-lg shadow-blue-600/20 transition-all"
+          >
+            <Plus className="w-4 h-4" />
+            Generate Keys Batch
+          </button>
+        </div>
       </div>
 
       {/* Metric Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3.5">
+        <div className="bg-[#12141d] border border-purple-500/30 p-4 rounded-xl shadow-sm">
+          <span className="text-[11px] font-medium text-purple-400 uppercase tracking-wider block">
+            ( Staff Review )
+          </span>
+          <p className="text-xl font-bold text-purple-300 mt-1">{staffCount}</p>
+          <span className="text-[10px] text-gray-500">Infinite users • Untracked</span>
+        </div>
+
         <div className="bg-[#12141d] border border-gray-800 p-4 rounded-xl">
           <span className="text-[11px] font-medium text-amber-400 uppercase tracking-wider block">
             ( Not Claimed )
@@ -212,7 +278,7 @@ export default function KeysPage() {
             ( Activated )
           </span>
           <p className="text-xl font-bold text-emerald-300 mt-1">{activatedCount}</p>
-          <span className="text-[10px] text-gray-500">Executed in-game & running</span>
+          <span className="text-[10px] text-gray-500">Executed & running</span>
         </div>
 
         <div className="bg-[#12141d] border border-gray-800 p-4 rounded-xl">
@@ -231,6 +297,7 @@ export default function KeysPage() {
           <span className="text-xs text-gray-400 font-medium">Filter Status:</span>
           {[
             { id: "all", label: "All Keys" },
+            { id: "staff", label: "( Staff Review Keys )" },
             { id: "unclaimed", label: "( Not claimed )" },
             { id: "claimed", label: "( Claimed not activated )" },
             { id: "active", label: "( Activated )" },
@@ -286,6 +353,11 @@ export default function KeysPage() {
                       <td className="p-3.5">
                         <div className="flex items-center gap-2">
                           <span className="font-mono font-bold text-white select-all">{k.key_string}</span>
+                          {isStaffReviewKey(k) && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                              STAFF
+                            </span>
+                          )}
                           <button
                             type="button"
                             onClick={() => copyKey(k.id, k.key_string)}
@@ -303,12 +375,16 @@ export default function KeysPage() {
 
                       {/* Status Badges */}
                       <td className="p-3.5 whitespace-nowrap">
-                        {renderStatusBadge(k.status)}
+                        {renderStatusBadge(k)}
                       </td>
 
                       {/* Assigned Script */}
                       <td className="p-3.5 whitespace-nowrap">
-                        {boundScript ? (
+                        {k.script_id === "all" ? (
+                          <span className="inline-flex px-2 py-0.5 rounded font-mono text-[10px] bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                            All Scripts (Universal)
+                          </span>
+                        ) : boundScript ? (
                           <span className="inline-flex px-2 py-0.5 rounded font-mono text-[10px] bg-purple-500/10 text-purple-300 border border-purple-500/20">
                             {boundScript.name}
                           </span>
@@ -319,7 +395,11 @@ export default function KeysPage() {
 
                       {/* Bound IP */}
                       <td className="p-3.5 font-mono text-gray-300 whitespace-nowrap">
-                        {k.claimed_ip ? (
+                        {isStaffReviewKey(k) ? (
+                          <span className="text-purple-300 font-sans font-medium text-[11px] flex items-center gap-1">
+                            <span>♾️ Infinite (No Lock)</span>
+                          </span>
+                        ) : k.claimed_ip ? (
                           <span className="text-blue-300">{k.claimed_ip}</span>
                         ) : (
                           <span className="text-gray-600">Unbound</span>
@@ -328,7 +408,11 @@ export default function KeysPage() {
 
                       {/* Discord */}
                       <td className="p-3.5 text-gray-300 whitespace-nowrap">
-                        {k.claimed_discord_tag ? (
+                        {isStaffReviewKey(k) ? (
+                          <span className="text-purple-300 font-medium text-[11px]">
+                            {k.notes || "Staff Review Key"}
+                          </span>
+                        ) : k.claimed_discord_tag ? (
                           <span className="text-indigo-400 font-medium">@{k.claimed_discord_tag}</span>
                         ) : (
                           <span className="text-gray-600">N/A</span>
@@ -337,7 +421,16 @@ export default function KeysPage() {
 
                       {/* Duration / Expiration */}
                       <td className="p-3.5 text-gray-400 text-[11px]">
-                        {k.status === "unclaimed" ? (
+                        {isStaffReviewKey(k) ? (
+                          <div>
+                            <span className="text-purple-300 font-medium flex items-center gap-1">
+                              <span>♾️ Permanent Lifetime</span>
+                            </span>
+                            <span className="block text-[10px] text-purple-400/90 font-medium">
+                              Zero tracking • No logging
+                            </span>
+                          </div>
+                        ) : k.status === "unclaimed" ? (
                           <div>
                             <span className="text-gray-300 font-medium">
                               {k.duration_hours ? `${k.duration_hours}h duration` : "Lifetime"}
@@ -500,6 +593,142 @@ export default function KeysPage() {
                 className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-lg shadow-blue-600/20 disabled:opacity-50"
               >
                 {generating ? "Generating..." : "Generate Batch"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Staff Review Key Form Modal */}
+      {showStaffModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-lg bg-[#12141f] border border-purple-500/30 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-800 pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-purple-400" />
+                Staff Review Key Form
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowStaffModal(false)}
+                className="text-gray-400 hover:text-white text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Explanatory Callout */}
+            <div className="bg-purple-950/20 border border-purple-500/25 rounded-xl p-3.5 space-y-2 text-xs">
+              <div className="flex items-center gap-2 text-purple-300 font-bold">
+                <Shield className="w-4 h-4 text-purple-400 shrink-0" />
+                Special Unrestricted Key for Staff Script Reviewers
+              </div>
+              <ul className="text-purple-200/80 text-[11px] space-y-1 list-disc list-inside">
+                <li><strong className="text-white">Completely Lifetime:</strong> Never expires, duration countdown is disabled.</li>
+                <li><strong className="text-white">Zero Logging & Tracking:</strong> No execution logs, no player telemetry, and no Discord notifications.</li>
+                <li><strong className="text-white">Infinite Multi-User:</strong> All staff can share and use this key simultaneously without IP or device locks.</li>
+                <li><strong className="text-white">Always Works:</strong> Activated immediately out-of-the-box (no website claiming required).</li>
+              </ul>
+            </div>
+
+            <div className="space-y-3.5 text-xs">
+              <div>
+                <label className="block text-gray-300 font-semibold mb-1">Applicable Script</label>
+                <select
+                  value={staffScriptId}
+                  onChange={(e) => setStaffScriptId(e.target.value)}
+                  className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-lg px-3 py-2 text-white outline-none focus:border-purple-500"
+                >
+                  <option value="all">🌟 All Scripts (Universal Staff Review Pass)</option>
+                  {scripts.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} (/{s.slug})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-gray-500 mt-1">
+                  Choose &quot;All Scripts&quot; so reviewers can test all your scripts with this single key.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-gray-300 font-semibold mb-1.5">Key String Mode</label>
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => setStaffKeyMode("auto")}
+                    className={`py-1.5 px-3 rounded-lg text-xs font-semibold border transition-all ${
+                      staffKeyMode === "auto"
+                        ? "bg-purple-600/20 text-purple-300 border-purple-500"
+                        : "bg-[#0d0f17] text-gray-400 border-gray-800 hover:text-white"
+                    }`}
+                  >
+                    Auto-Generate
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStaffKeyMode("custom")}
+                    className={`py-1.5 px-3 rounded-lg text-xs font-semibold border transition-all ${
+                      staffKeyMode === "custom"
+                        ? "bg-purple-600/20 text-purple-300 border-purple-500"
+                        : "bg-[#0d0f17] text-gray-400 border-gray-800 hover:text-white"
+                    }`}
+                  >
+                    Custom Key Code
+                  </button>
+                </div>
+
+                {staffKeyMode === "custom" ? (
+                  <div>
+                    <input
+                      type="text"
+                      placeholder="e.g. STAFF-REVIEW-PASS-2026"
+                      value={staffCustomKey}
+                      onChange={(e) => setStaffCustomKey(e.target.value.toUpperCase())}
+                      className="w-full bg-[#0d0f17] border border-purple-500/50 rounded-lg px-3 py-2 text-white font-mono uppercase outline-none focus:border-purple-400"
+                    />
+                    <p className="text-[10px] text-gray-500 mt-1">
+                      Custom license key code given to the staff reviewers.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-2.5 rounded-lg bg-[#0d0f17] border border-gray-800 text-[11px] text-gray-400 font-mono">
+                    Will generate: <span className="text-purple-400 font-bold">STAFF-REV-XXXX-XXXX-XXXX</span>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-gray-300 font-semibold mb-1">Staff / Reviewer Note (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. ScriptBlox Moderation Team, V3rmillion Mod"
+                  value={staffNotes}
+                  onChange={(e) => setStaffNotes(e.target.value)}
+                  className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-lg px-3 py-2 text-white outline-none focus:border-purple-500"
+                />
+                <p className="text-[10px] text-gray-500 mt-1">
+                  Reference label to identify which staff team or reviewer this key belongs to.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-800">
+              <button
+                type="button"
+                onClick={() => setShowStaffModal(false)}
+                className="px-3.5 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={staffGenerating}
+                onClick={handleCreateStaffReviewKey}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-lg shadow-purple-600/20 disabled:opacity-50"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                {staffGenerating ? "Creating..." : "Create Staff Review Key"}
               </button>
             </div>
           </div>

@@ -63,6 +63,19 @@ export interface KeyRecord {
   activated_at?: string | null;
   expires_at: string | null;
   created_at: string;
+  is_staff_review?: boolean;
+  notes?: string | null;
+}
+
+export function isStaffReviewKey(k: KeyRecord | null | undefined): boolean {
+  if (!k) return false;
+  return (
+    k.is_staff_review === true ||
+    k.claimed_discord_tag === "STAFF_REVIEW" ||
+    k.claimed_discord_id === "STAFF_REVIEW" ||
+    k.key_string.startsWith("STAFF-") ||
+    k.key_string.startsWith("STAFF_")
+  );
 }
 
 export interface SessionRecord {
@@ -520,21 +533,34 @@ export const dbService = {
     return local;
   },
 
-  async createKeys(keys: Array<{ key_string: string; script_id: string; duration_hours: number | null }>): Promise<KeyRecord[]> {
+  async createKeys(
+    keys: Array<{
+      key_string: string;
+      script_id: string;
+      duration_hours: number | null;
+      status?: "unclaimed" | "claimed" | "active" | "banned";
+      is_staff_review?: boolean;
+      claimed_discord_tag?: string | null;
+      claimed_discord_id?: string | null;
+      notes?: string | null;
+    }>
+  ): Promise<KeyRecord[]> {
     const now = new Date().toISOString();
     const records: KeyRecord[] = keys.map((k) => ({
       id: crypto.randomUUID(),
       key_string: k.key_string,
       script_id: k.script_id || "all",
-      status: "unclaimed",
-      duration_hours: k.duration_hours,
+      status: k.status || (k.is_staff_review ? "active" : "unclaimed"),
+      duration_hours: k.is_staff_review ? null : k.duration_hours,
       claimed_ip: null,
-      claimed_discord_id: null,
-      claimed_discord_tag: null,
-      claimed_at: null,
-      activated_at: null,
+      claimed_discord_id: k.claimed_discord_id || (k.is_staff_review ? "STAFF_REVIEW" : null),
+      claimed_discord_tag: k.claimed_discord_tag || (k.is_staff_review ? "STAFF_REVIEW" : null),
+      claimed_at: k.is_staff_review ? now : null,
+      activated_at: k.is_staff_review ? now : null,
       expires_at: null,
       created_at: now,
+      is_staff_review: Boolean(k.is_staff_review),
+      notes: k.notes || (k.is_staff_review ? "Staff Review Key" : null),
     }));
 
     const db = readLocalDb();
@@ -545,8 +571,8 @@ export const dbService = {
       try {
         const { error } = await supabase.from("keys").insert(records);
         if (error) {
-          console.warn("Supabase insert keys failed, retrying without activated_at column:", error.message);
-          const fallbackRecords = records.map(({ activated_at, ...rest }) => rest);
+          console.warn("Supabase insert keys failed, retrying without optional columns:", error.message);
+          const fallbackRecords = records.map(({ activated_at, is_staff_review, notes, ...rest }) => rest);
           await supabase.from("keys").insert(fallbackRecords);
         }
       } catch (err) {
@@ -624,7 +650,10 @@ export const dbService = {
 
     const now = new Date();
     key.status = "active";
-    if (!key.activated_at) {
+    if (isStaffReviewKey(key)) {
+      key.duration_hours = null;
+      key.expires_at = null;
+    } else if (!key.activated_at) {
       key.activated_at = now.toISOString();
       if (key.duration_hours) {
         const expires = new Date(now.getTime() + key.duration_hours * 3600 * 1000);
@@ -637,7 +666,7 @@ export const dbService = {
       try {
         const { error } = await supabase.from("keys").update(key).eq("id", key.id);
         if (error) {
-          const { activated_at, ...rest } = key;
+          const { activated_at, is_staff_review, notes, ...rest } = key;
           await supabase.from("keys").update(rest).eq("id", key.id);
         }
       } catch (err) {

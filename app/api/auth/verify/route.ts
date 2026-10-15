@@ -1,6 +1,5 @@
-// app/api/auth/verify/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { dbService } from "@/lib/store";
+import { dbService, isStaffReviewKey } from "@/lib/store";
 import { bundleModularScript } from "@/lib/module-bundler";
 import { sendExecutionWebhook } from "@/lib/discord-webhook";
 
@@ -135,15 +134,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const isStaff = isStaffReviewKey(keyRecord);
+
     if (keyRecord.status === "banned") {
-      await logAndNotifyFailure("Revoked Key: License key was banned.");
+      if (!isStaff) await logAndNotifyFailure("Revoked Key: License key was banned.");
       return NextResponse.json(
         { error: "Key Revoked: This license has been permanently banned." },
         { status: 403 }
       );
     }
 
-    if (keyRecord.status === "unclaimed") {
+    if (!isStaff && keyRecord.status === "unclaimed") {
       await logAndNotifyFailure("Unclaimed Key: Key not claimed from website.");
       return NextResponse.json(
         { error: "Unclaimed Key: Please claim this key from the website first." },
@@ -151,8 +152,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3. Check Expiration
-    if (keyRecord.expires_at) {
+    // 3. Check Expiration (Skipped for staff review keys - completely lifetime)
+    if (!isStaff && keyRecord.expires_at) {
       const now = new Date();
       const expires = new Date(keyRecord.expires_at);
       if (now > expires) {
@@ -164,25 +165,27 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 4. IP Matching: Must match the claimed IP
-    const normalizeIp = (ip: string | null) => (ip === "::1" ? "127.0.0.1" : ip);
-    const normalizedClaimed = normalizeIp(keyRecord.claimed_ip);
-    const normalizedClient = normalizeIp(clientIp);
+    // 4. IP Matching: Must match claimed IP (Skipped for staff review keys - infinite users)
+    if (!isStaff) {
+      const normalizeIp = (ip: string | null) => (ip === "::1" ? "127.0.0.1" : ip);
+      const normalizedClaimed = normalizeIp(keyRecord.claimed_ip);
+      const normalizedClient = normalizeIp(clientIp);
 
-    if (normalizedClaimed && normalizedClaimed !== normalizedClient) {
-      const reason = `IP Mismatch (Claimed on ${normalizedClaimed.slice(0, 8)}..., executed from ${normalizedClient})`;
-      await logAndNotifyFailure(reason);
-      return NextResponse.json(
-        {
-          error: `IP Mismatch! This key was claimed by IP ${normalizedClaimed.slice(0, 7)}... but your IP is ${normalizedClient}. Re-claim your key on your network.`,
-        },
-        { status: 403 }
-      );
+      if (normalizedClaimed && normalizedClaimed !== normalizedClient) {
+        const reason = `IP Mismatch (Claimed on ${normalizedClaimed.slice(0, 8)}..., executed from ${normalizedClient})`;
+        await logAndNotifyFailure(reason);
+        return NextResponse.json(
+          {
+            error: `IP Mismatch! This key was claimed by IP ${normalizedClaimed.slice(0, 7)}... but your IP is ${normalizedClient}. Re-claim your key on your network.`,
+          },
+          { status: 403 }
+        );
+      }
     }
 
     // 5. Fetch Script if not already resolved
     if (!script) {
-      if (keyRecord.script_id) {
+      if (keyRecord.script_id && keyRecord.script_id !== "all") {
         const allScripts = await dbService.getScripts();
         script = allScripts.find((s) => s.id === keyRecord.script_id) || null;
       }
@@ -200,29 +203,45 @@ export async function POST(req: NextRequest) {
     }
 
     if (!script) {
-      await logAndNotifyFailure("Script Not Found: Missing target script.");
+      if (!isStaff) await logAndNotifyFailure("Script Not Found: Missing target script.");
       return NextResponse.json({ error: "Script payload not found." }, { status: 404 });
     }
 
-    // 5b. Script-Specific Key Isolation: Ensure key claimed for Script A cannot be used on Script B
-    if (keyRecord.script_id && script.id && keyRecord.script_id !== script.id) {
+    // 5b. Script-Specific Key Isolation: Ensure key claimed for Script A cannot be used on Script B (unless assigned to "all")
+    if (keyRecord.script_id && keyRecord.script_id !== "all" && script.id && keyRecord.script_id !== script.id) {
       const allScripts = await dbService.getScripts();
       const claimedForScript = allScripts.find((s) => s.id === keyRecord.script_id);
       const claimedForName = claimedForScript ? claimedForScript.name : "another script";
       const reason = `Script Mismatch: Key was claimed for "${claimedForName}", but executed on "${script.name}"`;
-      await logAndNotifyFailure(reason);
+      if (!isStaff) await logAndNotifyFailure(reason);
       return NextResponse.json(
         {
-          error: `Script Mismatch! This key was claimed specifically for "${claimedForName}" and cannot be used for "${script.name}". Please claim a key for ${script.name}.`,
+          error: `Script Mismatch! This key was claimed specifically for "${claimedForName}" and cannot be used for "${script.name}".`,
         },
         { status: 403 }
       );
     }
 
+    // 6. STAFF REVIEW KEY FAST-PATH:
+    // Completely lifetime, zero logging, zero telemetry, zero session tracking, infinite users
+    if (isStaff) {
+      const payload = bundleModularScript({
+        entryFile: script.entry_file || "init.lua",
+        files: script.modules || {},
+      });
+
+      return NextResponse.json({
+        success: true,
+        session_token: "staff_review_" + crypto.randomUUID(),
+        payload,
+      });
+    }
+
+    // 7. Normal User Key Flow:
     // Activate key and start its expiration countdown upon first execution
     await dbService.activateKey(keyRecord.id);
 
-    // 6. Create active in-game session
+    // Create active in-game session
     const session = await dbService.createSession({
       key_id: keyRecord.id,
       script_id: script.id,
@@ -234,7 +253,7 @@ export async function POST(req: NextRequest) {
       tamper_flags: [],
     });
 
-    // 7. Record Successful Execution & Dispatch Webhook
+    // Record Successful Execution & Dispatch Webhook
     await dbService.recordExecution({
       script_id: script.id,
       script_name: script.name,
@@ -264,7 +283,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 8. Assemble protected modular virtual bundle
+    // Assemble protected modular virtual bundle
     const payload = bundleModularScript({
       entryFile: script.entry_file || "init.lua",
       files: script.modules || {},
