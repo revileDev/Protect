@@ -78,6 +78,28 @@ export default function ClaimKeyPage() {
   const [discordInvite, setDiscordInvite] = useState("https://discord.gg/AeCYnnQmq5");
   const [discordJoined, setDiscordJoined] = useState(false);
 
+  const checkAlreadyClaimed = async (slugToCheck: string) => {
+    try {
+      const url = slugToCheck
+        ? `/api/claim?script_slug=${encodeURIComponent(slugToCheck)}`
+        : "/api/claim";
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.already_claimed && data.key) {
+        setClaimedKey(data.key);
+        setBoundIp(data.bound_ip);
+        setExpiresAt(data.expires_at);
+        setAlreadyClaimed(true);
+        setStep("claimed");
+        if (data.discord_invite_url) {
+          setDiscordInvite(data.discord_invite_url);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   useEffect(() => {
     let slug = "";
     let id = "";
@@ -89,6 +111,9 @@ export default function ClaimKeyPage() {
       setClaimId(id);
     }
 
+    // Check if claimant IP has already claimed an active key for this script
+    checkAlreadyClaimed(slug);
+
     // Fetch active scripts
     fetch("/api/scripts")
       .then((res) => res.json())
@@ -99,6 +124,7 @@ export default function ClaimKeyPage() {
           if (!slug && active.length === 1) {
             setScriptSlug(active[0].slug);
             setTargetScript(active[0]);
+            checkAlreadyClaimed(active[0].slug);
           }
         }
       })
@@ -472,6 +498,7 @@ export default function ClaimKeyPage() {
                             setScriptSlug(s.slug);
                             setTargetScript(s);
                             setError(null);
+                            checkAlreadyClaimed(s.slug);
                             fetch(`/api/checkpoints?script_slug=${encodeURIComponent(s.slug)}`)
                               .then((r) => r.json())
                               .then((d) => {
@@ -686,14 +713,25 @@ export default function ClaimKeyPage() {
             {/* =================================================================== */}
             {step === "claimed" && claimedKey && (
               <div className="space-y-4">
-                <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-center">
-                  <ShieldCheck className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
+                <div
+                  className={`p-4 rounded-xl border text-center ${
+                    alreadyClaimed
+                      ? "bg-amber-500/10 border-amber-500/30"
+                      : "bg-emerald-500/10 border-emerald-500/30"
+                  }`}
+                >
+                  {alreadyClaimed ? (
+                    <Key className="w-8 h-8 text-amber-400 mx-auto mb-2 animate-bounce" />
+                  ) : (
+                    <ShieldCheck className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
+                  )}
                   <h3 className="text-sm font-bold text-white">
-                    {alreadyClaimed ? "Existing Active License Key" : "License Key Allocated"}
+                    {alreadyClaimed ? "You Have Already Claimed a Key" : "License Key Allocated"}
                   </h3>
                   <p className="text-[11px] text-gray-300 mt-1">
-                    Bound to IP: <code>{boundIp || "Your Network IP"}</code>.
-                    {alreadyClaimed && " (Each IP address is restricted to 1 active key)."}
+                    Bound to IP: <code className="text-blue-300 font-mono">{boundIp || "Your Network IP"}</code>.
+                    {alreadyClaimed &&
+                      " You have already claimed an active license key for this script. If you need another key, join our Discord server."}
                   </p>
                 </div>
 
@@ -737,22 +775,23 @@ export default function ClaimKeyPage() {
                 )}
 
                 {/* Discord Renewal Card */}
-                <div className="p-4 rounded-xl bg-[#151824] border border-indigo-500/30 space-y-2.5">
+                <div className="p-4 rounded-xl bg-gradient-to-br from-[#121422] to-[#18162b] border border-[#5865F2]/40 space-y-3 shadow-lg shadow-[#5865F2]/10">
                   <div className="flex items-center gap-2 text-xs font-bold text-white">
-                    <MessageSquare className="w-4 h-4 text-indigo-400" />
-                    <span>Need Key Renewal or Another Key?</span>
+                    <MessageSquare className="w-4 h-4 text-[#5865F2]" />
+                    <span>Need Another Key or Key Renewal?</span>
                   </div>
                   <p className="text-[11px] text-gray-300 leading-relaxed">
-                    Users can claim one active key per network. Once your timer expires or if you require an additional key, join our community Discord to request a renewal.
+                    Users can claim one active key per network. If you need another key, want to reset your IP binding, or request a renewal, join our official Discord server below!
                   </p>
                   <a
                     href={discordInvite}
                     target="_blank"
                     rel="noreferrer"
-                    className="w-full py-2 px-3 rounded-lg bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold text-xs transition-all flex items-center justify-center gap-2"
+                    className="w-full py-2.5 px-4 rounded-xl bg-[#5865F2] hover:bg-[#4752C4] text-white font-bold text-xs transition-all flex items-center justify-center gap-2 shadow-md shadow-[#5865F2]/30"
                   >
-                    Join Discord Server
-                    <ArrowRight className="w-3.5 h-3.5" />
+                    <MessageSquare className="w-4 h-4" />
+                    <span>Join Discord to Get Another Key</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
                   </a>
                 </div>
 

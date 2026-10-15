@@ -41,6 +41,45 @@ async function isVpnOrProxy(req: NextRequest, ip: string): Promise<boolean> {
   return false;
 }
 
+export async function GET(req: NextRequest) {
+  try {
+    const ip = getClientIp(req);
+    const { searchParams } = new URL(req.url);
+    const script_slug = searchParams.get("script") || searchParams.get("script_slug") || "";
+    const script_id = searchParams.get("script_id") || "";
+
+    let targetScriptId = script_id;
+    if (!targetScriptId && script_slug) {
+      const script = await dbService.getScriptBySlug(script_slug);
+      if (script) targetScriptId = script.id;
+    }
+
+    const existingKey = await dbService.getActiveKeyForIp(ip, targetScriptId);
+    const settings = await dbService.getSettings();
+
+    if (existingKey) {
+      return NextResponse.json({
+        already_claimed: true,
+        key: existingKey.key_string,
+        duration_hours: existingKey.duration_hours,
+        bound_ip: existingKey.claimed_ip,
+        expires_at: existingKey.expires_at,
+        discord_invite_url: settings.discord_invite_url || "https://discord.gg/AeCYnnQmq5",
+        message:
+          "You have already claimed a license key for this script on your IP address. If you need another key, please join our Discord.",
+      });
+    }
+
+    return NextResponse.json({
+      already_claimed: false,
+      discord_invite_url: settings.discord_invite_url || "https://discord.gg/AeCYnnQmq5",
+    });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Error checking active key";
+    return NextResponse.json({ error: errorMsg }, { status: 500 });
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
