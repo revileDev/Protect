@@ -26,6 +26,17 @@ const commands = [
     .setName("setuptickets")
     .setDescription("Configure ticket panel, category, transcripts, and helper role (Owner / Admin only)")
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+  new SlashCommandBuilder()
+    .setName("update")
+    .setDescription("Find all members with no roles and assign a role to them (Admin only)")
+    .addRoleOption((option) =>
+      option
+        .setName("role")
+        .setDescription("The role to assign to members without roles (leave blank to select interactively)")
+        .setRequired(false)
+    )
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 ].map((cmd) => cmd.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(token);

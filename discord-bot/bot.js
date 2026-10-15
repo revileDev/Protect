@@ -180,6 +180,97 @@ client.on("guildMemberRemove", async (member) => {
 });
 
 // ============================================================================
+// HELPER: BULK ASSIGN ROLE TO MEMBERS WITHOUT ROLES
+// ============================================================================
+async function assignRoleToMembersWithoutRoles(interaction, targetRole) {
+  const botMember = await interaction.guild.members.fetchMe();
+  if (!botMember.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
+    return interaction.editReply({
+      content: "❌ The bot lacks the **Manage Roles** permission. Please grant the bot this permission in server settings and try again.",
+      components: [],
+    });
+  }
+
+  if (targetRole.id === interaction.guild.id) {
+    return interaction.editReply({
+      content: "❌ You cannot assign the `@everyone` role.",
+      components: [],
+    });
+  }
+
+  if (targetRole.managed) {
+    return interaction.editReply({
+      content: `❌ The role **${targetRole.name}** is managed by an integration or bot and cannot be assigned manually.`,
+      components: [],
+    });
+  }
+
+  if (targetRole.position >= botMember.roles.highest.position) {
+    return interaction.editReply({
+      content: `❌ The role **${targetRole.name}** is positioned higher than or equal to my highest role (**${botMember.roles.highest.name}**). Please move my bot role higher in Server Settings > Roles.`,
+      components: [],
+    });
+  }
+
+  await interaction.editReply({
+    content: "🔍 Fetching all server members and identifying users without roles...",
+    components: [],
+  });
+
+  const allMembers = await interaction.guild.members.fetch();
+  const noRoleMembers = allMembers.filter(
+    (m) => !m.user.bot && m.roles.cache.filter((r) => r.id !== interaction.guild.id).size === 0
+  );
+
+  if (noRoleMembers.size === 0) {
+    return interaction.editReply({
+      content: `✅ All members in **${interaction.guild.name}** already have at least one role assigned. No actions taken.`,
+      components: [],
+    });
+  }
+
+  const total = noRoleMembers.size;
+  await interaction.editReply({
+    content: `⏳ Found **${total}** member(s) with no roles. Assigning <@&${targetRole.id}>...`,
+    components: [],
+  });
+
+  let assignedCount = 0;
+  let failedCount = 0;
+
+  for (const [, member] of noRoleMembers) {
+    try {
+      await member.roles.add(targetRole);
+      assignedCount++;
+    } catch (err) {
+      console.error(`[AeroBot] Failed to assign role to ${member.user.tag}:`, err);
+      failedCount++;
+    }
+
+    if (total > 5) {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle("Role Update Complete")
+    .setColor(0x10b981)
+    .setDescription(`Successfully processed role assignment for members without roles.`)
+    .addFields(
+      { name: "Target Role", value: `<@&${targetRole.id}>`, inline: true },
+      { name: "Successfully Assigned", value: `**${assignedCount}** / ${total}`, inline: true },
+      { name: "Failed", value: `${failedCount}`, inline: true }
+    )
+    .setTimestamp();
+
+  return interaction.editReply({
+    content: null,
+    embeds: [embed],
+    components: [],
+  });
+}
+
+// ============================================================================
 // 2. SLASH COMMAND INTERACTIONS
 // ============================================================================
 client.on("interactionCreate", async (interaction) => {
@@ -450,6 +541,72 @@ client.on("interactionCreate", async (interaction) => {
       content: `Ticket system setup complete.\n• Panel: <#${session.data.panelChannelId}>\n• Category: <#${session.data.categoryId}>\n• Transcripts: <#${session.data.transcriptChannelId}>\n• Helper Role: <@&${session.data.helperRoleId}>\nTicket panel posted in <#${session.data.panelChannelId}>.`,
       components: [],
     });
+  }
+
+  // --------------------------------------------------------------------------
+  // /update (Bulk assign role to members without any roles)
+  // --------------------------------------------------------------------------
+  if (interaction.isChatInputCommand() && interaction.commandName === "update") {
+    if (!isOwner) {
+      return interaction.reply({
+        content: "Only the server owner or administrators can run this update command.",
+        ephemeral: true,
+      });
+    }
+
+    await interaction.deferReply({ ephemeral: true });
+
+    const targetRole = interaction.options.getRole("role");
+    if (targetRole) {
+      return assignRoleToMembersWithoutRoles(interaction, targetRole);
+    }
+
+    // If no role was passed directly in the command, fetch members and show interactive dropdown
+    const allMembers = await interaction.guild.members.fetch();
+    const noRoleMembers = allMembers.filter(
+      (m) => !m.user.bot && m.roles.cache.filter((r) => r.id !== interaction.guild.id).size === 0
+    );
+
+    if (noRoleMembers.size === 0) {
+      return interaction.editReply({
+        content: `✅ All members in **${interaction.guild.name}** already have at least one role assigned. No actions needed.`,
+      });
+    }
+
+    const roleSelect = new RoleSelectMenuBuilder()
+      .setCustomId("update_select_assign_role")
+      .setPlaceholder("Select a role to assign to all roleless members");
+
+    const row = new ActionRowBuilder().addComponents(roleSelect);
+
+    return interaction.editReply({
+      content: `Found **${noRoleMembers.size}** member(s) with no roles assigned.\nSelect the role you would like to assign to all of them below:`,
+      components: [row],
+    });
+  }
+
+  // Handle Role Selection menu from /update
+  if (interaction.isRoleSelectMenu() && interaction.customId === "update_select_assign_role") {
+    if (!isOwner) {
+      return interaction.reply({
+        content: "Only the server owner or administrators can perform this action.",
+        ephemeral: true,
+      });
+    }
+
+    await interaction.deferUpdate();
+
+    const selectedRoleId = interaction.values[0];
+    const targetRole = interaction.guild.roles.cache.get(selectedRoleId);
+
+    if (!targetRole) {
+      return interaction.editReply({
+        content: "❌ Selected role could not be found.",
+        components: [],
+      });
+    }
+
+    return assignRoleToMembersWithoutRoles(interaction, targetRole);
   }
 
   // --------------------------------------------------------------------------
