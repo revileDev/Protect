@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
         key_string: generateRandomKey(prefix),
         script_id,
         duration_hours: duration_hours ? Number(duration_hours) : null,
+        notes: notes && notes.trim() ? notes.trim() : null,
       });
     }
 
@@ -72,10 +73,15 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
-    const { id, status } = body;
-    if (!id || !status) return NextResponse.json({ error: "Missing id or status" }, { status: 400 });
+    const { id, status, notes } = body;
+    if (!id) return NextResponse.json({ error: "Missing key id" }, { status: 400 });
 
-    await dbService.updateKeyStatus(id, status);
+    if (status) {
+      await dbService.updateKeyStatus(id, status);
+    }
+    if (notes !== undefined) {
+      await dbService.updateKeyNotes(id, notes && notes.trim() ? notes.trim() : null);
+    }
     return NextResponse.json({ success: true });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : "Error updating key";

@@ -3,7 +3,23 @@
 
 import React, { useState, useEffect } from "react";
 import type { KeyRecord, ScriptRecord } from "@/lib/store";
-import { Key, Plus, Copy, Check, Trash2, Ban, ShieldCheck, Filter, Clock, CheckCircle2, Shield } from "lucide-react";
+import {
+  Key,
+  Plus,
+  Copy,
+  Check,
+  Trash2,
+  Ban,
+  ShieldCheck,
+  Filter,
+  Clock,
+  CheckCircle2,
+  Shield,
+  Sparkles,
+  Edit3,
+  X,
+  FileText,
+} from "lucide-react";
 
 function isStaffReviewKey(k: KeyRecord | null | undefined): boolean {
   if (!k) return false;
@@ -15,6 +31,12 @@ function isStaffReviewKey(k: KeyRecord | null | undefined): boolean {
   );
 }
 
+function isLifetimePaidKey(k: KeyRecord | null | undefined): boolean {
+  if (!k) return false;
+  if (isStaffReviewKey(k)) return false;
+  return k.duration_hours === null || k.duration_hours === undefined;
+}
+
 export default function KeysPage() {
   const [keys, setKeys] = useState<KeyRecord[]>([]);
   const [scripts, setScripts] = useState<ScriptRecord[]>([]);
@@ -22,13 +44,19 @@ export default function KeysPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>("all");
 
-  // Generator modal (Regular batch)
+  // Generator modal (Regular batch / Lifetime)
   const [showGenModal, setShowGenModal] = useState(false);
-  const [genCount, setGenCount] = useState(10);
+  const [genCount, setGenCount] = useState(1);
   const [genPrefix, setGenPrefix] = useState("AERO");
   const [genScriptId, setGenScriptId] = useState("");
   const [genDuration, setGenDuration] = useState<string>("lifetime");
+  const [genNotes, setGenNotes] = useState("");
   const [generating, setGenerating] = useState(false);
+
+  // Note editing state for existing keys
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editNoteValue, setEditNoteValue] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
 
   // Staff Review Key modal
   const [showStaffModal, setShowStaffModal] = useState(false);
@@ -90,6 +118,7 @@ export default function KeysPage() {
           prefix: genPrefix,
           script_id: genScriptId,
           duration_hours: durationHours,
+          notes: genNotes.trim() || null,
         }),
       });
 
@@ -97,11 +126,44 @@ export default function KeysPage() {
       if (data.keys) {
         setKeys((prev) => [...data.keys, ...prev]);
         setShowGenModal(false);
+        setGenNotes("");
       }
     } catch (err) {
       console.error(err);
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const startEditNote = (k: KeyRecord) => {
+    setEditingNoteId(k.id);
+    setEditNoteValue(k.notes || "");
+  };
+
+  const cancelEditNote = () => {
+    setEditingNoteId(null);
+    setEditNoteValue("");
+  };
+
+  const handleSaveNote = async (id: string) => {
+    setSavingNote(true);
+    try {
+      const trimmed = editNoteValue.trim();
+      const res = await fetch("/api/keys", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, notes: trimmed || null }),
+      });
+      if (res.ok) {
+        setKeys((prev) =>
+          prev.map((k) => (k.id === id ? { ...k, notes: trimmed || null } : k))
+        );
+        setEditingNoteId(null);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSavingNote(false);
     }
   };
 
@@ -168,12 +230,14 @@ export default function KeysPage() {
   const filteredKeys = keys.filter((k) => {
     if (filterStatus === "all") return true;
     if (filterStatus === "staff") return isStaffReviewKey(k);
+    if (filterStatus === "lifetime") return isLifetimePaidKey(k);
     if (isStaffReviewKey(k)) return false;
     return k.status === filterStatus;
   });
 
   const staffCount = keys.filter((k) => isStaffReviewKey(k)).length;
-  const unclaimedCount = keys.filter((k) => !isStaffReviewKey(k) && k.status === "unclaimed").length;
+  const lifetimePaidCount = keys.filter((k) => isLifetimePaidKey(k)).length;
+  const unclaimedCount = keys.filter((k) => !isStaffReviewKey(k) && !isLifetimePaidKey(k) && k.status === "unclaimed").length;
   const claimedNotActivatedCount = keys.filter((k) => !isStaffReviewKey(k) && k.status === "claimed").length;
   const activatedCount = keys.filter((k) => !isStaffReviewKey(k) && k.status === "active").length;
   const bannedCount = keys.filter((k) => k.status === "banned").length;
@@ -184,6 +248,21 @@ export default function KeysPage() {
         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-purple-500/15 text-purple-300 border border-purple-500/40 shadow-sm shadow-purple-500/10">
           <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
           <span>( Staff Review Key )</span>
+        </span>
+      );
+    }
+    if (isLifetimePaidKey(key)) {
+      if (key.status === "banned") {
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/30 shadow-sm">
+            <span>( Banned Lifetime )</span>
+          </span>
+        );
+      }
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/35 shadow-sm">
+          <Sparkles className="w-3 h-3 text-emerald-400" />
+          <span>{key.status === "active" ? "( Active Lifetime )" : "( Paid Lifetime )"}</span>
         </span>
       );
     }
@@ -258,40 +337,49 @@ export default function KeysPage() {
       </div>
 
       {/* Metric Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3.5">
-        <div className="bg-[#12141d] border border-purple-500/30 p-4 rounded-xl shadow-sm">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="bg-[#12141d] border border-purple-500/30 p-3.5 rounded-xl shadow-sm">
           <span className="text-[11px] font-medium text-purple-400 uppercase tracking-wider block">
             ( Staff Review )
           </span>
           <p className="text-xl font-bold text-purple-300 mt-1">{staffCount}</p>
-          <span className="text-[10px] text-gray-500">Infinite users • Untracked</span>
+          <span className="text-[10px] text-gray-500">Infinite • Untracked</span>
         </div>
 
-        <div className="bg-[#12141d] border border-gray-800 p-4 rounded-xl">
+        <div className="bg-[#12141d] border border-emerald-500/30 p-3.5 rounded-xl shadow-sm">
+          <span className="text-[11px] font-medium text-emerald-400 uppercase tracking-wider block flex items-center gap-1">
+            <Sparkles className="w-3 h-3 text-emerald-400" />
+            ( Paid Lifetime )
+          </span>
+          <p className="text-xl font-bold text-emerald-300 mt-1">{lifetimePaidCount}</p>
+          <span className="text-[10px] text-emerald-500/80">Direct buyers • Auto-IP</span>
+        </div>
+
+        <div className="bg-[#12141d] border border-gray-800 p-3.5 rounded-xl">
           <span className="text-[11px] font-medium text-amber-400 uppercase tracking-wider block">
-            ( Not Claimed )
+            ( Checkpoint Pool )
           </span>
           <p className="text-xl font-bold text-amber-300 mt-1">{unclaimedCount}</p>
-          <span className="text-[10px] text-gray-500">Available in pool</span>
+          <span className="text-[10px] text-gray-500">Timed keys for /claim</span>
         </div>
 
-        <div className="bg-[#12141d] border border-gray-800 p-4 rounded-xl">
+        <div className="bg-[#12141d] border border-gray-800 p-3.5 rounded-xl">
           <span className="text-[11px] font-medium text-blue-400 uppercase tracking-wider block">
-            ( Claimed Not Activated )
+            ( Claimed )
           </span>
           <p className="text-xl font-bold text-blue-300 mt-1">{claimedNotActivatedCount}</p>
-          <span className="text-[10px] text-gray-500">Timer not started yet</span>
+          <span className="text-[10px] text-gray-500">Timer not started</span>
         </div>
 
-        <div className="bg-[#12141d] border border-gray-800 p-4 rounded-xl">
-          <span className="text-[11px] font-medium text-emerald-400 uppercase tracking-wider block">
+        <div className="bg-[#12141d] border border-gray-800 p-3.5 rounded-xl">
+          <span className="text-[11px] font-medium text-cyan-400 uppercase tracking-wider block">
             ( Activated )
           </span>
-          <p className="text-xl font-bold text-emerald-300 mt-1">{activatedCount}</p>
+          <p className="text-xl font-bold text-cyan-300 mt-1">{activatedCount}</p>
           <span className="text-[10px] text-gray-500">Executed & running</span>
         </div>
 
-        <div className="bg-[#12141d] border border-gray-800 p-4 rounded-xl">
+        <div className="bg-[#12141d] border border-gray-800 p-3.5 rounded-xl">
           <span className="text-[11px] font-medium text-rose-400 uppercase tracking-wider block">
             ( Banned )
           </span>
@@ -308,7 +396,8 @@ export default function KeysPage() {
           {[
             { id: "all", label: "All Keys" },
             { id: "staff", label: "( Staff Review Keys )" },
-            { id: "unclaimed", label: "( Not claimed )" },
+            { id: "lifetime", label: "💎 ( Paid Lifetime )" },
+            { id: "unclaimed", label: "( Checkpoint Pool )" },
             { id: "claimed", label: "( Claimed not activated )" },
             { id: "active", label: "( Activated )" },
             { id: "banned", label: "( Banned )" },
@@ -339,7 +428,7 @@ export default function KeysPage() {
                 <th className="p-3.5">Status Badge</th>
                 <th className="p-3.5">Assigned Script</th>
                 <th className="p-3.5">Bound IP Address</th>
-                <th className="p-3.5">Claimed Discord</th>
+                <th className="p-3.5">Note / Discord</th>
                 <th className="p-3.5">Duration / Expiration Status</th>
                 <th className="p-3.5 text-right">Actions</th>
               </tr>
@@ -358,6 +447,7 @@ export default function KeysPage() {
               ) : (
                 filteredKeys.map((k) => {
                   const boundScript = scripts.find((s) => s.id === k.script_id);
+                  const isLifetime = isLifetimePaidKey(k);
                   return (
                     <tr key={k.id} className="hover:bg-gray-800/30 transition-colors">
                       <td className="p-3.5">
@@ -366,6 +456,11 @@ export default function KeysPage() {
                           {isStaffReviewKey(k) && (
                             <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">
                               STAFF
+                            </span>
+                          )}
+                          {isLifetime && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                              PAID
                             </span>
                           )}
                           <button
@@ -411,21 +506,82 @@ export default function KeysPage() {
                           </span>
                         ) : k.claimed_ip ? (
                           <span className="text-blue-300">{k.claimed_ip}</span>
+                        ) : isLifetime ? (
+                          <span className="text-emerald-500/80 font-sans text-[11px]">Unbound (Binds on 1st run)</span>
                         ) : (
                           <span className="text-gray-600">Unbound</span>
                         )}
                       </td>
 
-                      {/* Discord */}
-                      <td className="p-3.5 text-gray-300 whitespace-nowrap">
-                        {isStaffReviewKey(k) ? (
-                          <span className="text-purple-300 font-medium text-[11px]">
-                            {k.notes || "Staff Review Key"}
-                          </span>
-                        ) : k.claimed_discord_tag ? (
-                          <span className="text-indigo-400 font-medium">@{k.claimed_discord_tag}</span>
+                      {/* Note & Discord */}
+                      <td className="p-3.5 text-gray-300">
+                        {editingNoteId === k.id ? (
+                          <div className="flex items-center gap-1.5 min-w-[200px]">
+                            <input
+                              type="text"
+                              value={editNoteValue}
+                              onChange={(e) => setEditNoteValue(e.target.value)}
+                              placeholder="Buyer name, Discord, order #..."
+                              className="w-full bg-[#0d0f17] border border-blue-500/80 rounded px-2 py-1 text-[11px] text-white outline-none"
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleSaveNote(k.id);
+                                if (e.key === "Escape") cancelEditNote();
+                              }}
+                            />
+                            <button
+                              type="button"
+                              disabled={savingNote}
+                              onClick={() => handleSaveNote(k.id)}
+                              className="p-1 rounded bg-blue-600 hover:bg-blue-500 text-white"
+                              title="Save Note"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={cancelEditNote}
+                              className="p-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-400"
+                              title="Cancel"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         ) : (
-                          <span className="text-gray-600">N/A</span>
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1.5 group">
+                              {k.notes ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-amber-500/10 text-amber-300 border border-amber-500/25 max-w-[180px]">
+                                  <FileText className="w-3 h-3 text-amber-400 shrink-0" />
+                                  <span className="truncate">{k.notes}</span>
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => startEditNote(k)}
+                                  className="text-[10px] text-gray-500 hover:text-gray-300 flex items-center gap-1 border border-dashed border-gray-700 rounded px-1.5 py-0.5 hover:border-gray-500 transition-colors"
+                                >
+                                  <Edit3 className="w-2.5 h-2.5" />
+                                  + Note
+                                </button>
+                              )}
+                              {k.notes && (
+                                <button
+                                  type="button"
+                                  onClick={() => startEditNote(k)}
+                                  className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-white transition-opacity"
+                                  title="Edit Note"
+                                >
+                                  <Edit3 className="w-3 h-3" />
+                                </button>
+                              )}
+                            </div>
+                            {k.claimed_discord_tag && (
+                              <div className="text-[10px] text-indigo-400">
+                                @{k.claimed_discord_tag}
+                              </div>
+                            )}
+                          </div>
                         )}
                       </td>
 
@@ -438,6 +594,16 @@ export default function KeysPage() {
                             </span>
                             <span className="block text-[10px] text-purple-400/90 font-medium">
                               Zero tracking • No logging
+                            </span>
+                          </div>
+                        ) : isLifetime ? (
+                          <div>
+                            <span className="text-emerald-300 font-bold flex items-center gap-1">
+                              <Sparkles className="w-3 h-3 text-emerald-400" />
+                              Permanent Lifetime
+                            </span>
+                            <span className="block text-[10px] text-emerald-400/80">
+                              {k.status === "active" ? "Active (Locked to bound IP)" : "Paid key • Auto-binds on 1st run"}
                             </span>
                           </div>
                         ) : k.status === "unclaimed" ? (
@@ -481,6 +647,14 @@ export default function KeysPage() {
                         <div className="flex items-center justify-end gap-2">
                           <button
                             type="button"
+                            onClick={() => startEditNote(k)}
+                            className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+                            title="Edit Note"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleStatusToggle(k)}
                             className={`p-1.5 rounded transition-colors ${
                               k.status === "banned"
@@ -517,7 +691,7 @@ export default function KeysPage() {
             <div className="flex items-center justify-between border-b border-gray-800 pb-3">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <Key className="w-4 h-4 text-blue-400" />
-                Generate Keys into Pool
+                Generate License Keys
               </h3>
               <button
                 type="button"
@@ -536,6 +710,7 @@ export default function KeysPage() {
                   onChange={(e) => setGenScriptId(e.target.value)}
                   className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-lg px-3 py-2 text-white outline-none focus:border-blue-500"
                 >
+                  <option value="all">All Scripts (Universal)</option>
                   {scripts.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name} (/{s.slug})
@@ -543,7 +718,7 @@ export default function KeysPage() {
                   ))}
                 </select>
                 <p className="text-[10px] text-gray-500 mt-1">
-                  Keys will be locked exclusively to this script.
+                  Keys can be locked to a specific script or universal to all scripts.
                 </p>
               </div>
 
@@ -577,15 +752,44 @@ export default function KeysPage() {
                   onChange={(e) => setGenDuration(e.target.value)}
                   className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-lg px-3 py-2 text-white outline-none focus:border-blue-500"
                 >
-                  <option value="24h">24 Hours</option>
-                  <option value="7d">7 Days</option>
-                  <option value="30d">30 Days</option>
-                  <option value="lifetime">Lifetime (Permanent)</option>
+                  <option value="lifetime">Lifetime (Permanent - Paid User)</option>
+                  <option value="24h">24 Hours (Checkpoint Pool)</option>
+                  <option value="7d">7 Days (Checkpoint Pool)</option>
+                  <option value="30d">30 Days (Checkpoint Pool)</option>
                 </select>
-                <p className="text-[10px] text-emerald-400 mt-1">
-                  Duration countdown will only begin after the user&apos;s first execution in-game.
-                </p>
               </div>
+
+              <div>
+                <label className="block text-gray-300 font-semibold mb-1">
+                  Note / Buyer Label <span className="text-gray-500 font-normal">(Optional, e.g. Discord, order #)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Buyer: JohnDoe#1234, Order #4102"
+                  value={genNotes}
+                  onChange={(e) => setGenNotes(e.target.value)}
+                  className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-lg px-3 py-2 text-white outline-none focus:border-blue-500 placeholder-gray-600"
+                />
+              </div>
+
+              {genDuration === "lifetime" ? (
+                <div className="bg-emerald-950/25 border border-emerald-500/30 rounded-xl p-3 text-[11px] text-emerald-200 space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-emerald-300">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Paid Lifetime Key Mode
+                  </div>
+                  <p className="text-emerald-300/80">
+                    • <strong>Excluded from Claim Pool:</strong> Users completing checkpoints on the website will NEVER receive this key.
+                  </p>
+                  <p className="text-emerald-300/80">
+                    • <strong>Direct Execution:</strong> Deliver directly to your paid buyer. It activates and locks to their IP automatically on their first in-game run.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-[10px] text-amber-400 mt-1">
+                  Timed keys enter the checkpoint pool for users claiming keys via website checkpoints.
+                </p>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-800">

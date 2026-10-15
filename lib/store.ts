@@ -652,6 +652,8 @@ export const dbService = {
       if (k.status !== "unclaimed") return false;
       if (isStaffReviewKey(k) || k.is_staff_review) return false;
       if (k.claimed_discord_tag === "STAFF_REVIEW" || k.claimed_discord_id === "STAFF_REVIEW") return false;
+      // Lifetime keys (duration_hours === null) are exclusively for paid direct buyers and cannot be claimed via checkpoints
+      if (k.duration_hours === null || k.duration_hours === undefined) return false;
 
       // Universal keys (script_id is "all", null, or empty) are eligible for ANY script
       if (!k.script_id || k.script_id === "all" || k.script_id === "") return true;
@@ -672,6 +674,7 @@ export const dbService = {
           .from("keys")
           .select("*")
           .eq("status", "unclaimed")
+          .not("duration_hours", "is", null)
           .order("created_at", { ascending: true })
           .limit(200);
 
@@ -773,7 +776,7 @@ export const dbService = {
     return key;
   },
 
-  async activateKey(id: string): Promise<KeyRecord | null> {
+  async activateKey(id: string, ip?: string): Promise<KeyRecord | null> {
     let key: KeyRecord | null = null;
     const db = readLocalDb();
     const local = db.keys.find((k) => k.id === id);
@@ -792,6 +795,10 @@ export const dbService = {
 
     const now = new Date();
     key.status = "active";
+    if (ip && !key.claimed_ip) {
+      key.claimed_ip = ip;
+      key.claimed_at = now.toISOString();
+    }
     if (isStaffReviewKey(key)) {
       key.duration_hours = null;
       key.expires_at = null;
@@ -823,6 +830,25 @@ export const dbService = {
       }
     }
     return key;
+  },
+
+  async updateKeyNotes(id: string, notes: string | null) {
+    const db = readLocalDb();
+    const key = db.keys.find((k) => k.id === id);
+    if (key) {
+      key.notes = notes;
+      writeLocalDb(db);
+    }
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { error } = await supabase.from("keys").update({ notes }).eq("id", id);
+        if (error) {
+          console.warn("Supabase updateKeyNotes error:", error.message);
+        }
+      } catch (err) {
+        console.error("Supabase updateKeyNotes exception:", err);
+      }
+    }
   },
 
   async getKeyByString(keyString: string): Promise<KeyRecord | null> {

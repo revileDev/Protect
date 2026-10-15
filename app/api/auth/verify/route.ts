@@ -145,11 +145,29 @@ export async function POST(req: NextRequest) {
     }
 
     if (!isStaff && keyRecord.status === "unclaimed") {
-      await logAndNotifyFailure("Unclaimed Key: Key not claimed from website.");
-      return NextResponse.json(
-        { error: "Unclaimed Key: Please claim this key from the website first." },
-        { status: 403 }
-      );
+      // Paid lifetime keys are given directly to buyers and do not require claiming via the website
+      if (keyRecord.duration_hours === null || keyRecord.duration_hours === undefined) {
+        const nowIso = new Date().toISOString();
+        keyRecord.status = "active";
+        keyRecord.claimed_ip = clientIp;
+        keyRecord.claimed_at = nowIso;
+        keyRecord.activated_at = nowIso;
+        await dbService.activateKey(keyRecord.id, clientIp);
+      } else {
+        await logAndNotifyFailure("Unclaimed Key: Key not claimed from website.");
+        return NextResponse.json(
+          { error: "Unclaimed Key: Please claim this key from the website first." },
+          { status: 403 }
+        );
+      }
+    }
+
+    // Auto-bind IP for lifetime key if claimed_ip is not bound yet
+    if (!isStaff && (keyRecord.duration_hours === null || keyRecord.duration_hours === undefined) && !keyRecord.claimed_ip) {
+      keyRecord.claimed_ip = clientIp;
+      keyRecord.claimed_at = new Date().toISOString();
+      keyRecord.status = "active";
+      await dbService.activateKey(keyRecord.id, clientIp);
     }
 
     // 3. Check Expiration (Skipped for staff review keys - completely lifetime)
@@ -172,11 +190,14 @@ export async function POST(req: NextRequest) {
       const normalizedClient = normalizeIp(clientIp);
 
       if (normalizedClaimed && normalizedClaimed !== normalizedClient) {
-        const reason = `IP Mismatch (Claimed on ${normalizedClaimed.slice(0, 8)}..., executed from ${normalizedClient})`;
+        const isLifetime = keyRecord.duration_hours === null || keyRecord.duration_hours === undefined;
+        const reason = `IP Mismatch (Bound to ${normalizedClaimed.slice(0, 8)}..., executed from ${normalizedClient})`;
         await logAndNotifyFailure(reason);
         return NextResponse.json(
           {
-            error: `IP Mismatch! This key was claimed by IP ${normalizedClaimed.slice(0, 7)}... but your IP is ${normalizedClient}. Re-claim your key on your network.`,
+            error: isLifetime
+              ? `IP Mismatch! This paid lifetime key is locked to IP ${normalizedClaimed.slice(0, 7)}... but your IP is ${normalizedClient}.`
+              : `IP Mismatch! This key was claimed by IP ${normalizedClaimed.slice(0, 7)}... but your IP is ${normalizedClient}. Re-claim your key on your network.`,
           },
           { status: 403 }
         );
