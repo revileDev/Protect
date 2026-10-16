@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dbService, SessionCommand } from "@/lib/store";
 import { getClientIp } from "@/lib/ip";
+import { hmacSha256 } from "@/lib/crypto-util";
 
 export async function POST(req: NextRequest) {
   try {
@@ -26,14 +27,17 @@ export async function POST(req: NextRequest) {
       job_id,
     });
 
-    // If client reported tamper flags (e.g. hookfunction detour on HttpGet/require)
+    // If client reported tamper flags (e.g. hookfunction detour on loadstring/pcall)
     if (Array.isArray(tamper_flags) && tamper_flags.length > 0) {
       session.tamper_flags = Array.from(new Set([...(session.tamper_flags || []), ...tamper_flags]));
-      return NextResponse.json({
-        status: "ok",
-        action: "kick",
-        reason: "[AERO AUTH] Security Integrity Violation: Unauthorized hooks or metatable detours detected.",
-      });
+      const hasCritical = tamper_flags.some((f: unknown) => typeof f === "string" && f.startsWith("CRITICAL"));
+      if (hasCritical) {
+        return NextResponse.json({
+          status: "ok",
+          action: "kick",
+          reason: "[AERO AUTH] Security Integrity Violation: Unauthorized hooks or memory detours detected.",
+        });
+      }
     }
 
     // 1. Check if explicitly kicked by admin
@@ -101,6 +105,8 @@ export async function POST(req: NextRequest) {
       return s.status === "active" && pingTime >= threshold;
     }).length;
 
+    const leaseToken = hmacSha256(session.id, Date.now() + ":" + Math.random().toString(36).slice(2));
+
     return NextResponse.json({
       status: "ok",
       online_count: Math.max(1, onlineCount),
@@ -110,6 +116,8 @@ export async function POST(req: NextRequest) {
       commands,
       expires_at: expiresAt,
       remaining_seconds: remainingSeconds,
+      lease_token: leaseToken,
+      lease_expires: Date.now() + 15000,
     });
   } catch (err: unknown) {
     // Fail OPEN: transient network hiccups should NEVER terminate player games

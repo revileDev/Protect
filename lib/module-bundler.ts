@@ -1,17 +1,34 @@
 // lib/module-bundler.ts
-// Secure Virtual File System and Module Bundler for Lua scripts
+// Secure Virtual File System and Dynamic Modular Streaming Engine for Luau scripts
+import { obfuscateLuau } from "@/lib/obfuscator";
 
 export interface ModuleBundle {
   entryFile: string;
-  files: Record<string, string>; // { "init.lua": "...", "modules/combat.lua": "..." }
+  files: Record<string, string>;
+  dynamicStreaming?: boolean;
+  slug?: string;
+  sessionToken?: string;
+  baseUrl?: string;
+  key?: string;
+  obfuscate?: boolean;
 }
 
 /**
  * Packs multiple Lua files into a self-contained runtime bundle with an in-memory virtual `require` environment.
- * The entry point script executes automatically with access to all virtual modules.
+ * Supports Zero-Knowledge Dynamic Streaming (fetching modules just-in-time over authenticated sessions).
  */
 export function bundleModularScript(bundle: ModuleBundle): string {
-  const { entryFile, files } = bundle;
+  const {
+    entryFile,
+    files,
+    dynamicStreaming = false,
+    slug = "",
+    sessionToken = "",
+    baseUrl = "",
+    key = "",
+    obfuscate = true,
+  } = bundle;
+
   // Normalize entry file lookup
   const cleanEntry = entryFile.replace(/\\/g, "/");
   const entryBase = cleanEntry.split("/").pop() || cleanEntry;
@@ -28,37 +45,61 @@ export function bundleModularScript(bundle: ModuleBundle): string {
   const moduleEntries: string[] = [];
   const registeredKeys = new Set<string>();
 
-  for (const [filePath, content] of Object.entries(files)) {
-    if (filePath === entryFile || filePath === cleanEntry) continue;
+  // If dynamic streaming is NOT active, embed the non-entry modules locally
+  if (!dynamicStreaming) {
+    for (const [filePath, content] of Object.entries(files)) {
+      if (filePath === entryFile || filePath === cleanEntry) continue;
 
-    // Normalize path keys (support both "modules/combat", "modules/combat.lua", and basenames)
-    const cleanKey = filePath.replace(/\\/g, "/");
-    const keyWithoutExt = cleanKey.replace(/\.lua$/i, "");
-    const baseName = cleanKey.split("/").pop() || cleanKey;
-    const baseNameWithoutExt = baseName.replace(/\.lua$/i, "");
+      const cleanKey = filePath.replace(/\\/g, "/");
+      const keyWithoutExt = cleanKey.replace(/\.lua$/i, "");
+      const baseName = cleanKey.split("/").pop() || cleanKey;
+      const baseNameWithoutExt = baseName.replace(/\.lua$/i, "");
 
-    // Escape Lua string or wrap as function
-    const escapedContent = `function()
--- [[ Module: ${cleanKey} ]]
+      const escapedContent = `function()
 ${content}
 end`;
 
-    const registerKey = (k: string) => {
-      if (!registeredKeys.has(k)) {
-        registeredKeys.add(k);
-        moduleEntries.push(`    ["${k}"] = ${escapedContent}`);
-      }
-    };
+      const registerKey = (k: string) => {
+        if (!registeredKeys.has(k)) {
+          registeredKeys.add(k);
+          moduleEntries.push(`    ["${k}"] = ${escapedContent}`);
+        }
+      };
 
-    registerKey(cleanKey);
-    if (keyWithoutExt !== cleanKey) registerKey(keyWithoutExt);
-    if (baseName !== cleanKey) registerKey(baseName);
-    if (baseNameWithoutExt !== keyWithoutExt && baseNameWithoutExt !== baseName) registerKey(baseNameWithoutExt);
+      registerKey(cleanKey);
+      if (keyWithoutExt !== cleanKey) registerKey(keyWithoutExt);
+      if (baseName !== cleanKey) registerKey(baseName);
+      if (baseNameWithoutExt !== keyWithoutExt && baseNameWithoutExt !== baseName) registerKey(baseNameWithoutExt);
+    }
   }
 
   const modulesTable = moduleEntries.join(",\n");
 
-  return `--[[
+  const streamingRequireLogic = dynamicStreaming && slug && sessionToken
+    ? `
+    -- Dynamic Just-In-Time Module Streamer
+    local _streamBase = "${baseUrl}/api/loader/${slug}/"
+    local _sessionToken = "${sessionToken}"
+    local _licenseKey = "${encodeURIComponent(key)}"
+    local _http = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
+    
+    if _http then
+        local _cleanMod = normalized:gsub("%.lua$", "")
+        local _targetUrl = _streamBase .. _cleanMod .. ".lua?session=" .. _sessionToken .. "&key=" .. _licenseKey
+        local _res = _http({ Url = _targetUrl, Method = "GET" })
+        if _res and _res.StatusCode == 200 and _res.Body and not _res.Body:find("Error:") then
+            local _fn, _err = loadstring(_res.Body)
+            if _fn then
+                local _dynResult = _fn()
+                if _dynResult == nil then _dynResult = true end
+                __VFS_CACHE[normalized] = _dynResult
+                return _dynResult
+            end
+        end
+    end`
+    : "";
+
+  const assembledBundle = `--[[
   =======================================================
   AERO SECURE VIRTUAL MODULE RUNTIME
   Protected In-Memory Virtual File System
@@ -73,7 +114,7 @@ local __VFS_CACHE = {}
 -- Virtual require hook
 local original_require = require
 local function __vfs_require(moduleName)
-    local normalized = tostring(moduleName):gsub("\\\\", "/")
+    local normalized = tostring(moduleName):gsub("\\", "/")
     if __VFS_CACHE[normalized] then
         return __VFS_CACHE[normalized]
     end
@@ -81,12 +122,13 @@ local function __vfs_require(moduleName)
     local loader = __VFS_MODULES[normalized] or __VFS_MODULES[normalized .. ".lua"]
     if loader then
         local result = loader()
+        if result == nil then result = true end
         __VFS_CACHE[normalized] = result
         return result
     end
-
-    -- Fallback to standard require if not in virtual bundle
-    if original_require then
+${streamingRequireLogic}
+    -- Fallback to standard require for non-string (e.g. Instance/asset ID)
+    if original_require and type(moduleName) ~= "string" then
         return original_require(moduleName)
     end
     error("[AeroVFS] Module not found in virtual registry: " .. tostring(moduleName))
@@ -103,4 +145,14 @@ do
 ${entryContent}
 end
 `;
+
+  if (obfuscate) {
+    try {
+      return obfuscateLuau(assembledBundle);
+    } catch {
+      return assembledBundle;
+    }
+  }
+
+  return assembledBundle;
 }

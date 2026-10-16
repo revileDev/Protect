@@ -5,6 +5,44 @@ import { bundleModularScript } from "@/lib/module-bundler";
 import { getClientIp } from "@/lib/ip";
 import { wrapPolymorphicLuau } from "@/lib/polymorphic";
 
+// In-memory sliding window rate limiter
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT_MAX = 20; // Max requests per window
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 60 seconds
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  if (rateLimitMap.size > 5000) {
+    rateLimitMap.forEach((value, key) => {
+      if (now > value.resetAt) rateLimitMap.delete(key);
+    });
+  }
+  const record = rateLimitMap.get(ip);
+  if (!record || now > record.resetAt) {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return true;
+  }
+  if (record.count >= RATE_LIMIT_MAX) {
+    return false;
+  }
+  record.count += 1;
+  return true;
+}
+
+function isMaliciousScraper(userAgent: string): boolean {
+  const lower = userAgent.toLowerCase();
+  return (
+    lower.includes("python-requests") ||
+    lower.includes("aiohttp") ||
+    lower.includes("scrapy") ||
+    lower.includes("wget") ||
+    lower.includes("go-http-client") ||
+    lower.includes("postmanruntime") ||
+    lower.includes("insomnia") ||
+    (lower.includes("curl") && !lower.includes("roblox"))
+  );
+}
+
 function isBrowserRequest(req: NextRequest): boolean {
   const accept = req.headers.get("accept") || "";
   const secFetchMode = req.headers.get("sec-fetch-mode") || "";
@@ -258,9 +296,39 @@ export async function GET(
   { params }: { params: { slug: string } }
 ) {
   const { slug } = params;
+  const clientIp = getClientIp(req);
+  const userAgent = (req.headers.get("user-agent") || "").toLowerCase();
+
+  // 1. IP Rate Limiting Guard
+  if (!checkRateLimit(clientIp)) {
+    return new NextResponse(
+      `-- Error: Rate limit exceeded.\ngame.Players.LocalPlayer:Kick("[AERO AUTH] Rate Limit Exceeded. Try again in 60s.")`,
+      {
+        status: 429,
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Retry-After": "60",
+          "Cache-Control": "no-store, max-age=0",
+        },
+      }
+    );
+  }
+
   const script = await dbService.getScriptBySlug(slug);
 
-  // If accessed from a web browser, NEVER show script or loader code! Show the protected page instead.
+  // 2. Automated Web Scraper & Crawlers Blocker
+  if (isMaliciousScraper(userAgent)) {
+    const html = renderProtectedPage(slug, script ? script.name : slug);
+    return new NextResponse(html, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store, max-age=0",
+      },
+    });
+  }
+
+  // 3. Browser Access Gate
   if (isBrowserRequest(req)) {
     const html = renderProtectedPage(slug, script ? script.name : slug);
     return new NextResponse(html, {
@@ -403,7 +471,11 @@ warn("[AERO AUTH] Script '${slug}' is currently under maintenance: ${safeMsg}")`
     status: 200,
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "no-store, max-age=0",
+      "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, proxy-revalidate",
+      "Pragma": "no-cache",
+      "X-Content-Type-Options": "nosniff",
+      "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet",
+      "X-Frame-Options": "DENY",
     },
   });
 }

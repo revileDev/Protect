@@ -161,3 +161,99 @@ export function constantTimeEquals(a: string, b: string): boolean {
   }
   return diff === 0;
 }
+
+/**
+ * Universal RC4 stream cipher with 1024-byte initial drop.
+ * Synchronous and universal across Node, Edge, and pure Luau on the client.
+ */
+export function rc4EncryptHex(key: string, data: string): string {
+  if (!key || key.length === 0) throw new Error("Key cannot be empty");
+  const s = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) s[i] = i;
+
+  let j = 0;
+  for (let i = 0; i < 256; i++) {
+    j = (j + s[i] + key.charCodeAt(i % key.length)) & 255;
+    const tmp = s[i];
+    s[i] = s[j];
+    s[j] = tmp;
+  }
+
+  // 1024-round drop to discard weak initial pseudo-random bytes (Fluhrer-Mantin-Shamir defense)
+  let i = 0;
+  j = 0;
+  for (let drop = 0; drop < 1024; drop++) {
+    i = (i + 1) & 255;
+    j = (j + s[i]) & 255;
+    const tmp = s[i];
+    s[i] = s[j];
+    s[j] = tmp;
+  }
+
+  // Encrypt character by character (supports UTF-8 byte stream)
+  const encoder = typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
+  const rawBytes: Uint8Array = encoder ? encoder.encode(data) : Buffer.from(data, "utf8");
+
+  let hexResult = "";
+  for (let k = 0; k < rawBytes.length; k++) {
+    i = (i + 1) & 255;
+    j = (j + s[i]) & 255;
+    const tmp = s[i];
+    s[i] = s[j];
+    s[j] = tmp;
+
+    const keystreamByte = s[(s[i] + s[j]) & 255];
+    const encryptedByte = rawBytes[k] ^ keystreamByte;
+    hexResult += encryptedByte.toString(16).padStart(2, "0");
+  }
+
+  return hexResult;
+}
+
+/**
+ * Encrypts an execution payload using an ephemeral session key and HMAC signature
+ */
+export function encryptSessionPayload(
+  payload: string,
+  secretKey: string,
+  nonce: string
+): { encryptedHex: string; signature: string; nonce: string } {
+  const encryptedHex = rc4EncryptHex(secretKey, payload);
+  const signature = hmacSha256(secretKey, encryptedHex + ":" + nonce);
+  return { encryptedHex, signature, nonce };
+}
+
+/**
+ * Validates an encrypted session payload's cryptographic integrity
+ */
+export function verifySessionPayload(
+  encryptedHex: string,
+  secretKey: string,
+  signature: string,
+  nonce: string
+): boolean {
+  const expectedSig = hmacSha256(secretKey, encryptedHex + ":" + nonce);
+  return constantTimeEquals(expectedSig, signature);
+}
+
+// In-memory sliding replay protection cache (5-minute TTL)
+const nonceCache = new Map<string, number>();
+const NONCE_TTL_MS = 5 * 60 * 1000;
+
+export function isNonceReplayed(nonce: string): boolean {
+  const now = Date.now();
+  // Periodic cleanup if cache grows
+  if (nonceCache.size > 2000) {
+    nonceCache.forEach((expiresAt, key) => {
+      if (now > expiresAt) nonceCache.delete(key);
+    });
+  }
+  const expiresAt = nonceCache.get(nonce);
+  return expiresAt !== undefined && now < expiresAt;
+}
+
+export function recordUsedNonce(nonce: string): void {
+  nonceCache.set(nonce, Date.now() + NONCE_TTL_MS);
+}
+
+

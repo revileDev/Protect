@@ -3,6 +3,7 @@ import { dbService, isStaffReviewKey, type ScriptRecord } from "@/lib/store";
 import { bundleModularScript } from "@/lib/module-bundler";
 import { sendExecutionWebhook } from "@/lib/discord-webhook";
 import { getClientIp } from "@/lib/ip";
+import { encryptSessionPayload, isNonceReplayed, recordUsedNonce } from "@/lib/crypto-util";
 
 async function lookupIsp(ip: string): Promise<string> {
   if (ip === "127.0.0.1" || ip === "::1" || ip.startsWith("192.168.") || ip.startsWith("10.")) {
@@ -48,7 +49,39 @@ export async function POST(req: NextRequest) {
       place_id,
       place_name,
       job_id,
+      timestamp,
+      client_nonce,
     } = body;
+
+    // 1. Replay & Timestamp Verification Guard
+    if (timestamp === undefined || timestamp === null) {
+      return NextResponse.json(
+        { error: "Verification timestamp required." },
+        { status: 400 }
+      );
+    }
+    const clientTime = Number(timestamp);
+    const serverTime = Math.floor(Date.now() / 1000);
+    if (isNaN(clientTime) || Math.abs(serverTime - clientTime) > 90) {
+      return NextResponse.json(
+        { error: "Verification timestamp expired or out of sync (±90s tolerance)." },
+        { status: 403 }
+      );
+    }
+
+    if (!client_nonce || typeof client_nonce !== "string" || client_nonce.trim() === "") {
+      return NextResponse.json(
+        { error: "Verification client nonce required." },
+        { status: 400 }
+      );
+    }
+    if (isNonceReplayed(client_nonce)) {
+      return NextResponse.json(
+        { error: "Security Alert: Verification nonce replay detected." },
+        { status: 403 }
+      );
+    }
+    recordUsedNonce(client_nonce);
 
     clientIp = getClientIp(req);
     robloxUser = roblox_username || "Unknown";
@@ -273,6 +306,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: mMsg }, { status: 403 });
     }
 
+    const protocol = req.headers.get("x-forwarded-proto") || "http";
+    const host = req.headers.get("host") || "localhost:3000";
+    const baseUrl = `${protocol}://${host}`;
+
     // 6. STAFF REVIEW KEY FAST-PATH:
     // Completely lifetime, zero user PII, anonymous staff review session tracking
     if (isStaff) {
@@ -283,10 +320,20 @@ export async function POST(req: NextRequest) {
         key_label: keyRecord.notes || "Staff Review Key",
       });
 
-      const payload = bundleModularScript({
+      const rawPayload = bundleModularScript({
         entryFile: script.entry_file || "init.lua",
         files: script.modules || {},
+        dynamicStreaming: true,
+        slug: script.slug,
+        sessionToken: staffReview.id,
+        baseUrl,
+        key: (key || keyRecord.key_string || "").trim(),
+        obfuscate: true,
       });
+
+      const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      const secretKey = `${staffReview.id}_${(key || "").trim()}_${nonce}`;
+      const { encryptedHex, signature } = encryptSessionPayload(rawPayload, secretKey, nonce);
 
       return NextResponse.json({
         success: true,
@@ -295,7 +342,9 @@ export async function POST(req: NextRequest) {
         is_admin_key: true,
         expires_at: null,
         duration_hours: null,
-        payload,
+        encrypted_payload: encryptedHex,
+        payload_signature: signature,
+        nonce,
       });
     }
 
@@ -354,18 +403,36 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Assemble protected modular virtual bundle
-    const payload = bundleModularScript({
+    // Assemble protected modular virtual bundle with Dynamic Zero-Knowledge Streaming
+    const rawPayload = bundleModularScript({
       entryFile: script.entry_file || "init.lua",
       files: script.modules || {},
+      dynamicStreaming: true,
+      slug: script.slug,
+      sessionToken: session.id,
+      baseUrl,
+      key: (key || keyRecord.key_string || "").trim(),
+      obfuscate: true,
     });
+
+    const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    const secretKey = `${session.id}_${(key || "").trim()}_${nonce}`;
+    const { encryptedHex, signature } = encryptSessionPayload(rawPayload, secretKey, nonce);
+    let remainingSeconds: number | null = null;
+    if (keyRecord.expires_at) {
+      const diffMs = new Date(keyRecord.expires_at).getTime() - Date.now();
+      remainingSeconds = Math.max(0, Math.floor(diffMs / 1000));
+    }
 
     return NextResponse.json({
       success: true,
       session_token: session.id,
       expires_at: keyRecord.expires_at,
       duration_hours: keyRecord.duration_hours,
-      payload,
+      remaining_seconds: remainingSeconds,
+      encrypted_payload: encryptedHex,
+      payload_signature: signature,
+      nonce,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Internal verification error";

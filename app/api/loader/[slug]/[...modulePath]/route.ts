@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dbService } from "@/lib/store";
 import { isAuthenticated } from "@/lib/auth";
+import { wrapPolymorphicLuau } from "@/lib/polymorphic";
 
 function isBrowserRequest(req: NextRequest): boolean {
   const accept = req.headers.get("accept") || "";
@@ -152,11 +153,15 @@ export async function GET(
     );
   }
 
-  return new NextResponse(matchedContent, {
+  return new NextResponse(wrapPolymorphicLuau(matchedContent), {
     status: 200,
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "no-store, max-age=0",
+      "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, proxy-revalidate",
+      "Pragma": "no-cache",
+      "X-Content-Type-Options": "nosniff",
+      "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet",
+      "X-Frame-Options": "DENY",
     },
   });
 }

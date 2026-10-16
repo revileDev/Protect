@@ -94,12 +94,71 @@ export function generateLuaLoader(
   =======================================================
 ]]--
 
+-- =======================================================
+-- NATIVE CLOSURE LOCALIZATION & ANTI-TAMPER INTEGRITY
+-- =======================================================
+local _pcall = pcall
+local _xpcall = xpcall
+local _loadstring = loadstring
+local _type = type
+local _typeof = typeof
+local _tostring = tostring
+local _tonumber = tonumber
+local _error = error
+local _string = string
+local _table = table
+local _math = math
+local _task = task
+
+-- Environment Anti-Tamper & Closure Hook Verification
+local function detectTampering()
+    local flags = {}
+    _pcall(function()
+        local _isl = (typeof(islclosure) == "function" and islclosure) or nil
+        if _isl then
+            if _isl(_loadstring) then _table.insert(flags, "CRITICAL: loadstring hooked") end
+            if _isl(_pcall) then _table.insert(flags, "CRITICAL: pcall hooked") end
+            if _type(_string) == "table" and _isl(_string.byte) then _table.insert(flags, "string.byte hooked") end
+            if _type(_table) == "table" and _isl(_table.concat) then _table.insert(flags, "table.concat hooked") end
+        end
+    end)
+    _pcall(function()
+        if getrawmetatable then
+            local gmt = getrawmetatable(game)
+            if gmt and _type(gmt) == "table" and gmt.__index and _type(gmt.__index) == "function" then
+                local _isl = (typeof(islclosure) == "function" and islclosure) or nil
+                if _isl and _isl(gmt.__index) then
+                    _table.insert(flags, "WARNING: game metamethod hooked")
+                end
+            end
+        end
+    end)
+    if 1 + 1 ~= 2 or _math.abs(-5) ~= 5 then
+        _table.insert(flags, "CRITICAL: Arithmetic invariants corrupted")
+    end
+    return flags
+end
+
 local HttpService = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
+
+-- Preflight Integrity Check: Terminate immediately if execution environment is critically tampered
+local _preflightFlags = detectTampering()
+local _hasPreflightCritical = false
+for _, _f in ipairs(_preflightFlags) do
+    if _f:sub(1, 8) == "CRITICAL" then
+        _hasPreflightCritical = true
+        break
+    end
+end
+if _hasPreflightCritical then
+    LocalPlayer:Kick("[${config.brand_name || "AERO"}] Security Error 0x8004100E: Client Environment Modified.")
+    return
+end
 
 local BASE_URL = "${baseUrl}"
 local SCRIPT_SLUG = "${scriptSlug}"
@@ -109,6 +168,53 @@ local httpRequest = (syn and syn.request) or (http and http.request) or http_req
 if not httpRequest then
     LocalPlayer:Kick("[${config.brand_name || "AERO"}] Your executor does not support HTTP requests.")
     return
+end
+
+-- Universal In-Memory RC4 Decryptor (1024-byte drop, zero memory footprint)
+local function decryptSessionPayload(hexCiphertext, secretKey)
+    if not hexCiphertext or not secretKey or #secretKey == 0 then return nil end
+    local s = _table.create(256)
+    for i = 0, 255 do s[i] = i end
+    local j = 0
+    local klen = #secretKey
+    for i = 0, 255 do
+        local kcode = _string.byte(secretKey, (i % klen) + 1)
+        j = (j + s[i] + kcode) % 256
+        local tmp = s[i]
+        s[i] = s[j]
+        s[j] = tmp
+    end
+    local i = 0
+    j = 0
+    for drop = 1, 1024 do
+        i = (i + 1) % 256
+        j = (j + s[i]) % 256
+        local tmp = s[i]
+        s[i] = s[j]
+        s[j] = tmp
+    end
+    local hexLen = #hexCiphertext
+    local bytesCount = _math.floor(hexLen / 2)
+    local outTbl = _table.create(bytesCount)
+    local _bxor = (bit32 and bit32.bxor) or function(a, b) return a ~ b end
+
+    for k = 1, bytesCount do
+        i = (i + 1) % 256
+        j = (j + s[i]) % 256
+        local tmp = s[i]
+        s[i] = s[j]
+        s[j] = tmp
+
+        local keystreamByte = s[(s[i] + s[j]) % 256]
+        local hexByteStr = _string.sub(hexCiphertext, (k - 1) * 2 + 1, (k - 1) * 2 + 2)
+        local encByte = _tonumber(hexByteStr, 16) or 0
+        outTbl[k] = _string.char(_bxor(encByte, keystreamByte))
+    end
+
+    local decrypted = _table.concat(outTbl)
+    for z = 1, bytesCount do outTbl[z] = "" end
+    outTbl = nil
+    return decrypted
 end
 
 -- Safe Clipboard Helper
@@ -129,15 +235,63 @@ local function safeSetClipboard(str)
     return copied
 end
 
--- Get unique HWID / Client Identifier
+-- Multi-Attribute Composite Hardware Fingerprinting Engine
 local function getHWID()
-    local hwid = ""
-    pcall(function()
-        if gethwid then hwid = gethwid() end
-        if hwid == "" and get_hwid then hwid = get_hwid() end
+    local parts = {}
+
+    -- 1. Primary Executor Hardware Identifier
+    local primaryHwid = ""
+    _pcall(function()
+        if gethwid then primaryHwid = _tostring(gethwid()) end
+        if primaryHwid == "" and get_hwid then primaryHwid = _tostring(get_hwid()) end
     end)
-    if hwid == "" then hwid = tostring(LocalPlayer.UserId) end
-    return hwid
+    _table.insert(parts, primaryHwid)
+
+    -- 2. RbxAnalytics Client ID
+    _pcall(function()
+        local rbxAnalytics = game:GetService("RbxAnalyticsService")
+        if rbxAnalytics and rbxAnalytics.GetClientId then
+            _table.insert(parts, _tostring(rbxAnalytics:GetClientId()))
+        end
+    end)
+
+    -- 3. Viewport & Rendering Surface Metrics
+    _pcall(function()
+        local cam = workspace.CurrentCamera
+        if cam and cam.ViewportSize then
+            _table.insert(parts, _tostring(cam.ViewportSize.X) .. "x" .. _tostring(cam.ViewportSize.Y))
+        end
+    end)
+
+    -- 4. Localization Profile
+    _pcall(function()
+        local loc = game:GetService("LocalizationService")
+        if loc and loc.RobloxLocaleId then
+            _table.insert(parts, _tostring(loc.RobloxLocaleId))
+        end
+    end)
+
+    -- 5. User ID Anchor
+    _table.insert(parts, _tostring(LocalPlayer.UserId))
+
+    local rawFingerprint = _table.concat(parts, "|#|")
+
+    -- 64-bit Non-linear composite hash into 16-hex format
+    local h1 = 0x811c9dc5
+    local h2 = 0x534acf2e
+    local _bx = (bit32 and bit32.bxor) or function(a, b) return a ~ b end
+    for i = 1, #rawFingerprint do
+        local b = _string.byte(rawFingerprint, i)
+        h1 = (_bx(h1, b) * 16777619) % 4294967296
+        h2 = (_bx(h2, b) * 16777619) % 4294967296
+    end
+
+    local hashPart = string.format("%08x%08x", h1, h2)
+    if primaryHwid ~= "" then
+        return hashPart .. "_" .. primaryHwid:sub(1, 10)
+    else
+        return hashPart .. "_" .. _tostring(LocalPlayer.UserId)
+    end
 end
 
 local CLAIM_URL = BASE_URL .. "/claim?id=" .. getHWID() .. "&script=" .. SCRIPT_SLUG
@@ -404,26 +558,13 @@ end)
 -- =======================================================
 -- BACKGROUND TELEMETRY, WATERMARK & COMMAND RUNTIME
 -- =======================================================
-local function startProtectedRuntime(sessionToken, payloadCode, isAdminKey, initialRemainingSeconds)
+local function startProtectedRuntime(sessionToken, payloadData, isAdminKey, initialRemainingSeconds, nonce, userKey)
     -- Destroy Loader GUI smoothly
     ScreenGui:Destroy()
 
     -- Anti-Tamper & Metatable Integrity Verification
     local function verifyIntegrity()
-        local flags = {}
-        pcall(function()
-            if islclosure and isexecutorclosure then
-                if isexecutorclosure(tostring) or isexecutorclosure(string.byte) or isexecutorclosure(table.concat) then
-                    table.insert(flags, "Core string/table function hooked")
-                end
-            end
-        end)
-        pcall(function()
-            if getrawmetatable and string.find(tostring(getrawmetatable(game)), "mock") then
-                table.insert(flags, "Metatable proxy detected")
-            end
-        end)
-        return flags
+        return detectTampering()
     end
 ${
   showWatermark
@@ -728,7 +869,22 @@ ${
         end
     end
 
-    -- 7. Heartbeat Loop with Telemetry & Command Dispatching
+    -- 7. Heartbeat Loop with Dead Man's Switch Watchdog
+    local _lastHeartbeatSuccess = os.clock()
+    local _deadManActive = true
+
+    -- Independent Watchdog Task (Detects Network Interception / Proxy Dropping)
+    _task.spawn(function()
+        while _deadManActive do
+            _task.wait(2.0)
+            if not isAdminKey and (os.clock() - _lastHeartbeatSuccess > 18) then
+                _deadManActive = false
+                LocalPlayer:Kick("[${config.brand_name || "AERO AUTH"}] Security Watchdog: Session heartbeat timed out or blocked (Code 0x8004100D).")
+                break
+            end
+        end
+    end)
+
     task.spawn(function()
         local pingUrl = BASE_URL .. "/api/session/heartbeat"
         while task.wait(2.5) do
@@ -749,6 +905,7 @@ ${
             end)
 
             if success and res and res.StatusCode == 200 then
+                _lastHeartbeatSuccess = os.clock()
                 local data = nil
                 pcall(function() data = HttpService:JSONDecode(res.Body) end)
                 if data then
@@ -783,11 +940,44 @@ ${
         end
     end)
 
-    -- 8. Execute Main Protected Payload with Sandboxed Error Telemetry
-    local runPayload, loadErr = loadstring(payloadCode)
+    -- 8. Decrypt & Execute Main Protected Payload with Anti-Dump Protection
+    local finalCode = nil
+    if _type(payloadData) == "table" and payloadData.encrypted_payload then
+        local secretKey = sessionToken .. "_" .. _tostring(userKey or "") .. "_" .. _tostring(nonce or "")
+        finalCode = decryptSessionPayload(payloadData.encrypted_payload, secretKey)
+    elseif _type(payloadData) == "string" and payloadData ~= "" then
+        finalCode = payloadData
+    elseif _type(payloadData) == "table" and payloadData.payload then
+        finalCode = payloadData.payload
+    end
+
+    if not finalCode or finalCode == "" then
+        reportClientError("Payload Decryption Failed: Null or corrupted stream", "")
+        warn("[${config.brand_name || "AERO"}] Payload decryption failed.")
+        return
+    end
+
+    -- Re-check integrity before compilation to catch loadstring hooks placed during auth
+    local postTamper = detectTampering()
+    local hasPostCritical = false
+    for _, _f in ipairs(postTamper) do
+        if _f:sub(1, 8) == "CRITICAL" then
+            hasPostCritical = true
+            break
+        end
+    end
+    if hasPostCritical then
+        LocalPlayer:Kick("[${config.brand_name || "AERO"}] Security Violation: Loadstring hook detected during initialization.")
+        finalCode = nil
+        return
+    end
+
+    local runPayload, loadErr = _loadstring(finalCode)
+    finalCode = nil -- Zero source code string in memory immediately
+
     if runPayload then
-        task.spawn(function()
-            local success, runErr = xpcall(runPayload, function(err)
+        _task.spawn(function()
+            local success, runErr = _xpcall(runPayload, function(err)
                 local stack = (debug and debug.traceback and debug.traceback()) or ""
                 reportClientError(err, stack)
                 return err
@@ -818,6 +1008,7 @@ VerifyBtn.MouseButton1Click:Connect(function()
 
     task.spawn(function()
         local verifyUrl = BASE_URL .. "/api/auth/verify"
+        local clientNonce = (HttpService and HttpService.GenerateGUID and HttpService:GenerateGUID(false)) or ("nc_" .. _tostring(os.time()) .. "_" .. _tostring(_math.random(100000, 999999)))
         local success, response = pcall(function()
             return httpRequest({
                 Url = verifyUrl,
@@ -832,7 +1023,9 @@ VerifyBtn.MouseButton1Click:Connect(function()
                     place_id = tostring(game.PlaceId),
                     job_id = tostring(game.JobId),
                     executor = getExecutorName(),
-                    os = getClientOS()
+                    os = getClientOS(),
+                    timestamp = os.time(),
+                    client_nonce = clientNonce
                 })
             })
         end)
@@ -856,7 +1049,7 @@ VerifyBtn.MouseButton1Click:Connect(function()
                 StatusLabel.Text = "Verified! Launching script..."
             end
             task.wait(0.4)
-            startProtectedRuntime(data.session_token, data.payload, isAdmin, data.remaining_seconds)
+            startProtectedRuntime(data.session_token, data, isAdmin, data.remaining_seconds, data.nonce, key)
         else
             local err = (data and (data.error or data.message)) or ("Auth failed (HTTP " .. tostring(response.StatusCode) .. ")")
             StatusLabel.TextColor3 = Color3.fromRGB(240, 80, 80)
