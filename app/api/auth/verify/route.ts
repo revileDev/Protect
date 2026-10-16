@@ -99,6 +99,11 @@ async function lookupIsp(ip: string): Promise<string> {
   return "Generic ISP";
 }
 
+// In-memory sliding cache tracking failed key probes per IP to prevent brute-forcing
+const failedKeyAttempts = new Map<string, { count: number; firstAttempt: number }>();
+const MAX_FAILED_KEY_PROBES = 3;
+const FAILED_KEY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
 export async function POST(req: NextRequest) {
   let clientIp = "127.0.0.1";
   let targetScriptName = "Unknown Script";
@@ -259,12 +264,74 @@ export async function POST(req: NextRequest) {
       }
     };
 
-    if (!key) {
+    // 1. Parameter Tampering & Privilege Escalation Detection:
+    // Clients must NEVER submit duration, expiration, or privilege fields directly
+    if (
+      body.duration !== undefined ||
+      body.duration_hours !== undefined ||
+      body.expires_at !== undefined ||
+      body.is_staff !== undefined ||
+      body.is_admin !== undefined ||
+      body.is_staff_review !== undefined ||
+      body.lifetime !== undefined ||
+      body.status !== undefined
+    ) {
+      await dbService.autoBanOffender(
+        clientIp,
+        typeof key === "string" ? key.trim() : null,
+        "Privilege Escalation / Parameter Tampering: Client attempted to forge duration or privilege fields"
+      );
+      await logAndNotifyFailure("Security Alert: Unauthorized duration/privilege parameter tampering detected.");
+      return NextResponse.json(
+        {
+          error:
+            "[AERO AUTH] Security Integrity Violation: Parameter tampering detected. Both your current IP and key registration IP have been permanently banned.",
+        },
+        { status: 403 }
+      );
+    }
+
+    if (!key || typeof key !== "string" || key.trim() === "") {
       await logAndNotifyFailure("Missing Key: No license key provided.");
       return NextResponse.json({ error: "License key is required." }, { status: 400 });
     }
 
-    // 1. Check IP Ban status
+    const keyStr = key.trim();
+
+    // Check for malformed length or invalid characters
+    if (keyStr.length < 6 || keyStr.length > 64 || !/^[A-Za-z0-9_-]+$/.test(keyStr)) {
+      await logAndNotifyFailure(`Malformed Key: Invalid key syntax ('${keyStr.slice(0, 20)}')`);
+      return NextResponse.json({ error: "Invalid key format." }, { status: 400 });
+    }
+
+    // Check for obvious malicious probe patterns (SQLi, probe words, script tags)
+    const lowerKey = keyStr.toLowerCase();
+    const isProbe =
+      lowerKey.includes("'") ||
+      lowerKey.includes('"') ||
+      lowerKey.includes(";") ||
+      lowerKey.includes("--") ||
+      lowerKey.includes("/*") ||
+      lowerKey.includes(" or ") ||
+      lowerKey.includes("union") ||
+      lowerKey.includes("select") ||
+      lowerKey.includes("drop") ||
+      lowerKey.includes("admin") ||
+      lowerKey.includes("fake") ||
+      lowerKey.includes("test") ||
+      lowerKey.includes("null") ||
+      lowerKey.includes("undefined");
+
+    if (isProbe) {
+      await dbService.autoBanOffender(clientIp, null, `Malicious Key Probe Pattern Detected ('${keyStr.slice(0, 32)}')`);
+      await logAndNotifyFailure("Security Alert: Malicious key probe pattern detected.");
+      return NextResponse.json(
+        { error: "[AERO AUTH] Access Denied: Malicious key probe detected. Your IP has been banned." },
+        { status: 403 }
+      );
+    }
+
+    // 2. Check IP Ban status
     const isBanned = await dbService.isIpBanned(clientIp);
     if (isBanned) {
       await logAndNotifyFailure("IP Banned: Client IP is blacklisted.");
@@ -274,11 +341,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Critical Client Tamper Check: Automatically blacklists both current IP and original claimed_ip, and revokes key
+    // 3. Critical Client Tamper Check: Automatically blacklists both current IP and original claimed_ip, and revokes key
     if (Array.isArray(tamper_flags) && tamper_flags.some((f: unknown) => typeof f === "string" && f.startsWith("CRITICAL"))) {
       await dbService.autoBanOffender(
         clientIp,
-        key,
+        keyStr,
         `Critical Client Tampering Detected (Verify): ${tamper_flags.join("; ")}`
       );
       await logAndNotifyFailure(`Security Integrity Violation: Tampering detected (${tamper_flags.join(", ")})`);
@@ -291,15 +358,43 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3. Fetch Key Record
-    const keyRecord = await dbService.getKeyByString(key.trim());
+    // 4. Fetch Key Record strictly from database
+    const keyRecord = await dbService.getKeyByString(keyStr);
     if (!keyRecord) {
+      // Sliding window rate limit on failed key attempts to block brute-force / key guessing
+      const now = Date.now();
+      const probeRecord = failedKeyAttempts.get(clientIp);
+      if (!probeRecord || now - probeRecord.firstAttempt > FAILED_KEY_WINDOW_MS) {
+        failedKeyAttempts.set(clientIp, { count: 1, firstAttempt: now });
+      } else {
+        probeRecord.count += 1;
+        if (probeRecord.count >= MAX_FAILED_KEY_PROBES) {
+          failedKeyAttempts.delete(clientIp);
+          await dbService.autoBanOffender(
+            clientIp,
+            null,
+            `Brute-Force Key Guessing Attack (${probeRecord.count} invalid key probes in 5 minutes)`
+          );
+          await logAndNotifyFailure(`Brute-Force Key Guessing Attack (${probeRecord.count} probes)`);
+          return NextResponse.json(
+            {
+              error:
+                "[AERO AUTH] Security Alert: Multiple invalid key attempts detected. Your IP address has been permanently blacklisted.",
+            },
+            { status: 403 }
+          );
+        }
+      }
+
       await logAndNotifyFailure("Invalid Key: License key does not exist.");
       return NextResponse.json(
         { error: "Invalid Key: License key does not exist." },
         { status: 401 }
       );
     }
+
+    // Reset failed probe attempts on successful key lookup
+    failedKeyAttempts.delete(clientIp);
 
     const isStaff = isStaffReviewKey(keyRecord);
 

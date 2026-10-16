@@ -3,12 +3,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { dbService } from "@/lib/store";
 import { isAuthenticated } from "@/lib/auth";
 
+import crypto from "crypto";
+
 function generateRandomKey(prefix = "KEY"): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const part1 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-  const part2 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-  const part3 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-  return `${prefix}-${part1}-${part2}-${part3}`;
+  const cleanPrefix = (prefix || "KEY").toUpperCase().trim().replace(/[^A-Z0-9_-]/g, "");
+  const getChunk = (len: number) => {
+    const bytes = crypto.randomBytes(len);
+    let chunk = "";
+    for (let i = 0; i < len; i++) {
+      chunk += chars[bytes[i] % chars.length];
+    }
+    return chunk;
+  };
+  return `${cleanPrefix}-${getChunk(4)}-${getChunk(4)}-${getChunk(4)}`;
 }
 
 export async function GET() {
