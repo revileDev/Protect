@@ -32,10 +32,16 @@ export async function POST(req: NextRequest) {
       session.tamper_flags = Array.from(new Set([...(session.tamper_flags || []), ...tamper_flags]));
       const hasCritical = tamper_flags.some((f: unknown) => typeof f === "string" && f.startsWith("CRITICAL"));
       if (hasCritical) {
+        // Automatically blacklist both current IP and original key claimed_ip, and revoke key
+        await dbService.autoBanOffender(
+          clientIp,
+          session.key_id,
+          `Critical Client Tampering Detected (Heartbeat): ${tamper_flags.join("; ")}`
+        );
         return NextResponse.json({
           status: "ok",
           action: "kick",
-          reason: "[AERO AUTH] Security Integrity Violation: Unauthorized hooks or memory detours detected.",
+          reason: "[AERO AUTH] Security Integrity Violation: Unauthorized hooks or memory detours detected. Both your current IP and key registration IP have been banned.",
         });
       }
     }

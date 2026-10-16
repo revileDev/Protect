@@ -956,6 +956,20 @@ export const dbService = {
     }
   },
 
+  async getKeyById(id: string): Promise<KeyRecord | null> {
+    const db = readLocalDb();
+    const local = db.keys.find((k) => k.id === id) || null;
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data } = await supabase.from("keys").select("*").eq("id", id).maybeSingle();
+        if (data) return data;
+      } catch (err) {
+        console.error("Supabase getKeyById error:", err);
+      }
+    }
+    return local;
+  },
+
   async getKeyByString(keyString: string): Promise<KeyRecord | null> {
     const db = readLocalDb();
     const local = db.keys.find((k) => k.key_string === keyString) || null;
@@ -1457,6 +1471,58 @@ export const dbService = {
         console.error("Supabase banIp error:", err);
       }
     }
+  },
+
+  /**
+   * Automates critical tamper / abuse bans:
+   * 1. Bans the requester's current IP address.
+   * 2. Traces back the associated key to its original claimed_ip (bound on the website claim) and bans that IP too.
+   * 3. Permanently revokes / bans the license key.
+   */
+  async autoBanOffender(
+    currentIp: string,
+    keyRecordOrIdOrString?: KeyRecord | string | null,
+    reason: string = "Security Integrity Violation"
+  ): Promise<{ bannedIps: string[]; keyBanned: boolean }> {
+    const bannedIps: string[] = [];
+    let keyBanned = false;
+
+    // 1. Ban current client IP
+    const normCurrent = currentIp?.trim();
+    if (normCurrent && normCurrent !== "127.0.0.1" && normCurrent !== "::1") {
+      await this.banIp(normCurrent, reason);
+      bannedIps.push(normCurrent);
+    }
+
+    // 2. Resolve key record if provided
+    let key: KeyRecord | null = null;
+    if (typeof keyRecordOrIdOrString === "string") {
+      key = await this.getKeyById(keyRecordOrIdOrString);
+      if (!key) {
+        key = await this.getKeyByString(keyRecordOrIdOrString);
+      }
+    } else if (keyRecordOrIdOrString && typeof keyRecordOrIdOrString === "object") {
+      key = keyRecordOrIdOrString;
+    }
+
+    // 3. Trace back original claimed_ip and ban both IP and Key
+    if (key) {
+      const claimed = key.claimed_ip?.trim();
+      if (claimed && claimed !== "127.0.0.1" && claimed !== "::1" && claimed !== normCurrent) {
+        await this.banIp(
+          claimed,
+          `Linked Key Tampering: Original IP bound during key claim (${key.key_string}) — Reason: ${reason}`
+        );
+        bannedIps.push(claimed);
+      }
+
+      if (key.status !== "banned") {
+        await this.updateKeyStatus(key.id, "banned");
+        keyBanned = true;
+      }
+    }
+
+    return { bannedIps, keyBanned };
   },
 
   async unbanIp(ip: string) {

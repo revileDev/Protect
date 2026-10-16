@@ -118,8 +118,10 @@ local function detectTampering()
         if _isl then
             if _isl(_loadstring) then _table.insert(flags, "CRITICAL: loadstring hooked") end
             if _isl(_pcall) then _table.insert(flags, "CRITICAL: pcall hooked") end
+            if _isl(_xpcall) then _table.insert(flags, "CRITICAL: xpcall hooked") end
             if _type(_string) == "table" and _isl(_string.byte) then _table.insert(flags, "string.byte hooked") end
             if _type(_table) == "table" and _isl(_table.concat) then _table.insert(flags, "table.concat hooked") end
+            if _type(_math) == "table" and _isl(_math.floor) then _table.insert(flags, "math.floor hooked") end
         end
     end)
     _pcall(function()
@@ -129,6 +131,15 @@ local function detectTampering()
                 local _isl = (typeof(islclosure) == "function" and islclosure) or nil
                 if _isl and _isl(gmt.__index) then
                     _table.insert(flags, "WARNING: game metamethod hooked")
+                end
+            end
+            if LocalPlayer then
+                local pmt = getrawmetatable(LocalPlayer)
+                if pmt and _type(pmt) == "table" and pmt.__index and _type(pmt.__index) == "function" then
+                    local _isl = (typeof(islclosure) == "function" and islclosure) or nil
+                    if _isl and _isl(pmt.__index) then
+                        _table.insert(flags, "CRITICAL: LocalPlayer metamethod hooked")
+                    end
                 end
             end
         end
@@ -1010,6 +1021,7 @@ VerifyBtn.MouseButton1Click:Connect(function()
         local verifyUrl = BASE_URL .. "/api/auth/verify"
         local clientNonce = (HttpService and HttpService.GenerateGUID and HttpService:GenerateGUID(false)) or ("nc_" .. _tostring(os.time()) .. "_" .. _tostring(_math.random(100000, 999999)))
         local success, response = pcall(function()
+            local currentTamperFlags = detectTampering()
             return httpRequest({
                 Url = verifyUrl,
                 Method = "POST",
@@ -1025,7 +1037,8 @@ VerifyBtn.MouseButton1Click:Connect(function()
                     executor = getExecutorName(),
                     os = getClientOS(),
                     timestamp = os.time(),
-                    client_nonce = clientNonce
+                    client_nonce = clientNonce,
+                    tamper_flags = currentTamperFlags
                 })
             })
         end)
