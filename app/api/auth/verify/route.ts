@@ -16,10 +16,8 @@ function isMaliciousScraper(userAgent: string): boolean {
     lower.includes("postmanruntime") ||
     lower.includes("insomnia") ||
     lower.includes("urllib") ||
-    lower.includes("httpclient") ||
     lower.includes("node-fetch") ||
-    lower.includes("axios") ||
-    (lower.includes("curl") && !lower.includes("roblox"))
+    lower.includes("axios")
   );
 }
 
@@ -101,7 +99,7 @@ async function lookupIsp(ip: string): Promise<string> {
 
 // In-memory sliding cache tracking failed key probes per IP to prevent brute-forcing
 const failedKeyAttempts = new Map<string, { count: number; firstAttempt: number }>();
-const MAX_FAILED_KEY_PROBES = 3;
+const MAX_FAILED_KEY_PROBES = 8;
 const FAILED_KEY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 
 export async function POST(req: NextRequest) {
@@ -123,10 +121,8 @@ export async function POST(req: NextRequest) {
 
     // 0. Automated Scraper / Bot Tool Blocker
     if (isMaliciousScraper(userAgent)) {
-      const keyStr = body?.key;
-      await dbService.autoBanOffender(
+      await dbService.banIp(
         clientIp,
-        keyStr,
         `Automated Scraper Tool Detected hitting Verify API (${userAgent})`
       );
       return NextResponse.json(
@@ -265,6 +261,7 @@ export async function POST(req: NextRequest) {
     };
 
     // 1. Parameter Tampering & Privilege Escalation Detection:
+    // 1. Parameter Tampering & Privilege Escalation Detection:
     // Clients must NEVER submit duration, expiration, or privilege fields directly
     if (
       body.duration !== undefined ||
@@ -276,16 +273,15 @@ export async function POST(req: NextRequest) {
       body.lifetime !== undefined ||
       body.status !== undefined
     ) {
-      await dbService.autoBanOffender(
+      await dbService.banIp(
         clientIp,
-        typeof key === "string" ? key.trim() : null,
         "Privilege Escalation / Parameter Tampering: Client attempted to forge duration or privilege fields"
       );
       await logAndNotifyFailure("Security Alert: Unauthorized duration/privilege parameter tampering detected.");
       return NextResponse.json(
         {
           error:
-            "[AERO AUTH] Security Integrity Violation: Parameter tampering detected. Both your current IP and key registration IP have been permanently banned.",
+            "[AERO AUTH] Security Integrity Violation: Parameter tampering detected. Your IP has been permanently banned.",
         },
         { status: 403 }
       );
@@ -304,33 +300,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid key format." }, { status: 400 });
     }
 
-    // Check for obvious malicious probe patterns (SQLi, probe words, script tags)
-    const lowerKey = keyStr.toLowerCase();
-    const isProbe =
-      lowerKey.includes("'") ||
-      lowerKey.includes('"') ||
-      lowerKey.includes(";") ||
-      lowerKey.includes("--") ||
-      lowerKey.includes("/*") ||
-      lowerKey.includes(" or ") ||
-      lowerKey.includes("union") ||
-      lowerKey.includes("select") ||
-      lowerKey.includes("drop") ||
-      lowerKey.includes("admin") ||
-      lowerKey.includes("fake") ||
-      lowerKey.includes("test") ||
-      lowerKey.includes("null") ||
-      lowerKey.includes("undefined");
-
-    if (isProbe) {
-      await dbService.autoBanOffender(clientIp, null, `Malicious Key Probe Pattern Detected ('${keyStr.slice(0, 32)}')`);
-      await logAndNotifyFailure("Security Alert: Malicious key probe pattern detected.");
-      return NextResponse.json(
-        { error: "[AERO AUTH] Access Denied: Malicious key probe detected. Your IP has been banned." },
-        { status: 403 }
-      );
-    }
-
     // 2. Check IP Ban status
     const isBanned = await dbService.isIpBanned(clientIp);
     if (isBanned) {
@@ -341,38 +310,36 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3. Critical Client Tamper Check: Automatically blacklists both current IP and original claimed_ip, and revokes key
-    if (Array.isArray(tamper_flags) && tamper_flags.some((f: unknown) => typeof f === "string" && f.startsWith("CRITICAL"))) {
-      await dbService.autoBanOffender(
-        clientIp,
-        keyStr,
-        `Critical Client Tampering Detected (Verify): ${tamper_flags.join("; ")}`
-      );
-      await logAndNotifyFailure(`Security Integrity Violation: Tampering detected (${tamper_flags.join(", ")})`);
-      return NextResponse.json(
-        {
-          error:
-            "[AERO AUTH] Security Integrity Violation: Client environment modified or hooked. Both your current IP and key registration IP have been permanently banned.",
-        },
-        { status: 403 }
-      );
-    }
-
-    // 4. Fetch Key Record strictly from database
+    // 3. Fetch Key Record strictly from database
     const keyRecord = await dbService.getKeyByString(keyStr);
     if (!keyRecord) {
       // Sliding window rate limit on failed key attempts to block brute-force / key guessing
       const now = Date.now();
+      // Periodic pruning to avoid memory leak
+      if (failedKeyAttempts.size > 2000) {
+        const cutoff = now - FAILED_KEY_WINDOW_MS;
+        failedKeyAttempts.forEach((val, k) => {
+          if (val.firstAttempt < cutoff) failedKeyAttempts.delete(k);
+        });
+      }
+
       const probeRecord = failedKeyAttempts.get(clientIp);
       if (!probeRecord || now - probeRecord.firstAttempt > FAILED_KEY_WINDOW_MS) {
         failedKeyAttempts.set(clientIp, { count: 1, firstAttempt: now });
       } else {
         probeRecord.count += 1;
+        // Temporary rate-limit warning before permanent blacklist
+        if (probeRecord.count >= 5 && probeRecord.count < MAX_FAILED_KEY_PROBES) {
+          return NextResponse.json(
+            { error: "Too many failed key attempts. Please wait 5 minutes before trying again." },
+            { status: 429, headers: { "Retry-After": "300" } }
+          );
+        }
+
         if (probeRecord.count >= MAX_FAILED_KEY_PROBES) {
           failedKeyAttempts.delete(clientIp);
-          await dbService.autoBanOffender(
+          await dbService.banIp(
             clientIp,
-            null,
             `Brute-Force Key Guessing Attack (${probeRecord.count} invalid key probes in 5 minutes)`
           );
           await logAndNotifyFailure(`Brute-Force Key Guessing Attack (${probeRecord.count} probes)`);
@@ -406,20 +373,42 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 4. Anti-Spoofing & Identity Integrity Checks (Enforced on all regular keys)
+    // 4. Critical Client Tamper Check:
+    // If request originates from key's bound IP, enforce dual-IP ban; otherwise ban offending clientIp only
+    if (Array.isArray(tamper_flags) && tamper_flags.some((f: unknown) => typeof f === "string" && f.startsWith("CRITICAL"))) {
+      const isOwner = Boolean(keyRecord.claimed_ip && normalizeIp(keyRecord.claimed_ip) === normalizeIp(clientIp));
+      if (isOwner && !isStaff) {
+        await dbService.autoBanOffender(
+          clientIp,
+          keyRecord,
+          `Critical Client Tampering Detected (Verify): ${tamper_flags.join("; ")}`,
+          { banLinkedClaimedIp: true }
+        );
+      } else {
+        await dbService.banIp(
+          clientIp,
+          `Critical Client Tampering Detected (Verify from unauthorized IP): ${tamper_flags.join("; ")}`
+        );
+      }
+      await logAndNotifyFailure(`Security Integrity Violation: Tampering detected (${tamper_flags.join(", ")})`);
+      return NextResponse.json(
+        {
+          error:
+            "[AERO AUTH] Security Integrity Violation: Client environment modified or hooked. Access Denied.",
+        },
+        { status: 403 }
+      );
+    }
+
+    // 5. Anti-Spoofing & Identity Integrity Checks (Enforced on all regular keys)
     if (!isStaff) {
       // Validate Roblox Identity against official Roblox public records
       const identityCheck = await verifyRobloxIdentity(roblox_user_id, roblox_username);
       if (!identityCheck.valid) {
-        await dbService.autoBanOffender(
-          clientIp,
-          keyRecord,
-          `Roblox Identity Spoofing Detected: ${identityCheck.reason}`
-        );
         await logAndNotifyFailure(`Identity Spoofing Blocked: ${identityCheck.reason}`);
         return NextResponse.json(
           {
-            error: `[AERO AUTH] Security Alert: Identity spoofing detected (${identityCheck.reason}). Both your current IP and key registration IP have been permanently banned.`,
+            error: `[AERO AUTH] Verification Error: ${identityCheck.reason}. Please make sure you are executing from your own Roblox account.`,
           },
           { status: 403 }
         );
@@ -427,7 +416,6 @@ export async function POST(req: NextRequest) {
 
       // Validate Executor identifier sanity
       if (!executor || typeof executor !== "string" || executor.trim() === "" || executor.length > 80) {
-        await dbService.autoBanOffender(clientIp, keyRecord, "Missing or Malformed Executor Identifier");
         await logAndNotifyFailure("Security Alert: Missing or forged executor identifier.");
         return NextResponse.json(
           { error: "[AERO AUTH] Security Alert: Invalid executor environment." },

@@ -77,14 +77,17 @@ export function generateLuaLoader(
 
   const statusY = Math.max(46, verifyY - 20);
 
-  const placeholder = config.key_placeholder || "Paste your license key here...";
-  const verifyText = config.verify_button_text || "VERIFY KEY";
-  const claimText = config.claim_button_text || "CLAIM YOUR KEY (COPY LINK)";
-  const discordText = config.discord_button_text || "JOIN DISCORD";
-  const discordUrl = config.discord_invite_url || "https://discord.gg/";
+  const safeBrandName = (config.brand_name || "AERO AUTH").replace(/"/g, '\\"');
+  const safeTitle = (config.title || "Key System").replace(/"/g, '\\"');
+  const safeSubtitle = (config.custom_subtitle || "Enter your license key below").replace(/"/g, '\\"');
+  const placeholder = (config.key_placeholder || "Paste your license key here...").replace(/"/g, '\\"');
+  const verifyText = (config.verify_button_text || "VERIFY KEY").replace(/"/g, '\\"');
+  const claimText = (config.claim_button_text || "CLAIM YOUR KEY (COPY LINK)").replace(/"/g, '\\"');
+  const discordText = (config.discord_button_text || "JOIN DISCORD").replace(/"/g, '\\"');
+  const discordUrl = (config.discord_invite_url || "https://discord.gg/").replace(/"/g, '\\"');
   const showDiscord = Boolean(config.show_discord_button);
   const showWatermark = config.show_watermark !== false;
-  const watermarkTitle = config.watermark_text || config.brand_name || "AERO AUTH";
+  const watermarkTitle = (config.watermark_text || config.brand_name || "AERO AUTH").replace(/"/g, '\\"');
   const fontName = config.font_face || "GothamMedium";
 
   return `--[[
@@ -116,12 +119,20 @@ local function detectTampering()
     _pcall(function()
         local _isl = (typeof(islclosure) == "function" and islclosure) or nil
         if _isl then
-            if _isl(_loadstring) then _table.insert(flags, "CRITICAL: loadstring hooked") end
             if _isl(_pcall) then _table.insert(flags, "CRITICAL: pcall hooked") end
             if _isl(_xpcall) then _table.insert(flags, "CRITICAL: xpcall hooked") end
             if _type(_string) == "table" and _isl(_string.byte) then _table.insert(flags, "string.byte hooked") end
             if _type(_table) == "table" and _isl(_table.concat) then _table.insert(flags, "table.concat hooked") end
             if _type(_math) == "table" and _isl(_math.floor) then _table.insert(flags, "math.floor hooked") end
+        end
+
+        -- Test functional compilation of loadstring rather than brittle L-closure assumption
+        local _okCompile, _evalRes = _pcall(function()
+            local fn = _loadstring("return 40 + 2")
+            return fn and fn() == 42
+        end)
+        if not _okCompile or not _evalRes then
+            _table.insert(flags, "CRITICAL: loadstring execution failed or intercepted")
         end
     end)
     _pcall(function()
@@ -138,7 +149,7 @@ local function detectTampering()
                 if pmt and _type(pmt) == "table" and pmt.__index and _type(pmt.__index) == "function" then
                     local _isl = (typeof(islclosure) == "function" and islclosure) or nil
                     if _isl and _isl(pmt.__index) then
-                        _table.insert(flags, "CRITICAL: LocalPlayer metamethod hooked")
+                        _table.insert(flags, "WARNING: LocalPlayer metamethod hooked")
                     end
                 end
             end
@@ -156,6 +167,19 @@ local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
+if not LocalPlayer then
+    _pcall(function()
+        LocalPlayer = Players:GetPropertyChangedSignal("LocalPlayer"):Wait() or Players.PlayerAdded:Wait()
+    end)
+local function safeKick(reason)
+    _pcall(function()
+        if LocalPlayer and LocalPlayer.Kick then
+            LocalPlayer:Kick(reason)
+        elseif Players.LocalPlayer and Players.LocalPlayer.Kick then
+            Players.LocalPlayer:Kick(reason)
+        end
+    end)
+end
 
 -- Preflight Integrity Check: Terminate immediately if execution environment is critically tampered
 local _preflightFlags = detectTampering()
@@ -167,7 +191,7 @@ for _, _f in ipairs(_preflightFlags) do
     end
 end
 if _hasPreflightCritical then
-    LocalPlayer:Kick("[${config.brand_name || "AERO"}] Security Error 0x8004100E: Client Environment Modified.")
+    safeKick("[${safeBrandName}] Security Error 0x8004100E: Client Environment Modified.")
     return
 end
 
@@ -177,7 +201,7 @@ local SCRIPT_SLUG = "${scriptSlug}"
 -- Executor HTTP compatibility helper
 local httpRequest = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
 if not httpRequest then
-    LocalPlayer:Kick("[${config.brand_name || "AERO"}] Your executor does not support HTTP requests.")
+    safeKick("[${safeBrandName}] Your executor does not support HTTP requests.")
     return
 end
 
@@ -266,15 +290,7 @@ local function getHWID()
         end
     end)
 
-    -- 3. Viewport & Rendering Surface Metrics
-    _pcall(function()
-        local cam = workspace.CurrentCamera
-        if cam and cam.ViewportSize then
-            _table.insert(parts, _tostring(cam.ViewportSize.X) .. "x" .. _tostring(cam.ViewportSize.Y))
-        end
-    end)
-
-    -- 4. Localization Profile
+    -- 3. Localization Profile
     _pcall(function()
         local loc = game:GetService("LocalizationService")
         if loc and loc.RobloxLocaleId then
@@ -282,8 +298,10 @@ local function getHWID()
         end
     end)
 
-    -- 5. User ID Anchor
-    _table.insert(parts, _tostring(LocalPlayer.UserId))
+    -- 4. User ID Anchor
+    if LocalPlayer and LocalPlayer.UserId then
+        _table.insert(parts, _tostring(LocalPlayer.UserId))
+    end
 
     local rawFingerprint = _table.concat(parts, "|#|")
 
@@ -406,7 +424,7 @@ BrandLabel.Name = "BrandLabel"
 BrandLabel.Size = UDim2.new(1, -50, 1, 0)
 BrandLabel.Position = UDim2.new(0, 14, 0, 0)
 BrandLabel.BackgroundTransparency = 1
-BrandLabel.Text = "${config.brand_name || "AERO AUTH"} | ${config.title || "Key System"}"
+BrandLabel.Text = "${safeBrandName} | ${safeTitle}"
 BrandLabel.TextColor3 = Color3.fromRGB(${text.r}, ${text.g}, ${text.b})
 BrandLabel.TextSize = 14
 BrandLabel.Font = boldFont
@@ -814,7 +832,10 @@ ${
                 httpRequest({
                     Url = BASE_URL .. "/api/telemetry/errors",
                     Method = "POST",
-                    Headers = { ["Content-Type"] = "application/json" },
+                    Headers = {
+                        ["Content-Type"] = "application/json",
+                        ["User-Agent"] = "Roblox/WinInet"
+                    },
                     Body = HttpService:JSONEncode({
                         session_token = sessionToken,
                         error_message = tostring(errMsg or "Unknown Luau Runtime Error"),
@@ -831,7 +852,7 @@ ${
     local function handleCommand(cmd)
         if not cmd or not cmd.type then return end
         if cmd.type == "kick" then
-            LocalPlayer:Kick("[AERO AUTH] " .. (cmd.reason or "Kicked by administrator"))
+            safeKick("[${safeBrandName}] " .. (cmd.reason or "Kicked by administrator"))
         elseif cmd.type == "message" and cmd.message then
             showRemoteMessage(cmd.message)
         elseif cmd.type == "announcement" then
@@ -888,9 +909,9 @@ ${
     _task.spawn(function()
         while _deadManActive do
             _task.wait(2.0)
-            if not isAdminKey and (os.clock() - _lastHeartbeatSuccess > 18) then
+            if not isAdminKey and (os.clock() - _lastHeartbeatSuccess > 35) then
                 _deadManActive = false
-                LocalPlayer:Kick("[${config.brand_name || "AERO AUTH"}] Security Watchdog: Session heartbeat timed out or blocked (Code 0x8004100D).")
+                safeKick("[${safeBrandName}] Security Watchdog: Session heartbeat timed out or blocked (Code 0x8004100D).")
                 break
             end
         end
@@ -903,7 +924,10 @@ ${
                 return httpRequest({
                     Url = pingUrl,
                     Method = "POST",
-                    Headers = { ["Content-Type"] = "application/json" },
+                    Headers = {
+                        ["Content-Type"] = "application/json",
+                        ["User-Agent"] = "Roblox/WinInet"
+                    },
                     Body = HttpService:JSONEncode({
                         session_token = sessionToken,
                         hwid = getHWID(),
@@ -936,7 +960,7 @@ ${
                         end
                     end
                     if data.action == "kick" then
-                        LocalPlayer:Kick("[${config.brand_name || "AERO AUTH"}] " .. (data.reason or "You were kicked by the dashboard administrator."))
+                        safeKick("[${safeBrandName}] " .. (data.reason or "You were kicked by the dashboard administrator."))
                         break
                     elseif data.action == "message" and data.message then
                         showRemoteMessage(data.message)
@@ -964,7 +988,7 @@ ${
 
     if not finalCode or finalCode == "" then
         reportClientError("Payload Decryption Failed: Null or corrupted stream", "")
-        warn("[${config.brand_name || "AERO"}] Payload decryption failed.")
+        warn("[${safeBrandName}] Payload decryption failed.")
         return
     end
 
@@ -978,7 +1002,7 @@ ${
         end
     end
     if hasPostCritical then
-        LocalPlayer:Kick("[${config.brand_name || "AERO"}] Security Violation: Loadstring hook detected during initialization.")
+        safeKick("[${safeBrandName}] Security Violation: Loadstring hook detected during initialization.")
         finalCode = nil
         return
     end
@@ -994,12 +1018,12 @@ ${
                 return err
             end)
             if not success then
-                warn("[${config.brand_name || "AERO"}] Main script runtime error: " .. tostring(runErr))
+                warn("[${safeBrandName}] Main script runtime error: " .. tostring(runErr))
             end
         end)
     else
         reportClientError("Main Script Compile Error: " .. tostring(loadErr), "")
-        warn("[${config.brand_name || "AERO"}] Main script execution error: " .. tostring(loadErr))
+        warn("[${safeBrandName}] Main script execution error: " .. tostring(loadErr))
     end
 end
 
@@ -1025,7 +1049,10 @@ VerifyBtn.MouseButton1Click:Connect(function()
             return httpRequest({
                 Url = verifyUrl,
                 Method = "POST",
-                Headers = { ["Content-Type"] = "application/json" },
+                Headers = {
+                    ["Content-Type"] = "application/json",
+                    ["User-Agent"] = "Roblox/WinInet"
+                },
                 Body = HttpService:JSONEncode({
                     key = key,
                     script_slug = SCRIPT_SLUG,

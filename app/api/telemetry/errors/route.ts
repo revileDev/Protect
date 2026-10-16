@@ -6,7 +6,8 @@ import { isAuthenticated } from "@/lib/auth";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { session_id, script_id, error_message, stack_trace, executor, os } = body;
+    const { script_id, error_message, stack_trace, executor, os } = body;
+    const sessionId = body.session_id || body.session_token || null;
 
     if (!error_message) {
       return NextResponse.json({ error: "Missing error_message" }, { status: 400 });
@@ -17,9 +18,9 @@ export async function POST(req: NextRequest) {
     let targetScriptId: string | null = script_id || null;
     let targetScriptName: string | null = null;
 
-    if (session_id) {
+    if (sessionId) {
       const sessions = await dbService.getSessions();
-      const session = sessions.find((s) => s.id === session_id);
+      const session = sessions.find((s) => s.id === sessionId);
       if (session) {
         robloxUsername = session.roblox_username;
         robloxUserId = session.roblox_user_id;
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
     }
 
     const recorded = await dbService.recordClientError({
-      session_id: session_id || null,
+      session_id: sessionId,
       script_id: targetScriptId,
       script_name: targetScriptName || "Universal Script",
       roblox_username: robloxUsername,

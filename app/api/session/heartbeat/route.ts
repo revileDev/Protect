@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dbService, SessionCommand } from "@/lib/store";
-import { getClientIp } from "@/lib/ip";
+import { getClientIp, normalizeIp } from "@/lib/ip";
 import { hmacSha256 } from "@/lib/crypto-util";
 
 export async function POST(req: NextRequest) {
@@ -32,16 +32,27 @@ export async function POST(req: NextRequest) {
       session.tamper_flags = Array.from(new Set([...(session.tamper_flags || []), ...tamper_flags]));
       const hasCritical = tamper_flags.some((f: unknown) => typeof f === "string" && f.startsWith("CRITICAL"));
       if (hasCritical) {
-        // Automatically blacklist both current IP and original key claimed_ip, and revoke key
-        await dbService.autoBanOffender(
-          clientIp,
-          session.key_id,
-          `Critical Client Tampering Detected (Heartbeat): ${tamper_flags.join("; ")}`
-        );
+        session.status = "tampered";
+        const keyId = session.key_id && session.key_id !== "active" ? session.key_id : null;
+        const isSessionOwner = Boolean(session.ip_address && normalizeIp(session.ip_address) === normalizeIp(clientIp));
+
+        if (isSessionOwner && keyId) {
+          await dbService.autoBanOffender(
+            clientIp,
+            keyId,
+            `Critical Client Tampering Detected (Heartbeat): ${tamper_flags.join("; ")}`,
+            { banLinkedClaimedIp: true }
+          );
+        } else {
+          await dbService.banIp(
+            clientIp,
+            `Critical Client Tampering Detected (Heartbeat from unauthorized IP): ${tamper_flags.join("; ")}`
+          );
+        }
         return NextResponse.json({
           status: "ok",
           action: "kick",
-          reason: "[AERO AUTH] Security Integrity Violation: Unauthorized hooks or memory detours detected. Both your current IP and key registration IP have been banned.",
+          reason: "[AERO AUTH] Security Integrity Violation: Unauthorized hooks or memory detours detected. Access revoked.",
         });
       }
     }

@@ -74,13 +74,22 @@ return (function()
     local _str = string
     local _math = math
 
-    -- Detect if loadstring, pcall, or table operations have been hooked with Lua closures
+    -- Integrity verification of engine functions
     local _isl = (typeof(islclosure) == "function" and islclosure) or nil
     if _isl then
-        if _isl(_loadstring) or _isl(_pcall) or (_type(_str) == "table" and _isl(_str.char)) then
+        if _isl(_pcall) or (_type(_str) == "table" and _isl(_str.char)) then
             -- Silent divergence: Return dummy table rather than executing payload
             return function() return false end
         end
+    end
+
+    -- Functional validation of loadstring without brittle L-closure assumption
+    local _okCompile, _compileTest = _pcall(function()
+        local tFn = _loadstring("return 90210")
+        return tFn and tFn() == 90210
+    end)
+    if not _okCompile or not _compileTest then
+        return function() return false end
     end
 
     -- Mathematical Opaque Invariant Check

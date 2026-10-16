@@ -86,7 +86,11 @@ end`;
     if _http then
         local _cleanMod = normalized:gsub("%.lua$", "")
         local _targetUrl = _streamBase .. _cleanMod .. ".lua?session=" .. _sessionToken .. "&key=" .. _licenseKey
-        local _res = _http({ Url = _targetUrl, Method = "GET" })
+        local _res = _http({
+            Url = _targetUrl,
+            Method = "GET",
+            Headers = { ["User-Agent"] = "Roblox/WinInet" }
+        })
         if _res and _res.StatusCode == 200 and _res.Body and not _res.Body:find("Error:") then
             local _fn, _err = loadstring(_res.Body)
             if _fn then

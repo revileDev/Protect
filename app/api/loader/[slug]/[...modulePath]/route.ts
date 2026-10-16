@@ -8,11 +8,9 @@ function isBrowserRequest(req: NextRequest): boolean {
   const secFetchMode = req.headers.get("sec-fetch-mode") || "";
   const secFetchDest = req.headers.get("sec-fetch-dest") || "";
   const userAgent = req.headers.get("user-agent") || "";
-
-  if (accept.includes("text/html")) return true;
-  if (secFetchMode === "navigate" || secFetchDest === "document") return true;
-
   const lowerUA = userAgent.toLowerCase();
+
+  // Known executor user-agents or patterns are NEVER browsers
   const isKnownExecutor =
     lowerUA.includes("roblox") ||
     lowerUA.includes("synapse") ||
@@ -21,16 +19,20 @@ function isBrowserRequest(req: NextRequest): boolean {
     lowerUA.includes("delta") ||
     lowerUA.includes("codex") ||
     lowerUA.includes("luasocket") ||
-    lowerUA.includes("wininet");
+    lowerUA.includes("wininet") ||
+    lowerUA.includes("curl") ||
+    lowerUA.includes("httpclient");
 
   if (isKnownExecutor) return false;
 
-  if (
-    (lowerUA.includes("mozilla") || lowerUA.includes("chrome") || lowerUA.includes("safari") || lowerUA.includes("edge")) &&
-    !isKnownExecutor
-  ) {
-    return true;
-  }
+  // 1. Browsers explicitly request text/html in their Accept header
+  if (accept.includes("text/html") || accept.includes("application/xhtml")) return true;
+
+  // 2. Browser navigation fetch modes
+  if (secFetchMode === "navigate" || secFetchDest === "document") return true;
+
+  // 3. Browser client hints
+  if (req.headers.get("sec-ch-ua")) return true;
 
   return false;
 }
