@@ -19,6 +19,10 @@ export default function ModularScriptUploader({ loaderConfigs, onScriptCreated }
   const [selectedLoaderConfig, setSelectedLoaderConfig] = useState(loaderConfigs[0]?.id || "");
   const [watermarkText, setWatermarkText] = useState("AERO PROTECT");
   const [useAuth, setUseAuth] = useState(true);
+  const [isMaintenance, setIsMaintenance] = useState(false);
+  const [maintenanceMessage, setMaintenanceMessage] = useState(
+    "This script is currently under maintenance. Please check our Discord for updates."
+  );
   const [isUploading, setIsUploading] = useState(false);
   const [createdLoadstring, setCreatedLoadstring] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -107,6 +111,8 @@ export default function ModularScriptUploader({ loaderConfigs, onScriptCreated }
           watermark_text: watermarkText,
           show_watermark: true,
           use_auth: useAuth,
+          is_maintenance: isMaintenance,
+          maintenance_message: isMaintenance ? maintenanceMessage : null,
         }),
       });
 
@@ -346,6 +352,54 @@ export default function ModularScriptUploader({ loaderConfigs, onScriptCreated }
               />
               <div className="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
             </label>
+          </div>
+
+          {/* Maintenance Mode Kill-Switch */}
+          <div className="p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/5 space-y-2">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-white">Maintenance Mode Kill-Switch</span>
+                  <span
+                    className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
+                      isMaintenance
+                        ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                        : "bg-gray-800 text-gray-400"
+                    }`}
+                  >
+                    {isMaintenance ? "Locked (Under Maintenance)" : "Operational"}
+                  </span>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">
+                  When enabled, all public players attempting to execute this script will receive a notification and script execution is blocked. Staff review keys bypass this automatically.
+                </p>
+              </div>
+
+              <label className="relative inline-flex items-center cursor-pointer flex-shrink-0 mt-0.5">
+                <input
+                  type="checkbox"
+                  checked={isMaintenance}
+                  onChange={(e) => setIsMaintenance(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-600"></div>
+              </label>
+            </div>
+
+            {isMaintenance && (
+              <div className="pt-2">
+                <label className="text-[11px] font-semibold text-gray-300 block mb-1">
+                  In-Game Player Notice Message:
+                </label>
+                <input
+                  type="text"
+                  value={maintenanceMessage}
+                  onChange={(e) => setMaintenanceMessage(e.target.value)}
+                  placeholder="e.g. This script is currently under maintenance. Please check our Discord for updates."
+                  className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-amber-500"
+                />
+              </div>
+            )}
           </div>
 
           <button

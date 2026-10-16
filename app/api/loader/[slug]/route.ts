@@ -3,6 +3,7 @@ import { dbService } from "@/lib/store";
 import { generateLuaLoader } from "@/lib/lua-generator";
 import { bundleModularScript } from "@/lib/module-bundler";
 import { getClientIp } from "@/lib/ip";
+import { wrapPolymorphicLuau } from "@/lib/polymorphic";
 
 function isBrowserRequest(req: NextRequest): boolean {
   const accept = req.headers.get("accept") || "";
@@ -284,6 +285,30 @@ export async function GET(
   const host = req.headers.get("host") || "localhost:3000";
   const baseUrl = `${protocol}://${host}`;
 
+  // Check Maintenance Kill-Switch
+  if (script.is_maintenance) {
+    const rawMsg = script.maintenance_message || "This script is currently under scheduled maintenance. Please check our Discord for updates.";
+    const safeMsg = rawMsg.replace(/"/g, '\\"');
+    const maintenanceLua = `--[[ AERO AUTH SCRIPT UNDER MAINTENANCE ]]--
+pcall(function()
+    local StarterGui = game:GetService("StarterGui")
+    StarterGui:SetCore("SendNotification", {
+        Title = "[AERO AUTH] Under Maintenance",
+        Text = "${safeMsg}",
+        Duration = 15
+    })
+end)
+warn("[AERO AUTH] Script '${slug}' is currently under maintenance: ${safeMsg}")`;
+
+    return new NextResponse(wrapPolymorphicLuau(maintenanceLua), {
+      status: 200,
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-store, max-age=0",
+      },
+    });
+  }
+
   // If script has use_auth === false (Direct Run Mode - Auth Bypassed)
   if (script.use_auth === false) {
     const clientIp = getClientIp(req);
@@ -324,7 +349,7 @@ export async function GET(
       entryFile: script.entry_file || "init.lua",
       files: script.modules || {},
     });
-    return new NextResponse(directPayload, {
+    return new NextResponse(wrapPolymorphicLuau(directPayload), {
       status: 200,
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
@@ -371,7 +396,10 @@ export async function GET(
     layout_positions: loaderConfig?.layout_positions,
   });
 
-  return new NextResponse(luaCode, {
+  // Wrap in polymorphic randomized byte stream
+  const polymorphicLoader = wrapPolymorphicLuau(luaCode);
+
+  return new NextResponse(polymorphicLoader, {
     status: 200,
     headers: {
       "Content-Type": "text/plain; charset=utf-8",

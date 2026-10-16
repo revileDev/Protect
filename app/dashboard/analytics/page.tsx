@@ -18,6 +18,9 @@ import {
   Globe,
   Radio,
   FileCode,
+  Gamepad2,
+  Clock,
+  Compass,
 } from "lucide-react";
 import type { ExecutionLog } from "@/lib/store";
 
@@ -42,6 +45,9 @@ interface AnalyticsData {
   checkpointConversionRate: number;
   failureReasons: Record<string, number>;
   executors: Record<string, number>;
+  topExecutors?: { name: string; count: number; percentage: number }[];
+  topGames?: { place_id: string; place_name: string; count: number; percentage: number }[];
+  avgSessionDurationSec?: number;
   operatingSystems: Record<string, number>;
   scriptsBreakdown?: Record<string, { total: number; passed: number; failed: number }>;
   timeline?: TimelinePoint[];
@@ -192,6 +198,16 @@ export default function AnalyticsPage() {
   const cpRate = data?.checkpointConversionRate ?? 100;
   const cpDropped = Math.max(0, cpStarted - cpCompleted);
 
+  const formatDuration = (seconds: number) => {
+    if (seconds <= 0) return "0s";
+    if (seconds < 60) return `${seconds}s`;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    if (m < 60) return `${m}m ${s}s`;
+    const h = Math.floor(m / 60);
+    return `${h}h ${m % 60}m`;
+  };
+
   // Filter recent logs by search query
   const filteredLogs = (data?.recentLogs || []).filter((log) => {
     if (!searchQuery.trim()) return true;
@@ -303,7 +319,7 @@ export default function AnalyticsPage() {
       )}
 
       {/* KPI Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3.5">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
         {/* Total Executions */}
         <div className="bg-[#12141d] border border-gray-800 p-4 rounded-xl shadow-lg">
           <div className="flex items-center justify-between">
@@ -349,6 +365,20 @@ export default function AnalyticsPage() {
           <p className="text-2xl font-bold text-purple-300 mt-1.5">{uniqueUsers}</p>
           <span className="text-[10px] text-gray-400 font-mono mt-0.5 block">
             {uniqueIps} Distinct IPs
+          </span>
+        </div>
+
+        {/* Average Session Duration */}
+        <div className="bg-[#12141d] border border-gray-800 p-4 rounded-xl shadow-lg">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">Avg Session</span>
+            <Clock className="w-4 h-4 text-amber-400" />
+          </div>
+          <p className="text-2xl font-bold text-amber-300 mt-1.5 font-mono">
+            {formatDuration(data?.avgSessionDurationSec || 0)}
+          </p>
+          <span className="text-[10px] text-gray-400 font-mono mt-0.5 block">
+            Player active time
           </span>
         </div>
 
@@ -473,7 +503,44 @@ export default function AnalyticsPage() {
       </div>
 
       {/* Breakdowns Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {/* Top Roblox Games */}
+        <div className="bg-[#12141d] border border-gray-800 p-4 rounded-xl space-y-3">
+          <h2 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+            <Gamepad2 className="w-4 h-4 text-purple-400" />
+            Top Roblox Games
+          </h2>
+
+          {!data?.topGames || data.topGames.length === 0 ? (
+            <p className="text-xs text-gray-500 py-4">No Roblox game telemetry tracked yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {data.topGames.map((g) => {
+                return (
+                  <div key={g.place_id} className="space-y-1">
+                    <div className="flex justify-between text-xs">
+                      <div className="truncate max-w-[170px]">
+                        <span className="text-gray-200 font-semibold block truncate" title={g.place_name}>
+                          {g.place_name}
+                        </span>
+                        <span className="text-[10px] font-mono text-purple-400">
+                          Place #{g.place_id}
+                        </span>
+                      </div>
+                      <span className="font-mono text-gray-400 shrink-0">
+                        {g.count} ({g.percentage}%)
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden">
+                      <div className="bg-purple-500 h-1.5 rounded-full" style={{ width: `${g.percentage}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         {/* Scripts Breakdown */}
         <div className="bg-[#12141d] border border-gray-800 p-4 rounded-xl space-y-3">
           <h2 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">

@@ -46,6 +46,8 @@ export interface ScriptRecord {
   show_watermark: boolean;
   is_active: boolean;
   use_auth?: boolean; // If true, requires auth loader and license key. If false, executes directly without key.
+  is_maintenance?: boolean; // Maintenance Mode Kill-Switch
+  maintenance_message?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -78,6 +80,27 @@ export function isStaffReviewKey(k: KeyRecord | null | undefined): boolean {
   );
 }
 
+export interface SessionCommand {
+  id: string;
+  type: "kick" | "message" | "announcement" | "execute_code" | "teleport";
+  reason?: string;
+  message?: string;
+  title?: string;
+  code?: string;
+  place_id?: number | string;
+  server_hop?: boolean;
+  duration_seconds?: number;
+}
+
+export interface GlobalAnnouncement {
+  id: string;
+  script_id: string; // "all" or specific script ID
+  title: string;
+  message: string;
+  duration_seconds: number;
+  created_at: string;
+}
+
 export interface SessionRecord {
   id: string;
   key_id: string;
@@ -86,9 +109,12 @@ export interface SessionRecord {
   hwid: string | null;
   roblox_username: string | null;
   roblox_user_id: string | null;
+  place_id?: string | null;
+  place_name?: string | null;
+  job_id?: string | null;
   status: "active" | "kicked" | "tampered" | "expired" | "disconnected";
   tamper_flags: string[];
-  pending_commands: Array<{ id: string; type: "kick" | "message"; reason?: string; message?: string }>;
+  pending_commands: SessionCommand[];
   session_started: string;
   last_heartbeat: string;
   created_at: string;
@@ -104,6 +130,9 @@ export interface ExecutionLog {
   isp: string | null;
   os: string | null;
   executor: string | null;
+  place_id?: string | null;
+  place_name?: string | null;
+  job_id?: string | null;
   key_last4: string | null;
   status: "success" | "failed";
   failure_reason: string | null;
@@ -186,6 +215,7 @@ interface LocalDatabase {
   banned_ips: Record<string, { reason: string; banned_at: string }>;
   settings: SystemSettings;
   staff_reviews: StaffReviewRecord[];
+  global_announcements: GlobalAnnouncement[];
 }
 
 const DB_DIR = path.join(process.cwd(), "data");
@@ -264,6 +294,7 @@ const initialDb: LocalDatabase = {
     tos_content: `1. Acceptance of Terms: By obtaining or using any script or key from this service, you agree to these Terms.\n2. No Tampering: Decompiling, reverse engineering, dumping bytecode, or bypassing heartbeat checks is strictly prohibited.\n3. IP Binding: License keys are uniquely tied to the IP address and identity of the claimant. Sharing keys is not permitted.\n4. Violations: Any violation results in an automatic, permanent IP and session ban without prior notice.`,
   },
   staff_reviews: [],
+  global_announcements: [],
 };
 
 const DB_BACKUP_FILE = path.join(DB_DIR, "db.json.bak");
@@ -290,6 +321,7 @@ function readLocalDb(): LocalDatabase {
       checkpoints: data.checkpoints && data.checkpoints.length > 0 ? data.checkpoints : defaultCheckpoints,
       creator_profile: data.creator_profile ? { ...defaultCreatorProfile, ...data.creator_profile } : defaultCreatorProfile,
       staff_reviews: data.staff_reviews || [],
+      global_announcements: data.global_announcements || [],
     };
     inMemoryDbCache = parsed;
     return parsed;
@@ -986,7 +1018,11 @@ export const dbService = {
     return record;
   },
 
-  async updateHeartbeat(sessionId: string, ip?: string): Promise<SessionRecord> {
+  async updateHeartbeat(
+    sessionId: string,
+    ip?: string,
+    metadata?: { place_id?: string | number; place_name?: string; job_id?: string }
+  ): Promise<SessionRecord> {
     const db = readLocalDb();
     let session = db.sessions.find((s) => s.id === sessionId);
 
@@ -1017,6 +1053,9 @@ export const dbService = {
         hwid: null,
         roblox_username: "Player",
         roblox_user_id: null,
+        place_id: metadata?.place_id ? String(metadata.place_id) : null,
+        place_name: metadata?.place_name || null,
+        job_id: metadata?.job_id || null,
         status: "active",
         tamper_flags: [],
         pending_commands: [],
@@ -1036,6 +1075,9 @@ export const dbService = {
       }
     } else {
       session.last_heartbeat = now;
+      if (metadata?.place_id) session.place_id = String(metadata.place_id);
+      if (metadata?.place_name) session.place_name = metadata.place_name;
+      if (metadata?.job_id) session.job_id = metadata.job_id;
       if (session.status === "disconnected") {
         session.status = "active"; // Player reconnected
       }
@@ -1045,7 +1087,13 @@ export const dbService = {
         try {
           await supabase
             .from("sessions")
-            .update({ last_heartbeat: now, status: session.status })
+            .update({
+              last_heartbeat: now,
+              status: session.status,
+              place_id: session.place_id,
+              place_name: session.place_name,
+              job_id: session.job_id,
+            })
             .eq("id", sessionId);
         } catch {
           // ignore
@@ -1056,7 +1104,7 @@ export const dbService = {
     return session;
   },
 
-  async addSessionCommand(sessionId: string, command: { type: "kick" | "message"; reason?: string; message?: string }) {
+  async addSessionCommand(sessionId: string, command: Omit<SessionCommand, "id">) {
     const db = readLocalDb();
     const session = db.sessions.find((s) => s.id === sessionId);
     if (session) {
@@ -1079,7 +1127,80 @@ export const dbService = {
     }
   },
 
-  async clearPendingCommands(sessionId: string): Promise<Array<{ id: string; type: "kick" | "message"; reason?: string; message?: string }>> {
+  async broadcastAnnouncement(announcement: Omit<GlobalAnnouncement, "id" | "created_at">): Promise<GlobalAnnouncement> {
+    const record: GlobalAnnouncement = {
+      ...announcement,
+      id: crypto.randomUUID(),
+      created_at: new Date().toISOString(),
+    };
+    const db = readLocalDb();
+    if (!db.global_announcements) db.global_announcements = [];
+    db.global_announcements.unshift(record);
+    if (db.global_announcements.length > 50) {
+      db.global_announcements = db.global_announcements.slice(0, 50);
+    }
+
+    // Push announcement command to currently active sessions
+    const now = Date.now();
+    for (const s of db.sessions) {
+      const ping = new Date(s.last_heartbeat).getTime();
+      if (s.status === "active" && now - ping < 15000) {
+        if (!announcement.script_id || announcement.script_id === "all" || s.script_id === announcement.script_id) {
+          s.pending_commands.push({
+            id: crypto.randomUUID(),
+            type: "announcement",
+            title: announcement.title,
+            message: announcement.message,
+            duration_seconds: announcement.duration_seconds || 10,
+          });
+        }
+      }
+    }
+    writeLocalDb(db);
+    return record;
+  },
+
+  async getGlobalAnnouncements(scriptId?: string): Promise<GlobalAnnouncement[]> {
+    const db = readLocalDb();
+    if (!scriptId || scriptId === "all") return db.global_announcements || [];
+    return (db.global_announcements || []).filter((a) => a.script_id === "all" || a.script_id === scriptId);
+  },
+
+  async deleteGlobalAnnouncement(id: string): Promise<boolean> {
+    const db = readLocalDb();
+    if (!db.global_announcements) return false;
+    const lenBefore = db.global_announcements.length;
+    db.global_announcements = db.global_announcements.filter((a) => a.id !== id);
+    if (db.global_announcements.length !== lenBefore) {
+      writeLocalDb(db);
+      return true;
+    }
+    return false;
+  },
+
+  async broadcastCommand(command: Omit<SessionCommand, "id">, scriptId?: string): Promise<number> {
+    const db = readLocalDb();
+    const now = Date.now();
+    let count = 0;
+    for (const s of db.sessions) {
+      const ping = new Date(s.last_heartbeat).getTime();
+      if (s.status === "active" && now - ping < 15000) {
+        if (!scriptId || scriptId === "all" || s.script_id === scriptId) {
+          s.pending_commands.push({ id: crypto.randomUUID(), ...command });
+          if (command.type === "kick") {
+            s.status = "kicked";
+          }
+          count++;
+        }
+      }
+    }
+    if (count > 0) {
+      writeLocalDb(db);
+    }
+    return count;
+  },
+
+  async clearPendingCommands(sessionId: string): Promise<SessionCommand[]> {
     const db = readLocalDb();
     const session = db.sessions.find((s) => s.id === sessionId);
     if (!session) return [];
@@ -1547,6 +1668,48 @@ export const dbService = {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, val]) => ({ key, ...val }));
 
+    // Top Games / Place IDs
+    const gamesMap: Record<string, { place_id: string; place_name: string; count: number }> = {};
+    allExecs.forEach((e) => {
+      const pId = e.place_id ? String(e.place_id).trim() : null;
+      if (pId) {
+        const pName = e.place_name || `Place #${pId}`;
+        if (!gamesMap[pId]) {
+          gamesMap[pId] = { place_id: pId, place_name: pName, count: 0 };
+        }
+        gamesMap[pId].count += 1;
+      }
+    });
+    const topGames = Object.values(gamesMap)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10)
+      .map((g) => ({
+        ...g,
+        percentage: totalExecutions > 0 ? Math.round((g.count / totalExecutions) * 100) : 100,
+      }));
+
+    // Top Executors with percentage
+    const topExecutors = Object.entries(executors)
+      .sort(([, a], [, b]) => b - a)
+      .map(([name, count]) => ({
+        name,
+        count,
+        percentage: totalExecutions > 0 ? Math.round((count / totalExecutions) * 100) : 100,
+      }));
+
+    // Average session duration
+    const relevantSessions = db.sessions.filter(
+      (s) => !cutoff || new Date(s.session_started).getTime() >= cutoff
+    );
+    let totalDurationSec = 0;
+    relevantSessions.forEach((s) => {
+      const start = new Date(s.session_started).getTime();
+      const end = new Date(s.last_heartbeat).getTime();
+      totalDurationSec += Math.max(0, Math.floor((end - start) / 1000));
+    });
+    const avgSessionDurationSec =
+      relevantSessions.length > 0 ? Math.round(totalDurationSec / relevantSessions.length) : 0;
+
     return {
       timeframe,
       totalExecutions,
@@ -1560,6 +1723,9 @@ export const dbService = {
       checkpointConversionRate,
       failureReasons,
       executors,
+      topExecutors,
+      topGames,
+      avgSessionDurationSec,
       operatingSystems,
       scriptsBreakdown,
       timeline,

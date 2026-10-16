@@ -22,6 +22,13 @@ import {
   Shield,
   EyeOff,
   UserCheck,
+  Code2,
+  Megaphone,
+  Compass,
+  Radio,
+  Tv,
+  Gamepad2,
+  Sparkles,
 } from "lucide-react";
 
 interface StaffReviewItem {
@@ -38,6 +45,15 @@ interface StaffReviewItem {
   is_reviewing?: boolean;
 }
 
+interface GlobalAnnouncementItem {
+  id: string;
+  script_id: string;
+  title: string;
+  message: string;
+  duration_seconds: number;
+  created_at: string;
+}
+
 interface SessionItem {
   id: string;
   key_id: string;
@@ -46,6 +62,9 @@ interface SessionItem {
   hwid: string | null;
   roblox_username: string | null;
   roblox_user_id: string | null;
+  place_id?: string | null;
+  place_name?: string | null;
+  job_id?: string | null;
   status: "active" | "kicked" | "tampered" | "expired" | "disconnected";
   tamper_flags: string[];
   session_started: string;
@@ -62,14 +81,33 @@ export default function PlayersPage() {
   const [staffActive, setStaffActive] = useState<StaffReviewItem[]>([]);
   const [staffHistory, setStaffHistory] = useState<StaffReviewItem[]>([]);
   const [bannedIps, setBannedIps] = useState<Record<string, { reason: string; banned_at: string }>>({});
+  const [announcements, setAnnouncements] = useState<GlobalAnnouncementItem[]>([]);
+  const [scriptsList, setScriptsList] = useState<{ id: string; name: string; slug: string }[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"sessions" | "staff" | "bans">("sessions");
+  const [activeTab, setActiveTab] = useState<"sessions" | "announcements" | "staff" | "bans">("sessions");
   const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
   const [now, setNow] = useState(Date.now());
 
   // Message modal state
   const [messageModal, setMessageModal] = useState<{ sessionId: string; username: string } | null>(null);
   const [messageText, setMessageText] = useState("");
+
+  // Code injection modal state
+  const [codeModal, setCodeModal] = useState<{ sessionId: string; username: string } | null>(null);
+  const [codeText, setCodeText] = useState('print("Aero Auth: Hello from dashboard!")');
+
+  // Teleport modal state
+  const [teleportModal, setTeleportModal] = useState<{ sessionId: string; username: string; placeId?: string } | null>(null);
+  const [teleportMode, setTeleportMode] = useState<"hop" | "place">("hop");
+  const [targetPlaceId, setTargetPlaceId] = useState("");
+
+  // Broadcast announcement modal state
+  const [announcementModal, setAnnouncementModal] = useState(false);
+  const [announcementTitle, setAnnouncementTitle] = useState("");
+  const [announcementMessage, setAnnouncementMessage] = useState("");
+  const [announcementDuration, setAnnouncementDuration] = useState("10");
+  const [announcementScript, setAnnouncementScript] = useState("all");
+
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
   const removedSessionIdsRef = useRef<Set<string>>(new Set());
@@ -88,12 +126,22 @@ export default function PlayersPage() {
       if (data.banned_ips) setBannedIps(data.banned_ips);
       if (data.staff_active) setStaffActive(data.staff_active);
       if (data.staff_history) setStaffHistory(data.staff_history);
+      if (data.announcements) setAnnouncements(data.announcements);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetch("/api/scripts")
+      .then((res) => res.json())
+      .then((json) => {
+        if (json.scripts) setScriptsList(json.scripts);
+      })
+      .catch(() => {});
+  }, []);
 
   // Local live clock ticker every 500ms to calculate live pings and freeze disconnected timers
   useEffect(() => {
@@ -214,6 +262,111 @@ export default function PlayersPage() {
     }
   };
 
+  const handleExecuteCode = async () => {
+    if (!codeModal || !codeText.trim()) return;
+    try {
+      const res = await fetch("/api/players", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "execute_code",
+          session_id: codeModal.sessionId,
+          code: codeText,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showNotice(`Luau code dispatched to ${codeModal.username}!`);
+        setCodeModal(null);
+      } else {
+        alert(data.error || "Failed to dispatch code.");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleTeleport = async () => {
+    if (!teleportModal) return;
+    const isHop = teleportMode === "hop";
+    if (!isHop && !targetPlaceId.trim()) {
+      alert("Please enter a valid Place ID to teleport the player.");
+      return;
+    }
+    try {
+      const res = await fetch("/api/players", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "teleport",
+          session_id: teleportModal.sessionId,
+          server_hop: isHop,
+          place_id: isHop ? undefined : Number(targetPlaceId.trim()),
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showNotice(
+          isHop
+            ? `Server hop sent to ${teleportModal.username}!`
+            : `Teleport to place ${targetPlaceId} sent to ${teleportModal.username}!`
+        );
+        setTeleportModal(null);
+        setTargetPlaceId("");
+      } else {
+        alert(data.error || "Teleport failed.");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleBroadcastAnnouncement = async () => {
+    if (!announcementTitle.trim() || !announcementMessage.trim()) {
+      alert("Please enter both a title and message for the announcement.");
+      return;
+    }
+    try {
+      const res = await fetch("/api/players", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "broadcast_announcement",
+          script_id: announcementScript,
+          title: announcementTitle.trim(),
+          message: announcementMessage.trim(),
+          duration_seconds: Number(announcementDuration) || 10,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showNotice("In-Game Global Announcement broadcasted!");
+        setAnnouncementModal(false);
+        setAnnouncementTitle("");
+        setAnnouncementMessage("");
+        fetchPlayers();
+      } else {
+        alert(data.error || "Failed to broadcast announcement.");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteAnnouncement = async (id: string) => {
+    try {
+      await fetch("/api/players", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete_announcement", id }),
+      });
+      showNotice("Announcement removed.");
+      fetchPlayers();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const showNotice = (msg: string) => {
     setActionSuccess(msg);
     setTimeout(() => setActionSuccess(null), 3000);
@@ -272,7 +425,17 @@ export default function PlayersPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setAnnouncementModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-semibold shadow-sm transition-all"
+            title="Broadcast Live Announcement to In-Game Sessions"
+          >
+            <Megaphone className="w-3.5 h-3.5 text-amber-400" />
+            <span>Broadcast Announcement</span>
+          </button>
+
           <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold shadow-sm">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
             <span>Online Right Now: {onlineCount}</span>
@@ -337,6 +500,18 @@ export default function PlayersPage() {
               {staffActive.length} Staff
             </span>
           )}
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("announcements")}
+          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            activeTab === "announcements"
+              ? "bg-amber-600 text-white shadow-sm"
+              : "text-gray-400 hover:text-white hover:bg-gray-800/60"
+          }`}
+        >
+          <Megaphone className="w-3.5 h-3.5" />
+          <span>In-Game Announcements ({announcements.length})</span>
         </button>
         <button
           type="button"
@@ -585,8 +760,20 @@ export default function PlayersPage() {
                     </div>
                   </div>
 
-                  {/* Device & Network Details */}
+                  {/* Device, Network & Game Details */}
                   <div className="mt-3 space-y-1 text-[11px] text-gray-400">
+                    {s.place_id && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-500 flex items-center gap-1">
+                          <Gamepad2 className="w-3 h-3 text-purple-400" />
+                          Game:
+                        </span>
+                        <span className="font-mono text-purple-300 font-semibold truncate max-w-[160px]" title={s.place_name || String(s.place_id)}>
+                          {s.place_name || `Place #${s.place_id}`}
+                        </span>
+                      </div>
+                    )}
+
                     <div className="flex items-center justify-between">
                       <span className="text-gray-500">IP:</span>
                       <span className="font-mono text-gray-300">
@@ -606,7 +793,7 @@ export default function PlayersPage() {
                   </div>
 
                   {/* Action Buttons */}
-                  <div className="flex items-center gap-1.5 mt-4 pt-3 border-t border-gray-800/60">
+                  <div className="grid grid-cols-4 gap-1.5 mt-4 pt-3 border-t border-gray-800/60">
                     <button
                       type="button"
                       onClick={() =>
@@ -615,28 +802,51 @@ export default function PlayersPage() {
                           username: s.roblox_username || s.ip_address,
                         })
                       }
-                      className="flex-1 py-1.5 rounded-lg bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 text-xs font-semibold transition-colors flex items-center justify-center gap-1"
+                      className="py-1.5 px-2 rounded-lg bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 text-[11px] font-semibold transition-colors flex items-center justify-center gap-1"
+                      title="Send In-Game Message"
                     >
                       <Send className="w-3 h-3" />
-                      Message
+                      Msg
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCodeModal({
+                          sessionId: s.id,
+                          username: s.roblox_username || s.ip_address,
+                        })
+                      }
+                      className="py-1.5 px-2 rounded-lg bg-emerald-600/15 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/25 text-[11px] font-semibold transition-colors flex items-center justify-center gap-1"
+                      title="Inject Luau Code into session"
+                    >
+                      <Code2 className="w-3 h-3" />
+                      Code
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setTeleportModal({
+                          sessionId: s.id,
+                          username: s.roblox_username || s.ip_address,
+                          placeId: s.place_id || undefined,
+                        })
+                      }
+                      className="py-1.5 px-2 rounded-lg bg-purple-600/15 hover:bg-purple-600/30 text-purple-400 border border-purple-500/25 text-[11px] font-semibold transition-colors flex items-center justify-center gap-1"
+                      title="Server Hop or Teleport Place"
+                    >
+                      <Compass className="w-3 h-3" />
+                      Hop
                     </button>
 
                     <button
                       type="button"
                       onClick={() => handleKick(s.id)}
-                      className="py-1.5 px-3 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border border-amber-500/25 text-xs font-semibold transition-colors"
+                      className="py-1.5 px-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border border-amber-500/25 text-[11px] font-semibold transition-colors flex items-center justify-center"
                       title="Remote kick"
                     >
                       Kick
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleBanIp(s.ip_address)}
-                      className="py-1.5 px-3 rounded-lg bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 border border-rose-500/25 text-xs font-semibold transition-colors"
-                      title="Ban player IP"
-                    >
-                      Ban
                     </button>
                   </div>
                 </div>
@@ -727,6 +937,33 @@ export default function PlayersPage() {
                               title="Send Message"
                             >
                               Message
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setCodeModal({
+                                  sessionId: s.id,
+                                  username: s.roblox_username || s.ip_address,
+                                })
+                              }
+                              className="px-2 py-1 rounded bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 border border-emerald-500/30 text-[11px] font-medium transition-colors"
+                              title="Inject Luau Code"
+                            >
+                              Code
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setTeleportModal({
+                                  sessionId: s.id,
+                                  username: s.roblox_username || s.ip_address,
+                                  placeId: s.place_id || undefined,
+                                })
+                              }
+                              className="px-2 py-1 rounded bg-purple-600/20 hover:bg-purple-600/40 text-purple-400 border border-purple-500/30 text-[11px] font-medium transition-colors"
+                              title="Server Hop / Teleport"
+                            >
+                              Hop
                             </button>
                             <button
                               type="button"
@@ -922,6 +1159,103 @@ export default function PlayersPage() {
         </div>
       )}
 
+      {/* IN-GAME ANNOUNCEMENTS TAB */}
+      {activeTab === "announcements" && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-[#12141d] border border-gray-800 rounded-2xl">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                <Megaphone className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                  Global In-Game Announcements
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    {announcements.length} Sent
+                  </span>
+                </h2>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Live banners slide down into Roblox player screens in real-time through heartbeat command dispatching.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setAnnouncementModal(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold shadow-md shadow-amber-600/20 transition-all self-start sm:self-auto"
+            >
+              <Megaphone className="w-4 h-4" />
+              New Announcement
+            </button>
+          </div>
+
+          <div className="bg-[#12141d] border border-gray-800 rounded-xl overflow-hidden shadow-xl">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[#0b0d14] border-b border-gray-800 text-gray-400 font-semibold uppercase tracking-wider text-[10px]">
+                  <tr>
+                    <th className="p-3.5">Announcement</th>
+                    <th className="p-3.5">Target Scope</th>
+                    <th className="p-3.5">Duration</th>
+                    <th className="p-3.5">Dispatched At</th>
+                    <th className="p-3.5 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800/60">
+                  {announcements.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="text-center py-12 text-gray-500">
+                        <Megaphone className="w-8 h-8 text-gray-600 mx-auto mb-2 opacity-60" />
+                        <p className="text-sm text-gray-300 font-semibold">No announcements dispatched yet</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Click &quot;New Announcement&quot; to broadcast a live notification to all players.
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    announcements.map((a) => {
+                      const targetScript = scriptsList.find((s) => s.id === a.script_id);
+                      return (
+                        <tr key={a.id} className="hover:bg-gray-800/30 transition-colors">
+                          <td className="p-3.5">
+                            <span className="font-bold text-white block">{a.title}</span>
+                            <span className="text-[11px] text-gray-400 mt-0.5 block max-w-md">
+                              {a.message}
+                            </span>
+                          </td>
+                          <td className="p-3.5">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-blue-500/10 text-blue-300 border border-blue-500/30">
+                              {a.script_id === "all" ? "All Scripts" : targetScript ? targetScript.name : a.script_id}
+                            </span>
+                          </td>
+                          <td className="p-3.5 font-mono text-gray-300">
+                            {a.duration_seconds}s
+                          </td>
+                          <td className="p-3.5 font-mono text-gray-400 text-[11px]">
+                            {new Date(a.created_at).toLocaleString()}
+                          </td>
+                          <td className="p-3.5 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteAnnouncement(a.id)}
+                              className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition-colors"
+                              title="Delete announcement record"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Dismissable Screen Message Modal */}
       {messageModal && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
@@ -967,6 +1301,314 @@ export default function PlayersPage() {
                 className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md shadow-blue-600/20"
               >
                 Send to Player
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Remote Luau Code Injection Modal */}
+      {codeModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-[#12141e] border border-gray-800 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                  <Code2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Remote Luau Code Injection</h3>
+                  <p className="text-[11px] text-gray-400">
+                    Executing directly in{" "}
+                    <strong className="text-emerald-300">{codeModal.username}</strong>&apos;s active Roblox runtime.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCodeModal(null)}
+                className="text-gray-400 hover:text-white text-xs"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Quick Templates */}
+            <div className="space-y-1">
+              <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider block">
+                Quick Templates
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setCodeText('print("Aero Auth: Hello from dashboard!")')}
+                  className="px-2 py-1 rounded bg-[#0b0d14] hover:bg-gray-800 border border-gray-700 text-[10px] text-gray-300 font-mono transition-colors"
+                >
+                  Print Test
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCodeText(
+                      'pcall(function() game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = 48 end)'
+                    )
+                  }
+                  className="px-2 py-1 rounded bg-[#0b0d14] hover:bg-gray-800 border border-gray-700 text-[10px] text-gray-300 font-mono transition-colors"
+                >
+                  Speed 48
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCodeText(
+                      'game:GetService("StarterGui"):SetCore("SendNotification", { Title = "Aero Auth", Text = "Admin executed remote code in your session.", Duration = 6 })'
+                    )
+                  }
+                  className="px-2 py-1 rounded bg-[#0b0d14] hover:bg-gray-800 border border-gray-700 text-[10px] text-gray-300 font-mono transition-colors"
+                >
+                  Client Notification
+                </button>
+              </div>
+            </div>
+
+            <textarea
+              rows={8}
+              value={codeText}
+              onChange={(e) => setCodeText(e.target.value)}
+              placeholder="-- Enter arbitrary Luau code to execute in-game&#10;print('Hello Roblox')"
+              className="w-full bg-[#0b0d14] border border-gray-700/80 rounded-xl p-3 font-mono text-xs text-emerald-300 outline-none focus:border-emerald-500 leading-relaxed"
+            />
+
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-[10px] text-gray-500 flex items-center gap-1">
+                <Sparkles className="w-3 h-3 text-amber-400" />
+                Code executes via executor loadstring on next heartbeat
+              </span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCodeModal(null)}
+                  className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecuteCode}
+                  className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md shadow-emerald-600/20 flex items-center gap-1.5"
+                >
+                  <Code2 className="w-3.5 h-3.5" />
+                  Dispatch Code
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Player Teleport & Server Hop Modal */}
+      {teleportModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-[#12141e] border border-gray-800 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400">
+                  <Compass className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Teleport & Server Hop</h3>
+                  <p className="text-[11px] text-gray-400">
+                    Remote teleportation for <strong className="text-purple-300">{teleportModal.username}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTeleportModal(null)}
+                className="text-gray-400 hover:text-white text-xs"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Mode Selector */}
+            <div className="grid grid-cols-2 gap-2 p-1 bg-[#0b0d14] border border-gray-800 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setTeleportMode("hop")}
+                className={`py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                  teleportMode === "hop"
+                    ? "bg-purple-600 text-white shadow-sm"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                Server Hop (Same Game)
+              </button>
+              <button
+                type="button"
+                onClick={() => setTeleportMode("place")}
+                className={`py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                  teleportMode === "place"
+                    ? "bg-purple-600 text-white shadow-sm"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                Target Place ID
+              </button>
+            </div>
+
+            {teleportMode === "hop" ? (
+              <div className="p-3 bg-purple-500/10 border border-purple-500/25 rounded-xl text-xs text-purple-200 space-y-1">
+                <p className="font-semibold flex items-center gap-1.5">
+                  <Compass className="w-3.5 h-3.5 text-purple-400" />
+                  Server Hop Description
+                </p>
+                <p className="text-[11px] text-gray-300">
+                  Automatically queries public game instances via Roblox Games API and teleports the player to a different active server.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-gray-300 block">
+                  Target Roblox Place ID:
+                </label>
+                <input
+                  type="text"
+                  value={targetPlaceId}
+                  onChange={(e) => setTargetPlaceId(e.target.value)}
+                  placeholder="e.g. 189707 or 6068496246"
+                  className="w-full bg-[#0b0d14] border border-gray-700/80 rounded-xl p-2.5 font-mono text-xs text-white outline-none focus:border-purple-500"
+                />
+                <p className="text-[10px] text-gray-500">
+                  Calls <code className="text-purple-300">TeleportService:Teleport(placeId)</code> in player context.
+                </p>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setTeleportModal(null)}
+                className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleTeleport}
+                className="px-4 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-md shadow-purple-600/20 flex items-center gap-1.5"
+              >
+                <Compass className="w-3.5 h-3.5" />
+                Dispatch Teleport
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Global In-Game Announcement Modal */}
+      {announcementModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-[#12141e] border border-gray-800 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                  <Megaphone className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Broadcast In-Game Announcement</h3>
+                  <p className="text-[11px] text-gray-400">
+                    Displays animated top banner on connected player screens.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAnnouncementModal(false)}
+                className="text-gray-400 hover:text-white text-xs"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-gray-300 block mb-1">
+                  Target Script Scope:
+                </label>
+                <select
+                  value={announcementScript}
+                  onChange={(e) => setAnnouncementScript(e.target.value)}
+                  className="w-full bg-[#0b0d14] border border-gray-700/80 rounded-xl p-2.5 text-xs text-white outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="all">All Scripts (Global Broadcast)</option>
+                  {scriptsList.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} (/{s.slug})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-300 block mb-1">
+                  Banner Title:
+                </label>
+                <input
+                  type="text"
+                  value={announcementTitle}
+                  onChange={(e) => setAnnouncementTitle(e.target.value)}
+                  placeholder="e.g. SYSTEM UPDATE / MAINTENANCE"
+                  className="w-full bg-[#0b0d14] border border-gray-700/80 rounded-xl p-2.5 text-xs text-white outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-300 block mb-1">
+                  Announcement Message:
+                </label>
+                <textarea
+                  rows={3}
+                  value={announcementMessage}
+                  onChange={(e) => setAnnouncementMessage(e.target.value)}
+                  placeholder="e.g. New update v2.4 released! Re-execute for new features."
+                  className="w-full bg-[#0b0d14] border border-gray-700/80 rounded-xl p-2.5 text-xs text-white outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-300 block mb-1">
+                  On-Screen Duration:
+                </label>
+                <select
+                  value={announcementDuration}
+                  onChange={(e) => setAnnouncementDuration(e.target.value)}
+                  className="w-full bg-[#0b0d14] border border-gray-700/80 rounded-xl p-2.5 text-xs text-white outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="5">5 Seconds</option>
+                  <option value="10">10 Seconds (Default)</option>
+                  <option value="15">15 Seconds</option>
+                  <option value="30">30 Seconds</option>
+                  <option value="60">60 Seconds</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setAnnouncementModal(false)}
+                className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleBroadcastAnnouncement}
+                className="px-4 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold shadow-md shadow-amber-600/20 flex items-center gap-1.5"
+              >
+                <Megaphone className="w-3.5 h-3.5" />
+                Broadcast Now
               </button>
             </div>
           </div>

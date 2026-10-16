@@ -65,6 +65,8 @@ export async function POST(req: NextRequest) {
       show_watermark: show_watermark !== false,
       is_active: true,
       use_auth: body.use_auth !== false,
+      is_maintenance: body.is_maintenance === true,
+      maintenance_message: body.maintenance_message || null,
     });
 
     return NextResponse.json({ success: true, script });
@@ -132,6 +134,8 @@ export async function PATCH(req: NextRequest) {
       show_watermark: body.show_watermark !== undefined ? body.show_watermark : existing.show_watermark,
       is_active: body.is_active !== undefined ? body.is_active : existing.is_active,
       use_auth: body.use_auth !== undefined ? body.use_auth : existing.use_auth,
+      is_maintenance: body.is_maintenance !== undefined ? body.is_maintenance : existing.is_maintenance,
+      maintenance_message: body.maintenance_message !== undefined ? body.maintenance_message : existing.maintenance_message,
     });
 
     return NextResponse.json({

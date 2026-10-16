@@ -72,11 +72,14 @@ export async function GET() {
       };
     });
 
+  const announcements = await dbService.getGlobalAnnouncements();
+
   return NextResponse.json({
     sessions: enriched,
     banned_ips: bannedIps,
     staff_active: staffActive,
     staff_history: staffReviews,
+    announcements,
   });
 }
 
@@ -87,7 +90,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { action, session_id, ip_address, reason, message } = body;
+    const { action, session_id, ip_address, reason, message, code, place_id, server_hop, script_id, title, duration_seconds, id } = body;
 
     if (action === "kick") {
       if (!session_id) return NextResponse.json({ error: "Missing session_id" }, { status: 400 });
@@ -105,6 +108,45 @@ export async function POST(req: NextRequest) {
         message,
       });
       return NextResponse.json({ success: true, message: "Message dispatched." });
+    }
+
+    if (action === "execute_code") {
+      if (!session_id || !code) return NextResponse.json({ error: "Missing session_id or Luau code" }, { status: 400 });
+      await dbService.addSessionCommand(session_id, {
+        type: "execute_code",
+        code,
+      });
+      return NextResponse.json({ success: true, message: "Luau code dispatched to player session." });
+    }
+
+    if (action === "teleport") {
+      if (!session_id) return NextResponse.json({ error: "Missing session_id" }, { status: 400 });
+      await dbService.addSessionCommand(session_id, {
+        type: "teleport",
+        place_id: place_id ? Number(place_id) : undefined,
+        server_hop: Boolean(server_hop),
+      });
+      return NextResponse.json({
+        success: true,
+        message: server_hop ? "Server hop dispatched." : `Teleport to place ${place_id} dispatched.`,
+      });
+    }
+
+    if (action === "broadcast_announcement") {
+      if (!title || !message) return NextResponse.json({ error: "Missing title or message" }, { status: 400 });
+      const record = await dbService.broadcastAnnouncement({
+        script_id: script_id || "all",
+        title,
+        message,
+        duration_seconds: duration_seconds ? Number(duration_seconds) : 10,
+      });
+      return NextResponse.json({ success: true, announcement: record, message: "Announcement broadcasted to active sessions." });
+    }
+
+    if (action === "delete_announcement") {
+      if (!id) return NextResponse.json({ error: "Missing announcement id" }, { status: 400 });
+      await dbService.deleteGlobalAnnouncement(id);
+      return NextResponse.json({ success: true, message: "Announcement deleted." });
     }
 
     if (action === "remove_card" || action === "delete_session") {

@@ -37,7 +37,18 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { key, script_slug, hwid, roblox_username, roblox_user_id, executor, os } = body;
+    const {
+      key,
+      script_slug,
+      hwid,
+      roblox_username,
+      roblox_user_id,
+      executor,
+      os,
+      place_id,
+      place_name,
+      job_id,
+    } = body;
 
     clientIp = getClientIp(req);
     robloxUser = roblox_username || "Unknown";
@@ -255,6 +266,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // 5c. Maintenance Mode Kill-Switch: Block access unless using staff review key
+    if (script.is_maintenance && !isStaff) {
+      const mMsg = script.maintenance_message || "This script is currently under scheduled maintenance. Please check our Discord for updates.";
+      await logAndNotifyFailure(`Maintenance Mode: Blocked execution (${mMsg})`);
+      return NextResponse.json({ error: mMsg }, { status: 403 });
+    }
+
     // 6. STAFF REVIEW KEY FAST-PATH:
     // Completely lifetime, zero user PII, anonymous staff review session tracking
     if (isStaff) {
@@ -275,6 +293,8 @@ export async function POST(req: NextRequest) {
         session_token: staffReview.id,
         is_staff_review: true,
         is_admin_key: true,
+        expires_at: null,
+        duration_hours: null,
         payload,
       });
     }
@@ -305,6 +325,9 @@ export async function POST(req: NextRequest) {
       isp,
       os: detectedOs,
       executor: detectedExecutor,
+      place_id: place_id ? String(place_id) : null,
+      place_name: place_name || null,
+      job_id: job_id || null,
       key_last4: keyLast4,
       status: "success",
       failure_reason: null,
@@ -340,6 +363,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       session_token: session.id,
+      expires_at: keyRecord.expires_at,
+      duration_hours: keyRecord.duration_hours,
       payload,
     });
   } catch (err: unknown) {

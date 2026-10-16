@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { dbService } from "@/lib/store";
+import { dbService, SessionCommand } from "@/lib/store";
 import { getClientIp } from "@/lib/ip";
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { session_token } = body;
+    const { session_token, place_id, place_name, job_id, tamper_flags } = body;
 
     if (!session_token) {
       // Return ok instead of 400 so transient executor pings never terminate players
@@ -20,7 +20,21 @@ export async function POST(req: NextRequest) {
 
     const clientIp = getClientIp(req);
 
-    const session = await dbService.updateHeartbeat(session_token, clientIp);
+    const session = await dbService.updateHeartbeat(session_token, clientIp, {
+      place_id,
+      place_name,
+      job_id,
+    });
+
+    // If client reported tamper flags (e.g. hookfunction detour on HttpGet/require)
+    if (Array.isArray(tamper_flags) && tamper_flags.length > 0) {
+      session.tamper_flags = Array.from(new Set([...(session.tamper_flags || []), ...tamper_flags]));
+      return NextResponse.json({
+        status: "ok",
+        action: "kick",
+        reason: "[AERO AUTH] Security Integrity Violation: Unauthorized hooks or metatable detours detected.",
+      });
+    }
 
     // 1. Check if explicitly kicked by admin
     if (session.status === "kicked") {
@@ -41,8 +55,29 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 3. Check for pending commands (remote kicks, dismissable billboard messages)
-    const commands = await dbService.clearPendingCommands(session.id);
+    // 3. Expiration Tracking
+    let expiresAt: string | null = null;
+    let remainingSeconds: number | null = null;
+    if (session.key_id && session.key_id !== "active") {
+      const keys = await dbService.getKeys();
+      const keyObj = keys.find((k) => k.id === session.key_id);
+      if (keyObj && keyObj.expires_at) {
+        expiresAt = keyObj.expires_at;
+        const diffMs = new Date(keyObj.expires_at).getTime() - Date.now();
+        remainingSeconds = Math.max(0, Math.floor(diffMs / 1000));
+        if (diffMs <= 0) {
+          return NextResponse.json({
+            status: "ok",
+            action: "kick",
+            reason: "Your license key has expired. Please claim a new key to continue.",
+            remaining_seconds: 0,
+          });
+        }
+      }
+    }
+
+    // 4. Check for pending commands (remote kicks, announcements, code injection, teleports)
+    const commands: SessionCommand[] = await dbService.clearPendingCommands(session.id);
     let action = "ok";
     let message: string | undefined;
     let reason: string | undefined;
@@ -72,6 +107,9 @@ export async function POST(req: NextRequest) {
       action,
       reason,
       message,
+      commands,
+      expires_at: expiresAt,
+      remaining_seconds: remainingSeconds,
     });
   } catch (err: unknown) {
     // Fail OPEN: transient network hiccups should NEVER terminate player games
