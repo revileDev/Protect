@@ -112,6 +112,7 @@ export interface ExecutionLog {
 
 export interface CheckpointLog {
   id: string;
+  script_id?: string;
   ip_address: string;
   stage: "started" | "completed";
   created_at: string;
@@ -265,15 +266,23 @@ const initialDb: LocalDatabase = {
   staff_reviews: [],
 };
 
+const DB_BACKUP_FILE = path.join(DB_DIR, "db.json.bak");
+let inMemoryDbCache: LocalDatabase | null = null;
+
 function readLocalDb(): LocalDatabase {
   try {
     if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
     if (!fs.existsSync(DB_FILE)) {
       fs.writeFileSync(DB_FILE, JSON.stringify(initialDb, null, 2), "utf8");
+      inMemoryDbCache = initialDb;
       return initialDb;
     }
-    const data = JSON.parse(fs.readFileSync(DB_FILE, "utf8"));
-    return {
+    const raw = fs.readFileSync(DB_FILE, "utf8");
+    if (!raw.trim()) {
+      if (inMemoryDbCache) return inMemoryDbCache;
+    }
+    const data = JSON.parse(raw);
+    const parsed: LocalDatabase = {
       ...initialDb,
       ...data,
       execution_logs: data.execution_logs || [],
@@ -282,8 +291,23 @@ function readLocalDb(): LocalDatabase {
       creator_profile: data.creator_profile ? { ...defaultCreatorProfile, ...data.creator_profile } : defaultCreatorProfile,
       staff_reviews: data.staff_reviews || [],
     };
+    inMemoryDbCache = parsed;
+    return parsed;
   } catch (err) {
-    console.error("Error reading local db, resetting to fallback", err);
+    console.error("Error reading local db, falling back to memory cache or backup", err);
+    if (inMemoryDbCache) {
+      return inMemoryDbCache;
+    }
+    try {
+      if (fs.existsSync(DB_BACKUP_FILE)) {
+        const backupRaw = fs.readFileSync(DB_BACKUP_FILE, "utf8");
+        const backupData = JSON.parse(backupRaw);
+        inMemoryDbCache = backupData;
+        return backupData;
+      }
+    } catch {
+      // fallback to initialDb
+    }
     return initialDb;
   }
 }
@@ -291,7 +315,22 @@ function readLocalDb(): LocalDatabase {
 function writeLocalDb(db: LocalDatabase) {
   try {
     if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), "utf8");
+    inMemoryDbCache = db;
+    const tempFile = path.join(DB_DIR, `db.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`);
+    const json = JSON.stringify(db, null, 2);
+    fs.writeFileSync(tempFile, json, "utf8");
+    try {
+      fs.renameSync(tempFile, DB_FILE);
+    } catch {
+      // Fallback on Windows if rename encounters temporary file lock
+      fs.copyFileSync(tempFile, DB_FILE);
+      try {
+        fs.unlinkSync(tempFile);
+      } catch {}
+    }
+    try {
+      fs.copyFileSync(DB_FILE, DB_BACKUP_FILE);
+    } catch {}
   } catch (err) {
     console.error("Error writing local db", err);
   }
@@ -467,15 +506,26 @@ export const dbService = {
   async saveScript(script: Omit<ScriptRecord, "id" | "created_at" | "updated_at"> & { id?: string }): Promise<ScriptRecord> {
     const id = script.id || crypto.randomUUID();
     const now = new Date().toISOString();
+    const cleanSlug = (script.slug || "").trim().toLowerCase();
+
+    const db = readLocalDb();
+    // Validate slug uniqueness against other scripts
+    const slugConflict = db.scripts.find(
+      (s) => s.slug.toLowerCase() === cleanSlug && s.id !== id
+    );
+    if (slugConflict) {
+      throw new Error(`A script with the URL slug '${cleanSlug}' already exists ('${slugConflict.name}'). Please choose a unique slug.`);
+    }
+
     const record: ScriptRecord = {
       ...script,
+      slug: cleanSlug,
       id,
       created_at: now,
       updated_at: now,
     };
 
     // Always persist to local DB first for safety
-    const db = readLocalDb();
     const index = db.scripts.findIndex((s) => s.id === id);
     if (index >= 0) db.scripts[index] = record;
     else db.scripts.unshift(record);
@@ -1314,9 +1364,10 @@ export const dbService = {
     return record;
   },
 
-  async recordCheckpoint(stage: "started" | "completed", ip: string): Promise<void> {
+  async recordCheckpoint(stage: "started" | "completed", ip: string, scriptId?: string): Promise<void> {
     const record: CheckpointLog = {
       id: crypto.randomUUID(),
+      script_id: scriptId,
       ip_address: ip,
       stage,
       created_at: new Date().toISOString(),
@@ -1409,7 +1460,10 @@ export const dbService = {
         cpMap.set(cp.id, cp);
       }
     }
-    const allCps = Array.from(cpMap.values());
+    let allCps = Array.from(cpMap.values());
+    if (scriptId && scriptId !== "all") {
+      allCps = allCps.filter((c) => !c.script_id || c.script_id === scriptId);
+    }
 
     // 3. Compute KPI Metrics
     const totalExecutions = allExecs.length;

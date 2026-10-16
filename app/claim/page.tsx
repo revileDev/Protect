@@ -73,10 +73,10 @@ export default function ClaimKeyPage() {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Settings
   const [claimMethod, setClaimMethod] = useState<"checkpoints" | "discord_oauth">("checkpoints");
   const [discordInvite, setDiscordInvite] = useState("https://discord.gg/AeCYnnQmq5");
   const [discordJoined, setDiscordJoined] = useState(false);
+  const [discordUsername, setDiscordUsername] = useState("");
 
   const checkAlreadyClaimed = async (slugToCheck: string) => {
     try {
@@ -223,17 +223,28 @@ export default function ClaimKeyPage() {
       return;
     }
 
+    if (claimMethod === "discord_oauth" && !discordUsername.trim()) {
+      setError("Please enter your Discord username to claim your license key.");
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
     try {
+      const sanitizedTag = discordUsername.trim();
+      const sanitizedId = sanitizedTag.toLowerCase().replace(/[^a-z0-9_]/g, "") || "discord_user";
+
       const res = await fetch("/api/claim", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           script_slug: scriptSlug,
           claim_id: claimId,
-          discord_user: claimMethod === "discord_oauth" ? { id: "9823412312", tag: "User#0001" } : null,
+          discord_user:
+            claimMethod === "discord_oauth"
+              ? { id: sanitizedId, tag: sanitizedTag }
+              : null,
         }),
       });
 
@@ -568,6 +579,22 @@ export default function ClaimKeyPage() {
                       Join Discord Server
                       <ArrowRight className="w-3.5 h-3.5" />
                     </a>
+
+                    <div className="pt-2 border-t border-gray-800/80 space-y-1.5">
+                      <label className="block text-xs font-semibold text-gray-300">
+                        Step 2: Enter Your Discord Username
+                      </label>
+                      <input
+                        type="text"
+                        value={discordUsername}
+                        onChange={(e) => setDiscordUsername(e.target.value)}
+                        placeholder="e.g. revile or username#0001"
+                        className="w-full bg-[#12141f] border border-gray-700/80 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-500 outline-none focus:border-blue-500"
+                      />
+                      <p className="text-[10px] text-gray-500">
+                        Your license key will be associated with this Discord account.
+                      </p>
+                    </div>
                   </div>
                 ) : (
                   /* Multi-Checkpoint Sequential Steps */
@@ -690,17 +717,20 @@ export default function ClaimKeyPage() {
                   disabled={
                     loading ||
                     (claimMethod === "checkpoints" && !allCheckpointsDone) ||
-                    (claimMethod === "discord_oauth" && !discordJoined)
+                    (claimMethod === "discord_oauth" && (!discordJoined || !discordUsername.trim()))
                   }
                   className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs transition-all shadow-lg shadow-blue-600/25 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {loading ? (
                     <span>Allocating Key from Script Pool...</span>
-                  ) : allCheckpointsDone || discordJoined ? (
+                  ) : (claimMethod === "checkpoints" && allCheckpointsDone) ||
+                    (claimMethod === "discord_oauth" && discordJoined && discordUsername.trim()) ? (
                     <>
                       <span>Get My License Key</span>
                       <ArrowRight className="w-4 h-4" />
                     </>
+                  ) : claimMethod === "discord_oauth" ? (
+                    <span>{!discordJoined ? "Join Discord Above First" : "Enter Discord Username Above"}</span>
                   ) : (
                     <span>Complete All Checkpoints Above</span>
                   )}

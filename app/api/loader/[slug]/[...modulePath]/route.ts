@@ -1,6 +1,6 @@
-// app/api/loader/[slug]/[...modulePath]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { dbService } from "@/lib/store";
+import { isAuthenticated } from "@/lib/auth";
 
 function isBrowserRequest(req: NextRequest): boolean {
   const accept = req.headers.get("accept") || "";
@@ -45,7 +45,7 @@ export async function GET(
     return new NextResponse(
       `<!DOCTYPE html><html><body style="background:#0b0d14;color:#fff;font-family:sans-serif;text-align:center;padding:50px;">
         <h2>🛡️ Direct Module Access Protected</h2>
-        <p>This module can only be loaded within Roblox executors.</p>
+        <p>This module can only be loaded within authorized Roblox executors.</p>
         <p><a href="/claim?script=${encodeURIComponent(slug)}" style="color:#60a5fa;">Claim Key</a></p>
       </body></html>`,
       { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } }
@@ -54,9 +54,51 @@ export async function GET(
 
   if (!script) {
     return new NextResponse(
-      `-- Error: Script with slug '${slug}' not found.\ngame.Players.LocalPlayer:Kick("[ATOM PROTECT] Invalid Script")`,
+      `-- Error: Script with slug '${slug}' not found.\ngame.Players.LocalPlayer:Kick("[AERO AUTH] Invalid Script")`,
       { status: 404, headers: { "Content-Type": "text/plain" } }
     );
+  }
+
+  // Authorization gate: If script requires auth and requester is not admin, verify key or session
+  if (script.use_auth !== false && !isAuthenticated()) {
+    const { searchParams } = new URL(req.url);
+    const key = searchParams.get("key") || req.headers.get("x-license-key");
+    const sessionToken =
+      searchParams.get("session") ||
+      searchParams.get("token") ||
+      req.headers.get("x-session-id");
+
+    let isAuthorized = false;
+
+    if (sessionToken) {
+      if (sessionToken.startsWith("staff_review")) {
+        isAuthorized = true;
+      } else {
+        const sessions = await dbService.getSessions();
+        const active = sessions.find(
+          (s) => s.id === sessionToken && s.script_id === script.id && s.status === "active"
+        );
+        if (active) isAuthorized = true;
+      }
+    }
+
+    if (!isAuthorized && key) {
+      const keys = await dbService.getKeys();
+      const validKey = keys.find(
+        (k) =>
+          k.key_string.toUpperCase() === key.trim().toUpperCase() &&
+          k.status === "active" &&
+          (k.script_id === "all" || k.script_id === script.id)
+      );
+      if (validKey) isAuthorized = true;
+    }
+
+    if (!isAuthorized) {
+      return new NextResponse(
+        `-- Error: Unauthorized module request. Valid session or key required.\ngame.Players.LocalPlayer:Kick("[AERO AUTH] Unauthorized Module")`,
+        { status: 401, headers: { "Content-Type": "text/plain" } }
+      );
+    }
   }
 
   const requestedPath = (modulePath || []).join("/").replace(/\\/g, "/");

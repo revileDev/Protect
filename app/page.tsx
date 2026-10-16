@@ -47,7 +47,7 @@ export default async function HomePage() {
         <div className="mx-auto max-w-3xl text-center relative z-10">
           <div className="inline-flex items-center gap-2 rounded-full border border-gray-800 bg-[#12141e] px-4 py-1.5 text-xs text-gray-400 mb-6 shadow-sm">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span>ATOM PROTECT • Script Verification & Access Portal</span>
+            <span>AERO AUTH • Script Verification & Access Portal</span>
           </div>
 
           <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-white mb-5 leading-tight">
@@ -201,7 +201,7 @@ export default async function HomePage() {
 
       {/* Discreet footer with hidden admin link */}
       <footer className="py-4 px-6 border-t border-gray-900 bg-[#07080c] flex items-center justify-between text-[11px] text-gray-600">
-        <span>&copy; {new Date().getFullYear()} ATOM PROTECT. All rights reserved.</span>
+        <span>&copy; {new Date().getFullYear()} AERO AUTH. All rights reserved.</span>
         <Link
           href="/login"
           className="text-gray-800 hover:text-gray-600 transition-colors p-1"

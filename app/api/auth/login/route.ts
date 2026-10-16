@@ -1,6 +1,5 @@
-// app/api/auth/login/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { verifyCredentials, AUTH_COOKIE_NAME, AUTH_TOKEN_VALUE } from "@/lib/auth";
+import { verifyCredentials, AUTH_COOKIE_NAME, createSessionToken } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,9 +15,11 @@ export async function POST(req: NextRequest) {
 
     const response = NextResponse.json({ success: true, redirect: "/dashboard/scripts" });
     const isHttps = req.nextUrl.protocol === "https:" || req.headers.get("x-forwarded-proto") === "https";
+    const sessionToken = createSessionToken();
+
     response.cookies.set({
       name: AUTH_COOKIE_NAME,
-      value: AUTH_TOKEN_VALUE,
+      value: sessionToken,
       httpOnly: true,
       secure: isHttps,
       sameSite: "lax",

@@ -1,8 +1,8 @@
-// app/api/loader/[slug]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { dbService } from "@/lib/store";
 import { generateLuaLoader } from "@/lib/lua-generator";
 import { bundleModularScript } from "@/lib/module-bundler";
+import { getClientIp } from "@/lib/ip";
 
 function isBrowserRequest(req: NextRequest): boolean {
   const accept = req.headers.get("accept") || "";
@@ -286,8 +286,7 @@ export async function GET(
 
   // If script has use_auth === false (Direct Run Mode - Auth Bypassed)
   if (script.use_auth === false) {
-    const forwarded = req.headers.get("x-forwarded-for");
-    const clientIp = forwarded ? forwarded.split(",")[0].trim() : req.headers.get("x-real-ip") || "127.0.0.1";
+    const clientIp = getClientIp(req);
     const userAgent = (req.headers.get("user-agent") || "").toLowerCase();
 
     let execName = "Unknown Executor";

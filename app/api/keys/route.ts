@@ -1,6 +1,7 @@
 // app/api/keys/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { dbService } from "@/lib/store";
+import { isAuthenticated } from "@/lib/auth";
 
 function generateRandomKey(prefix = "KEY"): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -11,11 +12,18 @@ function generateRandomKey(prefix = "KEY"): string {
 }
 
 export async function GET() {
+  if (!isAuthenticated()) {
+    return NextResponse.json({ error: "Unauthorized. Admin session required." }, { status: 401 });
+  }
   const keys = await dbService.getKeys();
   return NextResponse.json({ keys });
 }
 
 export async function POST(req: NextRequest) {
+  if (!isAuthenticated()) {
+    return NextResponse.json({ error: "Unauthorized. Admin session required." }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
     const {
@@ -71,6 +79,10 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
+  if (!isAuthenticated()) {
+    return NextResponse.json({ error: "Unauthorized. Admin session required." }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
     const { id, status, notes } = body;
@@ -90,6 +102,10 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  if (!isAuthenticated()) {
+    return NextResponse.json({ error: "Unauthorized. Admin session required." }, { status: 401 });
+  }
+
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");

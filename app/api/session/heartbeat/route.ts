@@ -1,6 +1,6 @@
-// app/api/session/heartbeat/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { dbService } from "@/lib/store";
+import { getClientIp } from "@/lib/ip";
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,8 +18,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ status: "ok", action: "ok", is_staff: true, online_users: 1 });
     }
 
-    const forwarded = req.headers.get("x-forwarded-for");
-    const clientIp = forwarded ? forwarded.split(",")[0].trim() : req.headers.get("x-real-ip") || "127.0.0.1";
+    const clientIp = getClientIp(req);
 
     const session = await dbService.updateHeartbeat(session_token, clientIp);
 

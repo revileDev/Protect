@@ -175,6 +175,9 @@ export default function LoaderBuilderPage() {
       setLayoutPositions(DEFAULT_LAYOUT_POSITIONS);
     }
 
+    const boundScript = scripts.find((s) => s.loader_config_id === cfg.id);
+    setSelectedScriptId(boundScript ? boundScript.id : "all");
+
     setValidationError(null);
   };
 

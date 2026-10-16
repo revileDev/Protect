@@ -1,16 +1,6 @@
-// app/api/claim/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { dbService } from "@/lib/store";
-
-function getClientIp(req: NextRequest): string {
-  const cf = req.headers.get("cf-connecting-ip");
-  if (cf) return cf.trim();
-  const forwarded = req.headers.get("x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0].trim();
-  const real = req.headers.get("x-real-ip");
-  if (real) return real.trim();
-  return "127.0.0.1";
-}
+import { getClientIp } from "@/lib/ip";
 
 async function isVpnOrProxy(req: NextRequest, ip: string): Promise<boolean> {
   const via = req.headers.get("via");

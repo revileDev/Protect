@@ -17,7 +17,7 @@ export default function Navbar({ scripts }: Props) {
           </div>
           <div>
             <span className="font-bold tracking-tight text-white text-sm">
-              ATOM<span className="text-blue-500">PROTECT</span>
+              AERO<span className="text-blue-500">AUTH</span>
             </span>
             <span className="block text-[10px] text-gray-500 -mt-1 font-mono">
               Script Gateway
