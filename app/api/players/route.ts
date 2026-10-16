@@ -289,6 +289,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, message: `IP ${ip_address} has been banned.` });
     }
 
+    if (action === "unban_ip") {
+      if (!ip_address) return NextResponse.json({ error: "Missing ip_address" }, { status: 400 });
+      await dbService.unbanIp(ip_address);
+      return NextResponse.json({ success: true, message: `IP ${ip_address} has been unbanned.` });
+    }
+
     if (action === "kick_farm") {
       let targets: string[] = Array.isArray(body.session_ids) ? body.session_ids : [];
       if (targets.length === 0 && ip_address) {

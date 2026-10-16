@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect } from "react";
 import type { SystemSettings } from "@/lib/store";
-import { Settings, Database, Check, ShieldCheck, Copy, Code, Save, Radio } from "lucide-react";
+import { Settings, Database, Check, ShieldCheck, Copy, Code, Save, Radio, ShieldBan, Trash2, Search } from "lucide-react";
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<SystemSettings>({
@@ -20,6 +20,24 @@ export default function SettingsPage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [schemaCopied, setSchemaCopied] = useState(false);
 
+  // IP Blacklist State
+  const [bannedIps, setBannedIps] = useState<Record<string, { reason: string; banned_at: string }>>({});
+  const [newBanIp, setNewBanIp] = useState("");
+  const [newBanReason, setNewBanReason] = useState("");
+  const [banningIp, setBanningIp] = useState(false);
+  const [banSearchQuery, setBanSearchQuery] = useState("");
+  const [banNotice, setBanNotice] = useState<string | null>(null);
+
+  const fetchBannedIps = async () => {
+    try {
+      const res = await fetch("/api/ip-bans");
+      const data = await res.json();
+      if (data.banned_ips) setBannedIps(data.banned_ips);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   useEffect(() => {
     fetch("/api/settings")
       .then((res) => res.json())
@@ -27,7 +45,56 @@ export default function SettingsPage() {
         if (data.settings) setSettings(data.settings);
       })
       .catch((err) => console.error(err));
+    fetchBannedIps();
   }, []);
+
+  const handleBanIp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newBanIp.trim()) return;
+    setBanningIp(true);
+    try {
+      const res = await fetch("/api/ip-bans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ip_address: newBanIp.trim(),
+          reason: newBanReason.trim() || "Manual blacklist from Settings console",
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setBanNotice(`IP ${newBanIp.trim()} blacklisted successfully.`);
+        setTimeout(() => setBanNotice(null), 3000);
+        setNewBanIp("");
+        setNewBanReason("");
+        fetchBannedIps();
+      } else {
+        alert(data.error || "Failed to ban IP");
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setBanningIp(false);
+    }
+  };
+
+  const handleUnbanIp = async (ip: string) => {
+    try {
+      const res = await fetch(`/api/ip-bans?ip=${encodeURIComponent(ip)}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (data.success) {
+        setBanNotice(`IP ${ip} removed from blacklist.`);
+        setTimeout(() => setBanNotice(null), 3000);
+        fetchBannedIps();
+      } else {
+        alert(data.error || "Failed to unban IP");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -253,6 +320,134 @@ export default function SettingsPage() {
             onChange={(e) => setSettings({ ...settings, vpn_detection_enabled: e.target.checked })}
             className="w-4 h-4 accent-blue-500 cursor-pointer"
           />
+        </div>
+      </div>
+
+      {/* IP Blacklist & Ban Center */}
+      <div className="bg-[#12141d] border border-gray-800 rounded-xl p-5 shadow-xl space-y-4">
+        <div className="flex items-center justify-between border-b border-gray-800 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
+              <ShieldBan className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                IP Blacklist & Access Control
+                <span className="px-2 py-0.5 rounded-full text-[10px] bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                  {Object.keys(bannedIps).length} Blacklisted
+                </span>
+              </h2>
+              <p className="text-xs text-gray-400">
+                Permanently restrict abusive networks, bot farms, and scrapers from accessing loaders or API endpoints.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {banNotice && (
+          <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 rounded-xl text-xs flex items-center gap-2 animate-in fade-in">
+            <Check className="w-4 h-4" />
+            <span>{banNotice}</span>
+          </div>
+        )}
+
+        {/* Quick Ban Input Form */}
+        <form onSubmit={handleBanIp} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end p-3.5 rounded-xl bg-[#0d0f17] border border-gray-800">
+          <div className="md:col-span-4 space-y-1">
+            <label className="text-[11px] font-semibold text-gray-300">IP Address</label>
+            <input
+              type="text"
+              value={newBanIp}
+              onChange={(e) => setNewBanIp(e.target.value)}
+              placeholder="e.g. 192.168.1.50 or 45.33.32.1"
+              className="w-full bg-[#12141d] border border-gray-700/80 rounded-lg px-3 py-2 text-xs text-white font-mono outline-none focus:border-rose-500"
+              required
+            />
+          </div>
+          <div className="md:col-span-5 space-y-1">
+            <label className="text-[11px] font-semibold text-gray-300">Reason</label>
+            <input
+              type="text"
+              value={newBanReason}
+              onChange={(e) => setNewBanReason(e.target.value)}
+              placeholder="e.g. Key cracking, scraper bot, DDoS"
+              className="w-full bg-[#12141d] border border-gray-700/80 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-rose-500"
+            />
+          </div>
+          <div className="md:col-span-3">
+            <button
+              type="submit"
+              disabled={banningIp || !newBanIp.trim()}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold shadow-md shadow-rose-600/20 transition-all disabled:opacity-50"
+            >
+              <ShieldBan className="w-3.5 h-3.5" />
+              <span>{banningIp ? "Blacklisting..." : "Ban IP Address"}</span>
+            </button>
+          </div>
+        </form>
+
+        {/* Banned Table with Search */}
+        <div className="border border-gray-800 rounded-xl overflow-hidden bg-[#0d0f17]">
+          <div className="p-2.5 bg-[#0b0c12] border-b border-gray-800 flex items-center justify-between gap-3">
+            <span className="text-[11px] font-semibold text-gray-400">Current Blacklist</span>
+            <div className="relative w-56">
+              <Search className="w-3.5 h-3.5 text-gray-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={banSearchQuery}
+                onChange={(e) => setBanSearchQuery(e.target.value)}
+                placeholder="Search IP or reason..."
+                className="w-full bg-[#12141d] border border-gray-800 rounded-lg pl-8 pr-2.5 py-1 text-xs text-white outline-none focus:border-blue-500"
+              />
+            </div>
+          </div>
+
+          <div className="max-h-60 overflow-y-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-[#0b0d14] text-gray-400 font-semibold uppercase tracking-wider text-[10px] sticky top-0">
+                <tr>
+                  <th className="p-3">IP Address</th>
+                  <th className="p-3">Reason</th>
+                  <th className="p-3">Date</th>
+                  <th className="p-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800/60">
+                {Object.keys(bannedIps).length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="text-center py-6 text-gray-500 text-xs">
+                      No banned IP addresses.
+                    </td>
+                  </tr>
+                ) : (
+                  Object.entries(bannedIps)
+                    .filter(([ip, data]) => {
+                      if (!banSearchQuery.trim()) return true;
+                      const q = banSearchQuery.toLowerCase();
+                      return ip.toLowerCase().includes(q) || (data.reason || "").toLowerCase().includes(q);
+                    })
+                    .map(([ip, data]) => (
+                      <tr key={ip} className="hover:bg-gray-800/20">
+                        <td className="p-3 font-mono font-bold text-rose-400">{ip}</td>
+                        <td className="p-3 text-gray-300 text-[11px]">{data.reason}</td>
+                        <td className="p-3 text-gray-500 font-mono text-[10px]">
+                          {new Date(data.banned_at).toLocaleDateString()}
+                        </td>
+                        <td className="p-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleUnbanIp(ip)}
+                            className="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 font-medium text-[10px] transition-colors"
+                          >
+                            Unban
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 

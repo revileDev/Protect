@@ -29,6 +29,7 @@ import {
   Tv,
   Gamepad2,
   Sparkles,
+  Search,
 } from "lucide-react";
 
 interface StaffReviewItem {
@@ -166,6 +167,13 @@ export default function PlayersPage() {
   const [announcementDuration, setAnnouncementDuration] = useState("10");
   const [announcementScript, setAnnouncementScript] = useState("all");
 
+  // Manual Ban IP Modal state
+  const [banModalOpen, setBanModalOpen] = useState(false);
+  const [banIpInput, setBanIpInput] = useState("");
+  const [banReasonInput, setBanReasonInput] = useState("Manual ban from Admin Console");
+  const [banFilterSearch, setBanFilterSearch] = useState("");
+  const [banningIp, setBanningIp] = useState(false);
+
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
   const removedSessionIdsRef = useRef<Set<string>>(new Set());
@@ -298,6 +306,37 @@ export default function PlayersPage() {
       fetchPlayers();
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleDirectBanIp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!banIpInput.trim()) return;
+    setBanningIp(true);
+    try {
+      const res = await fetch("/api/players", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "ban_ip",
+          ip_address: banIpInput.trim(),
+          reason: banReasonInput.trim() || "Manual ban from Admin Console",
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showNotice(`IP ${banIpInput.trim()} has been permanently banned.`);
+        setBanIpInput("");
+        setBanReasonInput("Manual ban from Admin Console");
+        setBanModalOpen(false);
+        fetchPlayers();
+      } else {
+        alert(data.error || "Failed to ban IP");
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setBanningIp(false);
     }
   };
 
@@ -531,6 +570,16 @@ export default function PlayersPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setBanModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs font-semibold shadow-sm transition-all"
+            title="Ban Any IP Address Immediately"
+          >
+            <ShieldBan className="w-3.5 h-3.5 text-rose-400" />
+            <span>Ban IP Address</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setAnnouncementModal(true)}
@@ -1345,46 +1394,125 @@ export default function PlayersPage() {
 
       {/* BANNED IPS TAB */}
       {activeTab === "bans" && (
-        <div className="bg-[#12141d] border border-gray-800 rounded-xl overflow-hidden shadow-xl">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-[#0b0d14] border-b border-gray-800 text-gray-400 font-semibold uppercase tracking-wider text-[10px]">
-                <tr>
-                  <th className="p-3.5">Banned IP</th>
-                  <th className="p-3.5">Reason</th>
-                  <th className="p-3.5">Banned Timestamp</th>
-                  <th className="p-3.5 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-800/60">
-                {Object.keys(bannedIps).length === 0 ? (
+        <div className="space-y-4">
+          {/* Quick Manual Ban Form */}
+          <div className="p-4 bg-[#12141d] border border-gray-800 rounded-2xl shadow-xl space-y-3">
+            <div className="flex items-center justify-between border-b border-gray-800/80 pb-2.5">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400">
+                  <ShieldBan className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Direct IP Ban</h3>
+                  <p className="text-[11px] text-gray-400">
+                    Immediately blacklists the IP from claiming keys, executing loaders, or verifying sessions.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <form onSubmit={handleDirectBanIp} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end pt-1">
+              <div className="md:col-span-4 space-y-1">
+                <label className="text-[11px] font-semibold text-gray-300">IP Address</label>
+                <input
+                  type="text"
+                  value={banIpInput}
+                  onChange={(e) => setBanIpInput(e.target.value)}
+                  placeholder="e.g. 192.168.1.100 or 104.28.14.2"
+                  className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-xl px-3 py-2 text-xs text-white font-mono outline-none focus:border-rose-500"
+                  required
+                />
+              </div>
+              <div className="md:col-span-5 space-y-1">
+                <label className="text-[11px] font-semibold text-gray-300">Ban Reason</label>
+                <input
+                  type="text"
+                  value={banReasonInput}
+                  onChange={(e) => setBanReasonInput(e.target.value)}
+                  placeholder="Reason for blacklist (e.g. Tampering, Scraper, Alt abuse)"
+                  className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-rose-500"
+                />
+              </div>
+              <div className="md:col-span-3">
+                <button
+                  type="submit"
+                  disabled={banningIp || !banIpInput.trim()}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold shadow-lg shadow-rose-600/20 transition-all disabled:opacity-50"
+                >
+                  <ShieldBan className="w-3.5 h-3.5" />
+                  <span>{banningIp ? "Banning IP..." : "Ban IP Address"}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* Active Bans Table */}
+          <div className="bg-[#12141d] border border-gray-800 rounded-xl overflow-hidden shadow-xl">
+            <div className="p-3 bg-[#0e1017] border-b border-gray-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs text-gray-300 font-semibold">
+                <span>Active IP Blacklist</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                  {Object.keys(bannedIps).length} Banned
+                </span>
+              </div>
+              <div className="relative w-full sm:w-64">
+                <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={banFilterSearch}
+                  onChange={(e) => setBanFilterSearch(e.target.value)}
+                  placeholder="Search by IP or reason..."
+                  className="w-full bg-[#090b10] border border-gray-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white outline-none focus:border-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[#0b0d14] border-b border-gray-800 text-gray-400 font-semibold uppercase tracking-wider text-[10px]">
                   <tr>
-                    <td colSpan={4} className="text-center py-10 text-gray-500">
-                      No banned IPs.
-                    </td>
+                    <th className="p-3.5">Banned IP</th>
+                    <th className="p-3.5">Reason</th>
+                    <th className="p-3.5">Banned Timestamp</th>
+                    <th className="p-3.5 text-right">Action</th>
                   </tr>
-                ) : (
-                  Object.entries(bannedIps).map(([ip, data]) => (
-                    <tr key={ip} className="hover:bg-gray-800/30">
-                      <td className="p-3.5 font-mono font-bold text-rose-400">{ip}</td>
-                      <td className="p-3.5 text-gray-300">{data.reason}</td>
-                      <td className="p-3.5 text-gray-500 font-mono text-[11px]">
-                        {new Date(data.banned_at).toLocaleString()}
-                      </td>
-                      <td className="p-3.5 text-right">
-                        <button
-                          type="button"
-                          onClick={() => handleUnbanIp(ip)}
-                          className="px-3 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 font-medium text-[11px]"
-                        >
-                          Unban IP
-                        </button>
+                </thead>
+                <tbody className="divide-y divide-gray-800/60">
+                  {Object.keys(bannedIps).length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="text-center py-10 text-gray-500">
+                        No banned IPs. Your blacklist is empty.
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    Object.entries(bannedIps)
+                      .filter(([ip, data]) => {
+                        if (!banFilterSearch.trim()) return true;
+                        const q = banFilterSearch.toLowerCase();
+                        return ip.toLowerCase().includes(q) || (data.reason || "").toLowerCase().includes(q);
+                      })
+                      .map(([ip, data]) => (
+                        <tr key={ip} className="hover:bg-gray-800/30">
+                          <td className="p-3.5 font-mono font-bold text-rose-400">{ip}</td>
+                          <td className="p-3.5 text-gray-300">{data.reason}</td>
+                          <td className="p-3.5 text-gray-500 font-mono text-[11px]">
+                            {new Date(data.banned_at).toLocaleString()}
+                          </td>
+                          <td className="p-3.5 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleUnbanIp(ip)}
+                              className="px-3 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 font-medium text-[11px] transition-colors"
+                            >
+                              Unban IP
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -1841,6 +1969,81 @@ export default function PlayersPage() {
                 Broadcast Now
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MANUAL BAN IP MODAL */}
+      {banModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-[#12141d] border border-gray-800 rounded-2xl w-full max-w-md p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-800 pb-3">
+              <div className="flex items-center gap-2 text-white font-bold text-sm">
+                <div className="w-8 h-8 rounded-lg bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400">
+                  <ShieldBan className="w-4 h-4" />
+                </div>
+                <span>Ban IP Address</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBanModalOpen(false)}
+                className="text-gray-400 hover:text-white text-xs p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleDirectBanIp} className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-gray-300 block mb-1">
+                  Target IP Address:
+                </label>
+                <input
+                  type="text"
+                  value={banIpInput}
+                  onChange={(e) => setBanIpInput(e.target.value)}
+                  placeholder="e.g. 192.168.1.100 or 104.28.14.2"
+                  className="w-full bg-[#0b0d14] border border-gray-700/80 rounded-xl p-2.5 text-xs text-white font-mono outline-none focus:border-rose-500"
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-300 block mb-1">
+                  Reason for Blacklist:
+                </label>
+                <input
+                  type="text"
+                  value={banReasonInput}
+                  onChange={(e) => setBanReasonInput(e.target.value)}
+                  placeholder="e.g. Terms of Service Violation / Payload Dumping"
+                  className="w-full bg-[#0b0d14] border border-gray-700/80 rounded-xl p-2.5 text-xs text-white outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/25 text-[11px] text-rose-300 leading-relaxed">
+                <strong>Warning:</strong> Blacklisting an IP terminates all active sessions associated with it and prevents any future key claims, loader downloads, or script executions from that network.
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-gray-800">
+                <button
+                  type="button"
+                  onClick={() => setBanModalOpen(false)}
+                  className="px-3.5 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={banningIp || !banIpInput.trim()}
+                  className="px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold shadow-md shadow-rose-600/20 flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <ShieldBan className="w-3.5 h-3.5" />
+                  <span>{banningIp ? "Blacklisting..." : "Confirm & Ban IP"}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -221,6 +221,26 @@ export default function KeysPage() {
     }
   };
 
+  const handleBanIp = async (ip: string) => {
+    const reason = prompt(`Enter blacklist reason for IP ${ip}:`, "License Key Abuse / Script Tampering");
+    if (!reason) return;
+    try {
+      const res = await fetch("/api/ip-bans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ip_address: ip, reason }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`IP ${ip} has been permanently blacklisted.`);
+      } else {
+        alert(data.error || "Failed to ban IP");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const copyKey = (id: string, keyStr: string) => {
     navigator.clipboard?.writeText(keyStr);
     setCopiedId(id);
@@ -505,7 +525,17 @@ export default function KeysPage() {
                             <span>♾️ Infinite (No Lock)</span>
                           </span>
                         ) : k.claimed_ip ? (
-                          <span className="text-blue-300">{k.claimed_ip}</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-blue-300">{k.claimed_ip}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleBanIp(k.claimed_ip!)}
+                              className="px-1.5 py-0.5 rounded bg-rose-500/15 hover:bg-rose-500/35 text-rose-300 border border-rose-500/25 text-[10px] font-sans font-medium transition-colors"
+                              title={`Ban IP ${k.claimed_ip}`}
+                            >
+                              Ban IP
+                            </button>
+                          </div>
                         ) : isLifetime ? (
                           <span className="text-emerald-500/80 font-sans text-[11px]">Unbound (Binds on 1st run)</span>
                         ) : (
