@@ -70,6 +70,8 @@ CREATE TABLE IF NOT EXISTS public.scripts (
     show_watermark BOOLEAN NOT NULL DEFAULT true,
     is_active BOOLEAN NOT NULL DEFAULT true,
     use_auth BOOLEAN NOT NULL DEFAULT true,
+    is_maintenance BOOLEAN NOT NULL DEFAULT false,
+    maintenance_message TEXT DEFAULT NULL,
     lua_code TEXT DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
@@ -83,6 +85,8 @@ ALTER TABLE public.scripts
     ADD COLUMN IF NOT EXISTS show_watermark BOOLEAN DEFAULT true,
     ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true,
     ADD COLUMN IF NOT EXISTS use_auth BOOLEAN DEFAULT true,
+    ADD COLUMN IF NOT EXISTS is_maintenance BOOLEAN DEFAULT false,
+    ADD COLUMN IF NOT EXISTS maintenance_message TEXT DEFAULT NULL,
     ADD COLUMN IF NOT EXISTS lua_code TEXT DEFAULT '';
 
 -- ----------------------------------------------------------------------------
@@ -126,6 +130,9 @@ CREATE TABLE IF NOT EXISTS public.sessions (
     hwid TEXT DEFAULT NULL,
     roblox_username TEXT DEFAULT NULL,
     roblox_user_id TEXT DEFAULT NULL,
+    place_id TEXT DEFAULT NULL,
+    place_name TEXT DEFAULT NULL,
+    job_id TEXT DEFAULT NULL,
     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'kicked', 'tampered', 'expired', 'disconnected')),
     tamper_flags JSONB NOT NULL DEFAULT '[]'::jsonb,
     pending_commands JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -133,6 +140,12 @@ CREATE TABLE IF NOT EXISTS public.sessions (
     last_heartbeat TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
+
+-- Migration for existing sessions
+ALTER TABLE public.sessions
+    ADD COLUMN IF NOT EXISTS place_id TEXT DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS place_name TEXT DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS job_id TEXT DEFAULT NULL;
 
 -- ----------------------------------------------------------------------------
 -- 5. Execution Logs (Analytics)
@@ -143,6 +156,9 @@ CREATE TABLE IF NOT EXISTS public.execution_logs (
     script_name TEXT NOT NULL,
     roblox_username TEXT DEFAULT NULL,
     roblox_user_id TEXT DEFAULT NULL,
+    place_id TEXT DEFAULT NULL,
+    place_name TEXT DEFAULT NULL,
+    job_id TEXT DEFAULT NULL,
     ip_address TEXT NOT NULL,
     isp TEXT DEFAULT NULL,
     os TEXT DEFAULT NULL,
@@ -153,8 +169,26 @@ CREATE TABLE IF NOT EXISTS public.execution_logs (
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
+-- Migration for existing execution_logs
+ALTER TABLE public.execution_logs
+    ADD COLUMN IF NOT EXISTS place_id TEXT DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS place_name TEXT DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS job_id TEXT DEFAULT NULL;
+
 -- ----------------------------------------------------------------------------
--- 6. Checkpoint Logs (Funnel Tracking)
+-- 6. Global In-Game Announcements
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.global_announcements (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    script_id TEXT NOT NULL DEFAULT 'all',
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    duration_seconds INTEGER NOT NULL DEFAULT 10,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
+-- ----------------------------------------------------------------------------
+-- 7. Checkpoint Logs (Funnel Tracking)
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.checkpoint_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

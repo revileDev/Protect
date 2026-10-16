@@ -581,6 +581,8 @@ export const dbService = {
         show_watermark: record.show_watermark !== false,
         is_active: record.is_active !== false,
         use_auth: record.use_auth !== false,
+        is_maintenance: record.is_maintenance === true,
+        maintenance_message: record.maintenance_message || null,
         created_at: record.created_at,
         updated_at: record.updated_at,
       };
@@ -1157,25 +1159,68 @@ export const dbService = {
       }
     }
     writeLocalDb(db);
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase.from("global_announcements").insert([record]);
+      } catch (err) {
+        console.error("Supabase broadcastAnnouncement error:", err);
+      }
+    }
+
     return record;
   },
 
   async getGlobalAnnouncements(scriptId?: string): Promise<GlobalAnnouncement[]> {
+    let list: GlobalAnnouncement[] = [];
+    if (isSupabaseConfigured && supabase) {
+      try {
+        let query = supabase.from("global_announcements").select("*").order("created_at", { ascending: false });
+        if (scriptId && scriptId !== "all") {
+          query = query.or(`script_id.eq.all,script_id.eq.${scriptId}`);
+        }
+        const { data, error } = await query.limit(50);
+        if (data && !error) {
+          list = data;
+        }
+      } catch (err) {
+        console.error("Supabase getGlobalAnnouncements error:", err);
+      }
+    }
+
     const db = readLocalDb();
-    if (!scriptId || scriptId === "all") return db.global_announcements || [];
-    return (db.global_announcements || []).filter((a) => a.script_id === "all" || a.script_id === scriptId);
+    const map = new Map<string, GlobalAnnouncement>();
+    for (const a of list) map.set(a.id, a);
+    for (const a of db.global_announcements || []) {
+      if (!map.has(a.id)) {
+        if (!scriptId || scriptId === "all" || a.script_id === "all" || a.script_id === scriptId) {
+          map.set(a.id, a);
+        }
+      }
+    }
+
+    return Array.from(map.values()).sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
   },
 
   async deleteGlobalAnnouncement(id: string): Promise<boolean> {
     const db = readLocalDb();
-    if (!db.global_announcements) return false;
+    if (!db.global_announcements) db.global_announcements = [];
     const lenBefore = db.global_announcements.length;
     db.global_announcements = db.global_announcements.filter((a) => a.id !== id);
     if (db.global_announcements.length !== lenBefore) {
       writeLocalDb(db);
-      return true;
     }
-    return false;
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase.from("global_announcements").delete().eq("id", id);
+      } catch (err) {
+        console.error("Supabase deleteGlobalAnnouncement error:", err);
+      }
+    }
+    return true;
   },
 
   async broadcastCommand(command: Omit<SessionCommand, "id">, scriptId?: string): Promise<number> {
