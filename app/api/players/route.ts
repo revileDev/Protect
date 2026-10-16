@@ -46,8 +46,11 @@ export async function GET() {
       ? "kicked"
       : "disconnected";
 
+    const avatarUrl = s.avatar_url || (s.roblox_user_id ? `https://www.roblox.com/headshot-thumbnail/image?userId=${s.roblox_user_id}&width=150&height=150&format=png` : null);
+
     enriched.push({
       ...s,
+      avatar_url: avatarUrl,
       status: derivedStatus,
       is_online: isOnline,
       duration_seconds: durationSeconds,
@@ -56,6 +59,130 @@ export async function GET() {
       time_since_disconnect_sec: Math.floor(timeSinceDisconnect / 1000),
     });
   }
+
+  // --- ALT / MULTI-ACCOUNT FARMING DETECTOR ---
+  // Group active sessions by IP address and HWID
+  type EnrichedSession = (typeof enriched)[number];
+  const ipGroups = new Map<string, EnrichedSession[]>();
+  const hwidGroups = new Map<string, EnrichedSession[]>();
+
+  for (const item of enriched) {
+    if (!item.is_online) continue;
+
+    // IP grouping
+    if (item.ip_address) {
+      if (!ipGroups.has(item.ip_address)) ipGroups.set(item.ip_address, []);
+      ipGroups.get(item.ip_address)!.push(item);
+    }
+
+    // HWID grouping
+    if (item.hwid && item.hwid !== "UNKNOWN" && item.hwid !== "N/A") {
+      if (!hwidGroups.has(item.hwid)) hwidGroups.set(item.hwid, []);
+      hwidGroups.get(item.hwid)!.push(item);
+    }
+  }
+
+  interface FarmCluster {
+    id: string;
+    type: "ip" | "hwid";
+    identifier: string;
+    accounts: { username: string; user_id?: string | null; session_id: string }[];
+    session_ids: string[];
+    count: number;
+  }
+
+  const farmingClusters: FarmCluster[] = [];
+  const farmingSessionMap = new Map<string, { count: number; otherAccounts: string[]; clusterId: string; type: "ip" | "hwid" }>();
+
+  // Process IP farming clusters (>= 2 distinct accounts)
+  ipGroups.forEach((group: EnrichedSession[], ip: string) => {
+    const distinctUsernames: string[] = Array.from(
+      new Set(group.map((g: EnrichedSession) => g.roblox_username || `User_${g.id.substring(0, 5)}`))
+    );
+    if (distinctUsernames.length >= 2) {
+      const clusterId = `farm_ip_${ip.replace(/[^a-zA-Z0-9]/g, "_")}`;
+      const cluster: FarmCluster = {
+        id: clusterId,
+        type: "ip",
+        identifier: ip,
+        accounts: group.map((g: EnrichedSession) => ({
+          username: g.roblox_username || "Unknown",
+          user_id: g.roblox_user_id || null,
+          session_id: g.id,
+        })),
+        session_ids: group.map((g: EnrichedSession) => g.id),
+        count: distinctUsernames.length,
+      };
+      farmingClusters.push(cluster);
+
+      for (const member of group) {
+        const others: string[] = distinctUsernames.filter(
+          (u: string) => u !== (member.roblox_username || `User_${member.id.substring(0, 5)}`)
+        );
+        farmingSessionMap.set(member.id, {
+          count: distinctUsernames.length,
+          otherAccounts: others,
+          clusterId,
+          type: "ip",
+        });
+      }
+    }
+  });
+
+  // Process HWID farming clusters
+  hwidGroups.forEach((group: EnrichedSession[], hwid: string) => {
+    const distinctUsernames: string[] = Array.from(
+      new Set(group.map((g: EnrichedSession) => g.roblox_username || `User_${g.id.substring(0, 5)}`))
+    );
+    if (distinctUsernames.length >= 2) {
+      const clusterId = `farm_hwid_${hwid.substring(0, 12).replace(/[^a-zA-Z0-9]/g, "_")}`;
+      // Only push if not already covered by an IP cluster with the exact same sessions
+      const alreadyPresent = farmingClusters.some(
+        (fc) => fc.identifier === hwid || (fc.type === "ip" && fc.session_ids.length === group.length)
+      );
+      if (!alreadyPresent) {
+        farmingClusters.push({
+          id: clusterId,
+          type: "hwid",
+          identifier: hwid,
+          accounts: group.map((g: EnrichedSession) => ({
+            username: g.roblox_username || "Unknown",
+            user_id: g.roblox_user_id || null,
+            session_id: g.id,
+          })),
+          session_ids: group.map((g: EnrichedSession) => g.id),
+          count: distinctUsernames.length,
+        });
+      }
+
+      for (const member of group) {
+        if (!farmingSessionMap.has(member.id)) {
+          const others: string[] = distinctUsernames.filter(
+            (u: string) => u !== (member.roblox_username || `User_${member.id.substring(0, 5)}`)
+          );
+          farmingSessionMap.set(member.id, {
+            count: distinctUsernames.length,
+            otherAccounts: others,
+            clusterId,
+            type: "hwid",
+          });
+        }
+      }
+    }
+  });
+
+  // Attach farming metadata to enriched sessions
+  const finalSessions = enriched.map((s) => {
+    const farmData = farmingSessionMap.get(s.id);
+    return {
+      ...s,
+      is_farming: Boolean(farmData),
+      farming_count: farmData ? farmData.count : 1,
+      farm_accounts: farmData ? farmData.otherAccounts : [],
+      farm_cluster_id: farmData ? farmData.clusterId : undefined,
+      farm_type: farmData ? farmData.type : undefined,
+    };
+  });
 
   const staffReviews = await dbService.getStaffReviews();
   const staffActive = staffReviews
@@ -75,7 +202,8 @@ export async function GET() {
   const announcements = await dbService.getGlobalAnnouncements();
 
   return NextResponse.json({
-    sessions: enriched,
+    sessions: finalSessions,
+    farming_clusters: farmingClusters,
     banned_ips: bannedIps,
     staff_active: staffActive,
     staff_history: staffReviews,
@@ -161,10 +289,43 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, message: `IP ${ip_address} has been banned.` });
     }
 
-    if (action === "unban_ip") {
+    if (action === "kick_farm") {
+      let targets: string[] = Array.isArray(body.session_ids) ? body.session_ids : [];
+      if (targets.length === 0 && ip_address) {
+        const allSessions = await dbService.getSessions();
+        targets = allSessions.filter((s) => s.ip_address === ip_address && s.status === "active").map((s) => s.id);
+      }
+      for (const sid of targets) {
+        await dbService.addSessionCommand(sid, {
+          type: "kick",
+          reason: reason || "Terminated: Alt / Multi-account farming policy violation.",
+        });
+      }
+      return NextResponse.json({
+        success: true,
+        kicked_count: targets.length,
+        message: `Terminated ${targets.length} alt account sessions in farm cluster.`,
+      });
+    }
+
+    if (action === "ban_farm") {
       if (!ip_address) return NextResponse.json({ error: "Missing ip_address" }, { status: 400 });
-      await dbService.unbanIp(ip_address);
-      return NextResponse.json({ success: true, message: `IP ${ip_address} unbanned.` });
+      await dbService.banIp(ip_address, reason || "Alt / Multi-Account Farming cluster detected");
+      let targets: string[] = Array.isArray(body.session_ids) ? body.session_ids : [];
+      if (targets.length === 0) {
+        const allSessions = await dbService.getSessions();
+        targets = allSessions.filter((s) => s.ip_address === ip_address && s.status === "active").map((s) => s.id);
+      }
+      for (const sid of targets) {
+        await dbService.addSessionCommand(sid, {
+          type: "kick",
+          reason: "IP Banned: Alt / Multi-account farming cluster terminated.",
+        });
+      }
+      return NextResponse.json({
+        success: true,
+        message: `Banned network IP ${ip_address} and terminated ${targets.length} concurrent alt sessions.`,
+      });
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });

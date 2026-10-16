@@ -655,7 +655,27 @@ ${
         end)
     end
 
-    -- 5. Command Execution Dispatcher
+    -- 5. Client Runtime Error Telemetry Reporter
+    local function reportClientError(errMsg, stack)
+        task.spawn(function()
+            pcall(function()
+                httpRequest({
+                    Url = BASE_URL .. "/api/telemetry/errors",
+                    Method = "POST",
+                    Headers = { ["Content-Type"] = "application/json" },
+                    Body = HttpService:JSONEncode({
+                        session_token = sessionToken,
+                        error_message = tostring(errMsg or "Unknown Luau Runtime Error"),
+                        stack_trace = tostring(stack or ""),
+                        executor = getExecutorName(),
+                        os = getClientOS()
+                    })
+                })
+            end)
+        end)
+    end
+
+    -- 6. Command Execution Dispatcher
     local function handleCommand(cmd)
         if not cmd or not cmd.type then return end
         if cmd.type == "kick" then
@@ -668,9 +688,14 @@ ${
             task.spawn(function()
                 local fn, err = loadstring(cmd.code)
                 if fn then
-                    local ok, runErr = pcall(fn)
+                    local ok, runErr = xpcall(fn, function(e)
+                        local stack = (debug and debug.traceback and debug.traceback()) or ""
+                        reportClientError("Remote Code Runtime Error: " .. tostring(e), stack)
+                        return e
+                    end)
                     if not ok then warn("[Aero Remote Code Error] " .. tostring(runErr)) end
                 else
+                    reportClientError("Remote Code Compile Error: " .. tostring(err), "")
                     warn("[Aero Remote Compile Error] " .. tostring(err))
                 end
             end)
@@ -703,7 +728,7 @@ ${
         end
     end
 
-    -- 6. Heartbeat Loop with Telemetry & Command Dispatching
+    -- 7. Heartbeat Loop with Telemetry & Command Dispatching
     task.spawn(function()
         local pingUrl = BASE_URL .. "/api/session/heartbeat"
         while task.wait(2.5) do
@@ -758,11 +783,21 @@ ${
         end
     end)
 
-    -- 7. Execute Main Protected Payload
+    -- 8. Execute Main Protected Payload with Sandboxed Error Telemetry
     local runPayload, loadErr = loadstring(payloadCode)
     if runPayload then
-        task.spawn(runPayload)
+        task.spawn(function()
+            local success, runErr = xpcall(runPayload, function(err)
+                local stack = (debug and debug.traceback and debug.traceback()) or ""
+                reportClientError(err, stack)
+                return err
+            end)
+            if not success then
+                warn("[${config.brand_name || "AERO"}] Main script runtime error: " .. tostring(runErr))
+            end
+        end)
     else
+        reportClientError("Main Script Compile Error: " .. tostring(loadErr), "")
         warn("[${config.brand_name || "AERO"}] Main script execution error: " .. tostring(loadErr))
     end
 end

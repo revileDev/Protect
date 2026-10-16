@@ -109,6 +109,7 @@ export interface SessionRecord {
   hwid: string | null;
   roblox_username: string | null;
   roblox_user_id: string | null;
+  avatar_url?: string | null;
   place_id?: string | null;
   place_name?: string | null;
   job_id?: string | null;
@@ -120,12 +121,27 @@ export interface SessionRecord {
   created_at: string;
 }
 
+export interface ClientErrorLog {
+  id: string;
+  session_id?: string | null;
+  script_id?: string | null;
+  script_name?: string | null;
+  roblox_username?: string | null;
+  roblox_user_id?: string | null;
+  executor?: string | null;
+  os?: string | null;
+  error_message: string;
+  stack_trace?: string | null;
+  created_at: string;
+}
+
 export interface ExecutionLog {
   id: string;
   script_id: string;
   script_name: string;
   roblox_username: string | null;
   roblox_user_id: string | null;
+  avatar_url?: string | null;
   ip_address: string;
   isp: string | null;
   os: string | null;
@@ -216,6 +232,7 @@ interface LocalDatabase {
   settings: SystemSettings;
   staff_reviews: StaffReviewRecord[];
   global_announcements: GlobalAnnouncement[];
+  client_errors: ClientErrorLog[];
 }
 
 const DB_DIR = path.join(process.cwd(), "data");
@@ -295,6 +312,7 @@ const initialDb: LocalDatabase = {
   },
   staff_reviews: [],
   global_announcements: [],
+  client_errors: [],
 };
 
 const DB_BACKUP_FILE = path.join(DB_DIR, "db.json.bak");
@@ -322,6 +340,7 @@ function readLocalDb(): LocalDatabase {
       creator_profile: data.creator_profile ? { ...defaultCreatorProfile, ...data.creator_profile } : defaultCreatorProfile,
       staff_reviews: data.staff_reviews || [],
       global_announcements: data.global_announcements || [],
+      client_errors: data.client_errors || [],
     };
     inMemoryDbCache = parsed;
     return parsed;
@@ -997,8 +1016,15 @@ export const dbService = {
   async createSession(session: Omit<SessionRecord, "id" | "created_at" | "session_started" | "last_heartbeat" | "pending_commands">): Promise<SessionRecord> {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
+    const avatarUrl =
+      session.avatar_url ||
+      (session.roblox_user_id
+        ? `https://www.roblox.com/headshot-thumbnail/image?userId=${session.roblox_user_id}&width=150&height=150&format=png`
+        : null);
+
     const record: SessionRecord = {
       ...session,
+      avatar_url: avatarUrl,
       id,
       pending_commands: [],
       session_started: now,
@@ -1507,8 +1533,15 @@ export const dbService = {
   // Execution & Analytics Logging
   async recordExecution(log: Omit<ExecutionLog, "id" | "created_at">): Promise<ExecutionLog> {
     const id = crypto.randomUUID();
+    const avatarUrl =
+      log.avatar_url ||
+      (log.roblox_user_id
+        ? `https://www.roblox.com/headshot-thumbnail/image?userId=${log.roblox_user_id}&width=150&height=150&format=png`
+        : null);
+
     const record: ExecutionLog = {
       ...log,
+      avatar_url: avatarUrl,
       id,
       created_at: new Date().toISOString(),
     };
@@ -1924,5 +1957,74 @@ export const dbService = {
     }
 
     return db.creator_profile;
+  },
+
+  // Client Errors & Debug Telemetry
+  async recordClientError(errorLog: Omit<ClientErrorLog, "id" | "created_at">): Promise<ClientErrorLog> {
+    const id = crypto.randomUUID();
+    const record: ClientErrorLog = {
+      ...errorLog,
+      id,
+      created_at: new Date().toISOString(),
+    };
+
+    const db = readLocalDb();
+    if (!db.client_errors) db.client_errors = [];
+    db.client_errors.unshift(record);
+    if (db.client_errors.length > 500) {
+      db.client_errors = db.client_errors.slice(0, 500);
+    }
+    writeLocalDb(db);
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase.from("client_errors").insert([record]);
+      } catch {
+        // graceful fallback if table not yet created
+      }
+    }
+    return record;
+  },
+
+  async getClientErrors(limit = 100): Promise<ClientErrorLog[]> {
+    let remote: ClientErrorLog[] = [];
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from("client_errors")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(limit);
+        if (data && !error) remote = data;
+      } catch {
+        // fallback
+      }
+    }
+
+    const db = readLocalDb();
+    const map = new Map<string, ClientErrorLog>();
+    for (const e of remote) map.set(e.id, e);
+    for (const e of db.client_errors || []) {
+      if (!map.has(e.id)) map.set(e.id, e);
+    }
+
+    return Array.from(map.values())
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, limit);
+  },
+
+  async clearClientErrors(): Promise<boolean> {
+    const db = readLocalDb();
+    db.client_errors = [];
+    writeLocalDb(db);
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase.from("client_errors").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      } catch {
+        // ignore
+      }
+    }
+    return true;
   },
 };

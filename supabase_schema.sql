@@ -145,7 +145,8 @@ CREATE TABLE IF NOT EXISTS public.sessions (
 ALTER TABLE public.sessions
     ADD COLUMN IF NOT EXISTS place_id TEXT DEFAULT NULL,
     ADD COLUMN IF NOT EXISTS place_name TEXT DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS job_id TEXT DEFAULT NULL;
+    ADD COLUMN IF NOT EXISTS job_id TEXT DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT NULL;
 
 -- ----------------------------------------------------------------------------
 -- 5. Execution Logs (Analytics)
@@ -159,6 +160,7 @@ CREATE TABLE IF NOT EXISTS public.execution_logs (
     place_id TEXT DEFAULT NULL,
     place_name TEXT DEFAULT NULL,
     job_id TEXT DEFAULT NULL,
+    avatar_url TEXT DEFAULT NULL,
     ip_address TEXT NOT NULL,
     isp TEXT DEFAULT NULL,
     os TEXT DEFAULT NULL,
@@ -173,7 +175,8 @@ CREATE TABLE IF NOT EXISTS public.execution_logs (
 ALTER TABLE public.execution_logs
     ADD COLUMN IF NOT EXISTS place_id TEXT DEFAULT NULL,
     ADD COLUMN IF NOT EXISTS place_name TEXT DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS job_id TEXT DEFAULT NULL;
+    ADD COLUMN IF NOT EXISTS job_id TEXT DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT NULL;
 
 -- ----------------------------------------------------------------------------
 -- 6. Global In-Game Announcements
@@ -367,12 +370,32 @@ CREATE TABLE IF NOT EXISTS public.staff_reviews (
 CREATE INDEX IF NOT EXISTS idx_staff_reviews_started ON public.staff_reviews(review_started);
 
 -- ----------------------------------------------------------------------------
+-- 12. Client Runtime Errors & Luau Debug Telemetry Stream
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.client_errors (
+    id TEXT PRIMARY KEY,
+    session_id TEXT,
+    script_id TEXT,
+    script_name TEXT,
+    roblox_username TEXT,
+    roblox_user_id TEXT,
+    executor TEXT,
+    os TEXT,
+    error_message TEXT NOT NULL,
+    stack_trace TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+CREATE INDEX IF NOT EXISTS idx_client_errors_script ON public.client_errors(script_id);
+CREATE INDEX IF NOT EXISTS idx_client_errors_created ON public.client_errors(created_at DESC);
+
+-- ----------------------------------------------------------------------------
 -- Enable Realtime for Live Telemetry
 -- ----------------------------------------------------------------------------
 DO $$
 BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.sessions;
     ALTER PUBLICATION supabase_realtime ADD TABLE public.execution_logs;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.client_errors;
     ALTER PUBLICATION supabase_realtime ADD TABLE public.keys;
     ALTER PUBLICATION supabase_realtime ADD TABLE public.scripts;
 EXCEPTION WHEN OTHERS THEN

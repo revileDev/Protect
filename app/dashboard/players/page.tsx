@@ -54,6 +54,15 @@ interface GlobalAnnouncementItem {
   created_at: string;
 }
 
+interface FarmCluster {
+  id: string;
+  type: "ip" | "hwid";
+  identifier: string;
+  accounts: { username: string; user_id?: string | null; session_id: string }[];
+  session_ids: string[];
+  count: number;
+}
+
 interface SessionItem {
   id: string;
   key_id: string;
@@ -62,6 +71,7 @@ interface SessionItem {
   hwid: string | null;
   roblox_username: string | null;
   roblox_user_id: string | null;
+  avatar_url?: string | null;
   place_id?: string | null;
   place_name?: string | null;
   job_id?: string | null;
@@ -74,10 +84,58 @@ interface SessionItem {
   is_banned: boolean;
   last_ping_sec?: number;
   time_since_disconnect_sec?: number;
+  is_farming?: boolean;
+  farming_count?: number;
+  farm_accounts?: string[];
+  farm_cluster_id?: string;
+  farm_type?: "ip" | "hwid";
+}
+
+function RobloxAvatar({
+  userId,
+  username,
+  size = "md",
+}: {
+  userId?: string | null;
+  username?: string | null;
+  size?: "sm" | "md" | "lg";
+}) {
+  const [imgError, setImgError] = useState(false);
+  const initials = username ? username.substring(0, 2).toUpperCase() : "EX";
+
+  const sizeClass =
+    size === "sm"
+      ? "w-7 h-7 rounded-lg text-[10px]"
+      : size === "lg"
+      ? "w-12 h-12 rounded-2xl text-sm"
+      : "w-10 h-10 rounded-xl text-xs";
+
+  if (userId && !imgError) {
+    return (
+      <div className={`${sizeClass} overflow-hidden bg-[#181a24] border border-gray-700/60 shrink-0 relative shadow-inner flex items-center justify-center`}>
+        <img
+          src={`https://www.roblox.com/headshot-thumbnail/image?userId=${userId}&width=150&height=150&format=png`}
+          alt={username || "Roblox Avatar"}
+          className="w-full h-full object-cover"
+          onError={() => setImgError(true)}
+          loading="lazy"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`${sizeClass} bg-gradient-to-br from-blue-600/20 to-purple-600/20 border border-blue-500/30 flex items-center justify-center font-bold text-blue-300 shrink-0 shadow-inner`}
+    >
+      {initials}
+    </div>
+  );
 }
 
 export default function PlayersPage() {
   const [sessions, setSessions] = useState<SessionItem[]>([]);
+  const [farmingClusters, setFarmingClusters] = useState<FarmCluster[]>([]);
   const [staffActive, setStaffActive] = useState<StaffReviewItem[]>([]);
   const [staffHistory, setStaffHistory] = useState<StaffReviewItem[]>([]);
   const [bannedIps, setBannedIps] = useState<Record<string, { reason: string; banned_at: string }>>({});
@@ -123,6 +181,7 @@ export default function PlayersPage() {
         );
         setSessions(fresh);
       }
+      if (data.farming_clusters) setFarmingClusters(data.farming_clusters);
       if (data.banned_ips) setBannedIps(data.banned_ips);
       if (data.staff_active) setStaffActive(data.staff_active);
       if (data.staff_history) setStaffHistory(data.staff_history);
@@ -237,6 +296,52 @@ export default function PlayersPage() {
       });
       showNotice(`IP ${ip} unbanned.`);
       fetchPlayers();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleKickFarm = async (cluster: FarmCluster) => {
+    if (!confirm(`Terminate all ${cluster.count} concurrent sessions in this farming cluster?`)) return;
+    try {
+      const res = await fetch("/api/players", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "kick_farm",
+          session_ids: cluster.session_ids,
+          ip_address: cluster.type === "ip" ? cluster.identifier : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showNotice(data.message || `Terminated ${cluster.count} farming sessions.`);
+        fetchPlayers();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleBanFarm = async (cluster: FarmCluster) => {
+    const ip = cluster.type === "ip" ? cluster.identifier : prompt("Enter IP to ban for this farming cluster:");
+    if (!ip) return;
+    if (!confirm(`Permanently ban IP ${ip} and terminate all ${cluster.count} alt sessions?`)) return;
+    try {
+      const res = await fetch("/api/players", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "ban_farm",
+          ip_address: ip,
+          session_ids: cluster.session_ids,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showNotice(data.message || `Banned IP ${ip} and terminated alt sessions.`);
+        fetchPlayers();
+      }
     } catch (err) {
       console.error(err);
     }
@@ -638,6 +743,86 @@ export default function PlayersPage() {
             </div>
           )}
 
+          {/* ALT / MULTI-ACCOUNT FARMING DETECTOR BANNER */}
+          {farmingClusters.length > 0 && (
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-950/40 via-[#16120e] to-amber-950/20 border-2 border-amber-500/50 shadow-2xl space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                    <AlertTriangle className="w-4 h-4 animate-pulse" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-amber-300 flex items-center gap-2">
+                      Multi-Account Farming Detected ({farmingClusters.length} {farmingClusters.length === 1 ? "Cluster" : "Clusters"})
+                    </h3>
+                    <p className="text-[11px] text-amber-200/70">
+                      Concurrent Roblox accounts detected operating from identical network IP addresses or hardware identifiers.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                {farmingClusters.map((cluster) => (
+                  <div
+                    key={cluster.id}
+                    className="p-3 rounded-xl bg-[#0e1017]/80 border border-amber-500/30 flex flex-col justify-between gap-3 text-xs"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-gray-300 font-semibold flex items-center gap-1.5">
+                          <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 font-bold">
+                            {cluster.type.toUpperCase()}
+                          </span>
+                          {cluster.identifier}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                          {cluster.count} Linked Accounts
+                        </span>
+                      </div>
+
+                      <div className="mt-2.5 flex flex-wrap gap-1.5">
+                        {cluster.accounts.map((acc, i) => (
+                          <div
+                            key={i}
+                            className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-900 border border-gray-800 text-[11px] text-gray-200"
+                          >
+                            <RobloxAvatar userId={acc.user_id} username={acc.username} size="sm" />
+                            <span className="font-medium text-white">{acc.username}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-2 border-t border-gray-800/80">
+                      <button
+                        type="button"
+                        onClick={() => handleKickFarm(cluster)}
+                        className="flex-1 py-1 px-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-[11px] font-semibold transition-colors flex items-center justify-center gap-1"
+                        title="Kick all accounts in this cluster immediately"
+                      >
+                        <ShieldAlert className="w-3 h-3" />
+                        Mass-Kick Farm ({cluster.count})
+                      </button>
+
+                      {cluster.type === "ip" && (
+                        <button
+                          type="button"
+                          onClick={() => handleBanFarm(cluster)}
+                          className="py-1 px-2.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-[11px] font-semibold transition-colors flex items-center justify-center gap-1"
+                          title="Ban this IP and terminate all concurrent alt sessions"
+                        >
+                          <ShieldBan className="w-3 h-3" />
+                          Ban IP
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {loading ? (
             <div className="text-center py-12 text-xs text-gray-500 bg-[#12141d] rounded-2xl border border-gray-800">
               Loading player telemetry...
@@ -660,29 +845,32 @@ export default function PlayersPage() {
                   key={s.id}
                   className={`bg-[#0f1118] border rounded-2xl p-4 flex flex-col justify-between transition-all duration-300 relative overflow-hidden shadow-xl ${
                     s.is_online
-                      ? "border-emerald-500/30 hover:border-emerald-500/50 shadow-emerald-500/5"
+                      ? s.is_farming
+                        ? "border-amber-500/40 hover:border-amber-500/60 shadow-amber-500/5"
+                        : "border-emerald-500/30 hover:border-emerald-500/50 shadow-emerald-500/5"
                       : "border-rose-500/40 bg-rose-950/10 opacity-80"
                   }`}
                 >
                   {/* Card Header: Avatar, Name, Status */}
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3 min-w-0">
-                      {/* Avatar Icon */}
-                      <div
-                        className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 border ${
-                          s.is_online
-                            ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-                            : "bg-rose-500/10 border-rose-500/30 text-rose-400"
-                        }`}
-                      >
-                        {s.roblox_username ? s.roblox_username.substring(0, 2).toUpperCase() : "EX"}
-                      </div>
+                      {/* Avatar Headshot */}
+                      <RobloxAvatar userId={s.roblox_user_id} username={s.roblox_username} size="md" />
 
                       <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <h3 className="text-sm font-bold text-white truncate">
                             {s.roblox_username || "Executor User"}
                           </h3>
+                          {s.is_farming && (
+                            <span
+                              className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 uppercase tracking-tight flex items-center gap-1"
+                              title={`Alt Farming Cluster: Running alongside ${s.farm_accounts?.join(", ")}`}
+                            >
+                              <AlertTriangle className="w-2.5 h-2.5 text-amber-400" />
+                              FARM: {s.farming_count}x
+                            </span>
+                          )}
                         </div>
                         {s.roblox_user_id && (
                           <span className="text-[10px] font-mono text-gray-500 block truncate">
@@ -730,6 +918,24 @@ export default function PlayersPage() {
                       <span className="text-[10px] text-gray-400 font-mono">
                         Clearing in {s.removal_countdown_sec}s
                       </span>
+                    </div>
+                  )}
+
+                  {/* Alt Farming Cluster Notice on Card */}
+                  {s.is_farming && s.farm_accounts && s.farm_accounts.length > 0 && (
+                    <div className="mt-2.5 p-2 rounded-xl bg-amber-500/10 border border-amber-500/25 text-[11px] text-amber-300">
+                      <div className="flex items-center justify-between font-semibold">
+                        <span className="flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3 text-amber-400" />
+                          Multi-Account Farm
+                        </span>
+                        <span className="text-[10px] font-mono bg-amber-500/20 px-1.5 py-0.5 rounded text-amber-200">
+                          {s.farming_count} Alts Active
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-amber-200/70 mt-1 truncate">
+                        Linked Alts: {s.farm_accounts.join(", ")}
+                      </p>
                     </div>
                   )}
 
@@ -894,13 +1100,23 @@ export default function PlayersPage() {
                           )}
                         </td>
                         <td className="p-3.5 font-medium text-white">
-                          <div>
-                            <span>{s.roblox_username || "Executor User"}</span>
-                            {s.roblox_user_id && (
-                              <span className="block text-[10px] text-gray-500 font-mono">
-                                ID: {s.roblox_user_id}
-                              </span>
-                            )}
+                          <div className="flex items-center gap-2.5">
+                            <RobloxAvatar userId={s.roblox_user_id} username={s.roblox_username} size="sm" />
+                            <div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span>{s.roblox_username || "Executor User"}</span>
+                                {s.is_farming && (
+                                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                    FARM: {s.farming_count}x
+                                  </span>
+                                )}
+                              </div>
+                              {s.roblox_user_id && (
+                                <span className="block text-[10px] text-gray-500 font-mono">
+                                  ID: {s.roblox_user_id}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </td>
                         <td className="p-3.5 font-mono text-gray-300">
@@ -965,6 +1181,20 @@ export default function PlayersPage() {
                             >
                               Hop
                             </button>
+                            {s.is_farming && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const cl = farmingClusters.find((c) => c.identifier === s.ip_address || (s.hwid && c.identifier === s.hwid));
+                                  if (cl) handleKickFarm(cl);
+                                  else handleKick(s.id);
+                                }}
+                                className="px-2 py-1 rounded bg-amber-500/25 hover:bg-amber-500/45 text-amber-300 border border-amber-500/40 text-[11px] font-bold transition-colors"
+                                title="Kick all alts in this farm cluster"
+                              >
+                                Kick Farm
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => handleKick(s.id)}
