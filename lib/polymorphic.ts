@@ -101,7 +101,7 @@ return (function()
     local ${idKeys} = { ${keys.join(", ")} }
     local ${idBuf} = "${encodedString}"
     local ${idTbl} = _tbl.create(#${idBuf})
-    local ${idXor} = (bit32 and bit32.bxor) or function(a, b) return a ~ b end
+    local ${idXor} = (bit32 and bit32.bxor) or (bit and bit.bxor)
     local _step = ${step}
     local _klen = #${idKeys}
 

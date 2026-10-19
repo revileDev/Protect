@@ -232,7 +232,7 @@ local function decryptSessionPayload(hexCiphertext, secretKey)
     local hexLen = #hexCiphertext
     local bytesCount = _math.floor(hexLen / 2)
     local outTbl = _table.create(bytesCount)
-    local _bxor = (bit32 and bit32.bxor) or function(a, b) return a ~ b end
+    local _bxor = (bit32 and bit32.bxor) or (bit and bit.bxor)
 
     for k = 1, bytesCount do
         i = (i + 1) % 256
@@ -309,7 +309,7 @@ local function getHWID()
     -- 64-bit Non-linear composite hash into 16-hex format
     local h1 = 0x811c9dc5
     local h2 = 0x534acf2e
-    local _bx = (bit32 and bit32.bxor) or function(a, b) return a ~ b end
+    local _bx = (bit32 and bit32.bxor) or (bit and bit.bxor)
     for i = 1, #rawFingerprint do
         local b = _string.byte(rawFingerprint, i)
         h1 = (_bx(h1, b) * 16777619) % 4294967296

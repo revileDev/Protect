@@ -128,7 +128,7 @@ export function obfuscateLuau(code: string, options: ObfuscateOptions = {}): str
   if (stringEncryptionUsed) {
     const decryptorStub = `local function ${stringDecryptorHelperName}(_h, _k)
     local _s = {}
-    local _bx = (bit32 and bit32.bxor) or (bit and bit.bxor) or function(a, b) return a ~ b end
+    local _bx = (bit32 and bit32.bxor) or (bit and bit.bxor)
     local _slen = #_h
     for _i = 1, _slen, 2 do
         local _b = tonumber(_h:sub(_i, _i + 1), 16) or 0
