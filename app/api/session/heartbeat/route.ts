@@ -6,7 +6,7 @@ import { hmacSha256 } from "@/lib/crypto-util";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { session_token, place_id, place_name, job_id, tamper_flags } = body;
+    const { session_token, place_id, place_name, job_id, tamper_flags, roblox_username, roblox_user_id } = body;
 
     if (!session_token) {
       // Return ok instead of 400 so transient executor pings never terminate players
@@ -25,6 +25,8 @@ export async function POST(req: NextRequest) {
       place_id,
       place_name,
       job_id,
+      roblox_username,
+      roblox_user_id,
     });
 
     // If client reported tamper flags (e.g. hookfunction detour on loadstring/pcall)

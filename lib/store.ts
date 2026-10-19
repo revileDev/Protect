@@ -1139,7 +1139,13 @@ export const dbService = {
   async updateHeartbeat(
     sessionId: string,
     ip?: string,
-    metadata?: { place_id?: string | number; place_name?: string; job_id?: string }
+    metadata?: {
+      place_id?: string | number;
+      place_name?: string;
+      job_id?: string;
+      roblox_username?: string;
+      roblox_user_id?: string;
+    }
   ): Promise<SessionRecord> {
     const db = readLocalDb();
     let session = db.sessions.find((s) => s.id === sessionId);
@@ -1169,8 +1175,9 @@ export const dbService = {
         script_id: "active",
         ip_address: ip || "127.0.0.1",
         hwid: null,
-        roblox_username: "Player",
-        roblox_user_id: null,
+        roblox_username: metadata?.roblox_username || "Player",
+        roblox_user_id: metadata?.roblox_user_id || null,
+        avatar_url: metadata?.roblox_user_id ? `/api/roblox/avatar?userId=${metadata.roblox_user_id}` : null,
         place_id: metadata?.place_id ? String(metadata.place_id) : null,
         place_name: metadata?.place_name || null,
         job_id: metadata?.job_id || null,
@@ -1196,6 +1203,13 @@ export const dbService = {
       if (metadata?.place_id) session.place_id = String(metadata.place_id);
       if (metadata?.place_name) session.place_name = metadata.place_name;
       if (metadata?.job_id) session.job_id = metadata.job_id;
+      if (metadata?.roblox_username && metadata.roblox_username !== "Player") {
+        session.roblox_username = metadata.roblox_username;
+      }
+      if (metadata?.roblox_user_id) {
+        session.roblox_user_id = metadata.roblox_user_id;
+        session.avatar_url = `/api/roblox/avatar?userId=${metadata.roblox_user_id}`;
+      }
       if (session.status === "disconnected") {
         session.status = "active"; // Player reconnected
       }
@@ -1211,6 +1225,9 @@ export const dbService = {
               place_id: session.place_id,
               place_name: session.place_name,
               job_id: session.job_id,
+              roblox_username: session.roblox_username,
+              roblox_user_id: session.roblox_user_id,
+              avatar_url: session.avatar_url,
             })
             .eq("id", sessionId);
         } catch {

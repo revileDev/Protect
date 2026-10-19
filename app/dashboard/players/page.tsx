@@ -178,11 +178,15 @@ export default function PlayersPage() {
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
   const removedSessionIdsRef = useRef<Set<string>>(new Set());
+  const serverSkewRef = useRef<number>(0);
 
   const fetchPlayers = async () => {
     try {
       const res = await fetch("/api/players");
       const data = await res.json();
+      if (data.server_time) {
+        serverSkewRef.current = Date.now() - new Date(data.server_time).getTime();
+      }
       if (data.sessions) {
         // Exclude sessions already pruned locally
         const fresh = (data.sessions as SessionItem[]).filter(
@@ -506,20 +510,22 @@ export default function PlayersPage() {
 
   // Compute live properties for each player based on current timestamp
   const processedSessions = sessions.map((s) => {
+    const adjustedNow = now - (serverSkewRef.current || 0);
     const lastPingTime = new Date(s.last_heartbeat).getTime();
     const startTime = new Date(s.session_started).getTime();
-    const pingElapsedMs = Math.max(0, now - lastPingTime);
+    const pingElapsedMs = Math.max(0, adjustedNow - lastPingTime);
 
-    // After 5 seconds without a heartbeat ping, player is disconnected
-    const isDisconnected = pingElapsedMs >= 5000 || s.status === "kicked" || s.status === "disconnected";
-    const isOnline = !isDisconnected && s.status === "active";
+    // Timeout threshold is 15 seconds, matching server HEARTBEAT_TIMEOUT_MS
+    const isTimedOut = pingElapsedMs >= 15000;
+    const isDisconnected = s.status === "kicked" || s.status === "disconnected" || (!s.is_online && isTimedOut);
+    const isOnline = !isDisconnected && (s.is_online ?? true) && s.status === "active";
 
-    // Duration timer is FROZEN once disconnected: no more timer added!
-    const effectiveEndTime = isOnline ? now : lastPingTime;
+    // Duration timer is FROZEN once disconnected
+    const effectiveEndTime = isOnline ? adjustedNow : lastPingTime;
     const durationSeconds = Math.max(0, Math.floor((effectiveEndTime - startTime) / 1000));
 
-    const timeSinceDisconnectSec = isDisconnected ? Math.floor((pingElapsedMs - 5000) / 1000) : 0;
-    const removalCountdownSec = Math.max(0, 5 - timeSinceDisconnectSec);
+    const timeSinceDisconnectSec = isDisconnected ? Math.floor(Math.max(0, pingElapsedMs - 15000) / 1000) : 0;
+    const removalCountdownSec = Math.max(0, 15 - timeSinceDisconnectSec);
 
     return {
       ...s,
@@ -544,7 +550,7 @@ export default function PlayersPage() {
             Players & Active Sessions
           </h1>
           <p className="text-xs sm:text-sm text-gray-400 mt-0.5">
-            Real-time player monitoring. Inactive sessions disconnect after 5 seconds of silence and are automatically cleared.
+            Real-time player monitoring. Inactive sessions disconnect after 15 seconds of silence and are automatically cleared.
           </p>
         </div>
 

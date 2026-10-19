@@ -519,6 +519,39 @@ KeyBoxStroke.Thickness = 1
 KeyBoxStroke.Color = Color3.fromRGB(60, 60, 72)
 KeyBoxStroke.Parent = KeyBox
 
+-- Status/Alert Label
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Name = "StatusLabel"
+StatusLabel.Size = UDim2.new(0, ${verifyW}, 0, 18)
+StatusLabel.Position = UDim2.new(0, ${verifyX}, 0, ${statusY})
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Text = ""
+StatusLabel.TextColor3 = Color3.fromRGB(240, 180, 50)
+StatusLabel.TextSize = 11
+StatusLabel.Font = appFont
+StatusLabel.TextXAlignment = Enum.TextXAlignment.Center
+StatusLabel.Parent = MainFrame
+
+-- Safe Clipboard Reader Helper
+local function getClipboardText()
+    local text = ""
+    pcall(function()
+        if getclipboard then
+            text = getclipboard()
+        elseif get_clipboard then
+            text = get_clipboard()
+        elseif syn and syn.get_clipboard then
+            text = syn.get_clipboard()
+        elseif Clipboard and Clipboard.get then
+            text = Clipboard.get()
+        end
+    end)
+    if text and type(text) == "string" then
+        return text
+    end
+    return ""
+end
+
 -- One-Click Paste Button
 local PasteBtn = Instance.new("TextButton")
 PasteBtn.Name = "PasteBtn"
@@ -542,36 +575,30 @@ PasteStroke.Transparency = 0.6
 PasteStroke.Parent = PasteBtn
 
 PasteBtn.MouseButton1Click:Connect(function()
-    local clip = ""
-    pcall(function()
-        if getclipboard then clip = getclipboard()
-        elseif syn and syn.get_clipboard then clip = syn.get_clipboard()
-        end
-    end)
+    local clip = getClipboardText()
     if clip and clip ~= "" then
         KeyBox.Text = tostring(clip):gsub("^%s*(.-)%s*$", "%1")
-        StatusLabel.TextColor3 = Color3.fromRGB(50, 220, 120)
-        StatusLabel.Text = "Pasted from clipboard!"
-        task.delay(1.5, function() StatusLabel.Text = "" end)
+        if StatusLabel and StatusLabel.Parent then
+            StatusLabel.TextColor3 = Color3.fromRGB(50, 220, 120)
+            StatusLabel.Text = "Pasted from clipboard!"
+            task.delay(1.5, function()
+                if StatusLabel and StatusLabel.Parent and StatusLabel.Text == "Pasted from clipboard!" then
+                    StatusLabel.Text = ""
+                end
+            end)
+        end
     else
-        StatusLabel.TextColor3 = Color3.fromRGB(240, 180, 50)
-        StatusLabel.Text = "Clipboard empty."
-        task.delay(1.5, function() StatusLabel.Text = "" end)
+        if StatusLabel and StatusLabel.Parent then
+            StatusLabel.TextColor3 = Color3.fromRGB(240, 180, 50)
+            StatusLabel.Text = "Clipboard empty or unsupported."
+            task.delay(1.5, function()
+                if StatusLabel and StatusLabel.Parent and StatusLabel.Text == "Clipboard empty or unsupported." then
+                    StatusLabel.Text = ""
+                end
+            end)
+        end
     end
 end)
-
--- Status/Alert Label
-local StatusLabel = Instance.new("TextLabel")
-StatusLabel.Name = "StatusLabel"
-StatusLabel.Size = UDim2.new(0, ${verifyW}, 0, 18)
-StatusLabel.Position = UDim2.new(0, ${verifyX}, 0, ${statusY})
-StatusLabel.BackgroundTransparency = 1
-StatusLabel.Text = ""
-StatusLabel.TextColor3 = Color3.fromRGB(240, 180, 50)
-StatusLabel.TextSize = 11
-StatusLabel.Font = appFont
-StatusLabel.TextXAlignment = Enum.TextXAlignment.Center
-StatusLabel.Parent = MainFrame
 
 -- Verify Button
 local VerifyBtn = Instance.new("TextButton")
@@ -667,11 +694,19 @@ end)
 -- =======================================================
 local function startProtectedRuntime(sessionToken, payloadData, isAdminKey, initialRemainingSeconds, nonce, userKey)
     -- Destroy Loader GUI smoothly
-    ScreenGui:Destroy()
+    pcall(function()
+        if ScreenGui then ScreenGui:Destroy() end
+    end)
+
+    local _currentOnlineCount = 1
+    local _fps = 60
+    local _ping = 20
 
     -- Anti-Tamper & Metatable Integrity Verification
     local function verifyIntegrity()
-        return detectTampering()
+        local tFlags = {}
+        pcall(function() tFlags = detectTampering() end)
+        return tFlags
     end
 ${
   showWatermark
@@ -711,9 +746,9 @@ ${
     WLabel.Font = appFont
     WLabel.Parent = WatermarkFrame
 
-    local _currentOnlineCount = 1
-    local _fps = 60
-    local _ping = 20
+    _currentOnlineCount = 1
+    _fps = 60
+    _ping = 20
     task.spawn(function()
         local lastTime = os.clock()
         local frames = 0
@@ -1036,10 +1071,11 @@ ${
     local _deadManActive = true
 
     -- Independent Watchdog Task (Detects Network Interception / Proxy Dropping)
-    _task.spawn(function()
+    task.spawn(function()
         while _deadManActive do
-            _task.wait(2.0)
-            if not isAdminKey and (os.clock() - _lastHeartbeatSuccess > 35) then
+            task.wait(3.0)
+            -- 90 seconds timeout gives ample buffer for heavy map asset loading and server hops
+            if not isAdminKey and (os.clock() - _lastHeartbeatSuccess > 90) then
                 _deadManActive = false
                 safeKick("[${safeBrandName}] Security Watchdog: Session heartbeat timed out or blocked (Code 0x8004100D).")
                 break
@@ -1047,54 +1083,71 @@ ${
         end
     end)
 
+    -- Persistent, indestructible heartbeat thread
     task.spawn(function()
         local pingUrl = BASE_URL .. "/api/session/heartbeat"
-        while task.wait(2.5) do
-            local success, res = pcall(function()
-                return httpRequest({
+        while true do
+            pcall(function()
+                local uName = "Player"
+                local uId = "0"
+                if LocalPlayer then
+                    uName = LocalPlayer.Name or "Player"
+                    uId = tostring(LocalPlayer.UserId or "0")
+                end
+
+                local currentFlags = verifyIntegrity()
+
+                local reqPayload = HttpService:JSONEncode({
+                    session_token = sessionToken,
+                    hwid = getHWID(),
+                    roblox_username = uName,
+                    roblox_user_id = uId,
+                    place_id = tostring(game.PlaceId or "0"),
+                    job_id = tostring(game.JobId or ""),
+                    tamper_flags = currentFlags,
+                    timestamp = os.time()
+                })
+
+                local res = httpRequest({
                     Url = pingUrl,
                     Method = "POST",
                     Headers = {
                         ["Content-Type"] = "application/json",
                         ["User-Agent"] = "Roblox/WinInet"
                     },
-                    Body = HttpService:JSONEncode({
-                        session_token = sessionToken,
-                        hwid = getHWID(),
-                        roblox_username = LocalPlayer.Name,
-                        roblox_user_id = tostring(LocalPlayer.UserId),
-                        place_id = tostring(game.PlaceId),
-                        job_id = tostring(game.JobId),
-                        tamper_flags = verifyIntegrity(),
-                        timestamp = os.time()
-                    })
+                    Body = reqPayload
                 })
-            end)
 
-            if success and res and res.StatusCode == 200 then
-                _lastHeartbeatSuccess = os.clock()
-                local data = nil
-                pcall(function() data = HttpService:JSONDecode(res.Body) end)
-                if data then
-                    if data.online_count then
-                        _currentOnlineCount = data.online_count
-                    end
-                    if data.remaining_seconds and not isAdminKey then
-                        remainingSeconds = data.remaining_seconds
-                    end
-                    if data.action == "kick" then
-                        safeKick("[${safeBrandName}] " .. (data.reason or "You were kicked by the dashboard administrator."))
-                        break
-                    elseif data.action == "message" and data.message then
-                        showRemoteMessage(data.message)
-                    end
-                    if data.commands and type(data.commands) == "table" then
-                        for _, cmd in ipairs(data.commands) do
-                            handleCommand(cmd)
+                if res then
+                    local statusCode = res.StatusCode or res.Status or res.status_code or res.status or 0
+                    if statusCode == 200 or statusCode == 204 then
+                        _lastHeartbeatSuccess = os.clock()
+                        local bodyStr = res.Body or res.body or ""
+                        local data = nil
+                        pcall(function() data = HttpService:JSONDecode(bodyStr) end)
+                        if data then
+                            if data.online_count then
+                                _currentOnlineCount = data.online_count
+                            end
+                            if data.remaining_seconds and not isAdminKey then
+                                remainingSeconds = data.remaining_seconds
+                            end
+                            if data.action == "kick" then
+                                _deadManActive = false
+                                safeKick("[${safeBrandName}] " .. (data.reason or "You were kicked by the dashboard administrator."))
+                            elseif data.action == "message" and data.message then
+                                showRemoteMessage(data.message)
+                            end
+                            if data.commands and type(data.commands) == "table" then
+                                for _, cmd in ipairs(data.commands) do
+                                    handleCommand(cmd)
+                                end
+                            end
                         end
                     end
                 end
-            end
+            end)
+            task.wait(2.5)
         end
     end)
 
@@ -1259,10 +1312,10 @@ local function performVerify(rawKey, isSilent)
                 key = key,
                 script_slug = SCRIPT_SLUG,
                 hwid = getHWID(),
-                roblox_username = LocalPlayer.Name,
-                roblox_user_id = tostring(LocalPlayer.UserId),
-                place_id = tostring(game.PlaceId),
-                job_id = tostring(game.JobId),
+                roblox_username = (LocalPlayer and LocalPlayer.Name) or "Player",
+                roblox_user_id = tostring((LocalPlayer and LocalPlayer.UserId) or "0"),
+                place_id = tostring(game.PlaceId or "0"),
+                job_id = tostring(game.JobId or ""),
                 executor = getExecutorName(),
                 os = getClientOS(),
                 timestamp = os.time(),
@@ -1280,10 +1333,12 @@ local function performVerify(rawKey, isSilent)
         return false
     end
 
+    local statusCode = (response and (response.StatusCode or response.Status or response.status_code or response.status)) or 0
+    local respBody = (response and (response.Body or response.body)) or ""
     local data = nil
-    pcall(function() data = HttpService:JSONDecode(response.Body) end)
+    pcall(function() data = HttpService:JSONDecode(respBody) end)
 
-    if response.StatusCode == 200 and data and data.success then
+    if statusCode == 200 and data and data.success then
         -- Cache key in workspace folder for silent instant subsequent executions
         pcall(function()
             if makefolder and not isfolder("AtomProtect") then
@@ -1309,8 +1364,8 @@ local function performVerify(rawKey, isSilent)
         startProtectedRuntime(data.session_token, data, isAdmin, data.remaining_seconds, data.nonce, key)
         return true
     else
-        local err = (data and (data.error or data.message)) or ("Auth failed (HTTP " .. tostring(response.StatusCode) .. ")")
-        local isBanned = response.StatusCode == 403 and (
+        local err = (data and (data.error or data.message)) or ("Auth failed (HTTP " .. tostring(statusCode) .. ")")
+        local isBanned = statusCode == 403 and (
             err:lower():find("banned") or err:lower():find("blacklist") or err:lower():find("denied") or err:lower():find("violation")
         )
 
