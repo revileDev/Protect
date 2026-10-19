@@ -45,32 +45,30 @@ export function bundleModularScript(bundle: ModuleBundle): string {
   const moduleEntries: string[] = [];
   const registeredKeys = new Set<string>();
 
-  // If dynamic streaming is NOT active, embed the non-entry modules locally
-  if (!dynamicStreaming) {
-    for (const [filePath, content] of Object.entries(files)) {
-      if (filePath === entryFile || filePath === cleanEntry) continue;
+  // Always embed all non-entry modules directly into the in-memory virtual file system
+  for (const [filePath, content] of Object.entries(files)) {
+    if (filePath === entryFile || filePath === cleanEntry) continue;
 
-      const cleanKey = filePath.replace(/\\/g, "/");
-      const keyWithoutExt = cleanKey.replace(/\.lua$/i, "");
-      const baseName = cleanKey.split("/").pop() || cleanKey;
-      const baseNameWithoutExt = baseName.replace(/\.lua$/i, "");
+    const cleanKey = filePath.replace(/\\/g, "/");
+    const keyWithoutExt = cleanKey.replace(/\.lua$/i, "");
+    const baseName = cleanKey.split("/").pop() || cleanKey;
+    const baseNameWithoutExt = baseName.replace(/\.lua$/i, "");
 
-      const escapedContent = `function()
+    const escapedContent = `function()
 ${content}
 end`;
 
-      const registerKey = (k: string) => {
-        if (!registeredKeys.has(k)) {
-          registeredKeys.add(k);
-          moduleEntries.push(`    ["${k}"] = ${escapedContent}`);
-        }
-      };
+    const registerKey = (k: string) => {
+      if (!registeredKeys.has(k)) {
+        registeredKeys.add(k);
+        moduleEntries.push(`    ["${k}"] = ${escapedContent}`);
+      }
+    };
 
-      registerKey(cleanKey);
-      if (keyWithoutExt !== cleanKey) registerKey(keyWithoutExt);
-      if (baseName !== cleanKey) registerKey(baseName);
-      if (baseNameWithoutExt !== keyWithoutExt && baseNameWithoutExt !== baseName) registerKey(baseNameWithoutExt);
-    }
+    registerKey(cleanKey);
+    if (keyWithoutExt !== cleanKey) registerKey(keyWithoutExt);
+    if (baseName !== cleanKey) registerKey(baseName);
+    if (baseNameWithoutExt !== keyWithoutExt && baseNameWithoutExt !== baseName) registerKey(baseNameWithoutExt);
   }
 
   const modulesTable = moduleEntries.join(",\n");
@@ -118,7 +116,7 @@ local __VFS_CACHE = {}
 -- Virtual require hook
 local original_require = require
 local function __vfs_require(moduleName)
-    local normalized = tostring(moduleName):gsub("\\", "/")
+    local normalized = tostring(moduleName):gsub(string.char(92), "/")
     if __VFS_CACHE[normalized] then
         return __VFS_CACHE[normalized]
     end
