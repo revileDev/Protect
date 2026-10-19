@@ -38,41 +38,41 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col justify-between bg-[#0b0d13] text-gray-200">
-      <header className="px-6 py-4 border-b border-gray-800/80 flex items-center justify-between">
+    <div className="min-h-screen flex flex-col justify-between bg-obsidian-950 text-zinc-100 selection:bg-white selection:text-black">
+      <header className="px-6 py-4 border-b border-obsidian-700/80 bg-obsidian-900/60 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded bg-blue-600/20 text-blue-400 border border-blue-500/30 flex items-center justify-center font-bold">
+          <div className="w-8 h-8 rounded-xl bg-obsidian-800 border border-obsidian-700 flex items-center justify-center font-bold text-white">
             <Shield className="w-4 h-4" />
           </div>
-          <span className="font-bold text-sm tracking-tight text-white">AERO AUTH</span>
+          <span className="font-bold text-sm tracking-tight text-white font-mono">AEROAUTH</span>
         </Link>
-        <Link href="/" className="text-xs text-gray-400 hover:text-white transition-colors">
+        <Link href="/" className="text-xs text-zinc-400 hover:text-white transition-colors font-mono">
           Return to site
         </Link>
       </header>
 
       <main className="flex-1 flex items-center justify-center p-4">
-        <div className="w-full max-w-sm bg-[#11131c] border border-gray-800 rounded-xl p-6 sm:p-7 shadow-2xl">
+        <div className="w-full max-w-sm bg-obsidian-900 border border-obsidian-700 rounded-2xl p-6 sm:p-7 shadow-2xl">
           <div className="mb-6">
-            <div className="w-9 h-9 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center mb-3">
+            <div className="w-9 h-9 rounded-xl bg-obsidian-800 border border-obsidian-700 text-white flex items-center justify-center mb-3">
               <Lock className="w-4 h-4" />
             </div>
-            <h1 className="text-lg font-bold text-white">Admin Login</h1>
-            <p className="text-xs text-gray-400 mt-1">
-              Protected area. Enter authorized credentials to access management controls.
+            <h1 className="text-lg font-bold text-white">Admin Console</h1>
+            <p className="text-xs text-zinc-400 mt-1">
+              Authorized credentials required for management access.
             </p>
           </div>
 
           {error && (
-            <div className="mb-4 p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
+            <div className="mb-4 p-3 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-300 text-xs flex items-center gap-2 font-mono">
               <AlertCircle className="w-4 h-4 flex-shrink-0" />
               <span>{error}</span>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+          <form onSubmit={handleSubmit} className="space-y-4 text-xs font-mono">
             <div>
-              <label className="block text-gray-400 font-medium mb-1">Username</label>
+              <label className="block text-zinc-400 font-medium mb-1">Username</label>
               <input
                 type="text"
                 required
@@ -80,12 +80,12 @@ export default function LoginPage() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="Enter admin username"
-                className="w-full bg-[#0a0c12] border border-gray-700/80 rounded-lg px-3 py-2 text-white outline-none focus:border-blue-500 transition-colors"
+                className="w-full bg-obsidian-800 border border-obsidian-700 rounded-xl px-3 py-2.5 text-white outline-none focus:border-zinc-400 transition-colors"
               />
             </div>
 
             <div>
-              <label className="block text-gray-400 font-medium mb-1">Password</label>
+              <label className="block text-zinc-400 font-medium mb-1">Password</label>
               <input
                 type="password"
                 required
@@ -93,24 +93,24 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••••••••••••••"
-                className="w-full bg-[#0a0c12] border border-gray-700/80 rounded-lg px-3 py-2 text-white outline-none focus:border-blue-500 transition-colors font-mono"
+                className="w-full bg-obsidian-800 border border-obsidian-700 rounded-xl px-3 py-2.5 text-white outline-none focus:border-zinc-400 transition-colors"
               />
             </div>
 
             <button
               type="submit"
               disabled={submitting}
-              className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition-all flex items-center justify-center gap-2 disabled:opacity-50 mt-2"
+              className="w-full py-2.5 rounded-xl bg-white hover:bg-zinc-200 text-black font-bold text-xs transition-all flex items-center justify-center gap-2 disabled:opacity-50 mt-2 shadow-sm"
             >
-              <span>{submitting ? "Checking..." : "Sign In"}</span>
+              <span>{submitting ? "Authenticating..." : "Sign In"}</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </form>
         </div>
       </main>
 
-      <footer className="py-4 text-center text-[11px] text-gray-600 border-t border-gray-900">
-        Restricted console. Unauthorized access attempts are monitored and recorded.
+      <footer className="py-4 text-center text-xs text-zinc-600 border-t border-obsidian-800 font-mono">
+        Restricted console. IP logging and intrusion detection active.
       </footer>
     </div>
   );

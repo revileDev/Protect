@@ -11,6 +11,15 @@ const config: Config = {
       colors: {
         background: "var(--background)",
         foreground: "var(--foreground)",
+        obsidian: {
+          950: "#050507",
+          900: "#070709",
+          850: "#0b0c10",
+          800: "#101117",
+          750: "#14161f",
+          700: "#1a1d29",
+          600: "#242838",
+        },
         roblox: {
           dark: "#1e1e24",
           card: "#25252b",

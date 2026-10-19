@@ -171,6 +171,7 @@ if not LocalPlayer then
     _pcall(function()
         LocalPlayer = Players:GetPropertyChangedSignal("LocalPlayer"):Wait() or Players.PlayerAdded:Wait()
     end)
+end
 local function safeKick(reason)
     _pcall(function()
         if LocalPlayer and LocalPlayer.Kick then

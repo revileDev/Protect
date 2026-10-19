@@ -57,6 +57,20 @@ function isBrowserRequest(req: NextRequest): boolean {
     lowerUA.includes("krnl") ||
     lowerUA.includes("delta") ||
     lowerUA.includes("codex") ||
+    lowerUA.includes("solara") ||
+    lowerUA.includes("wave") ||
+    lowerUA.includes("celery") ||
+    lowerUA.includes("swift") ||
+    lowerUA.includes("xeno") ||
+    lowerUA.includes("arceus") ||
+    lowerUA.includes("macsploit") ||
+    lowerUA.includes("appleware") ||
+    lowerUA.includes("valyse") ||
+    lowerUA.includes("vega") ||
+    lowerUA.includes("hydrogen") ||
+    lowerUA.includes("oxygen") ||
+    lowerUA.includes("electron") ||
+    lowerUA.includes("cryptic") ||
     lowerUA.includes("luasocket") ||
     lowerUA.includes("wininet") ||
     lowerUA.includes("curl") ||
@@ -64,14 +78,23 @@ function isBrowserRequest(req: NextRequest): boolean {
 
   if (isKnownExecutor) return false;
 
-  // 1. Browsers explicitly request text/html in their Accept header
-  if (accept.includes("text/html") || accept.includes("application/xhtml")) return true;
-
-  // 2. Browser navigation fetch modes
+  // 1. Browser navigation fetch modes (Standard in Chromium/Firefox/WebKit tab navigations)
   if (secFetchMode === "navigate" || secFetchDest === "document") return true;
 
-  // 3. Browser client hints
+  // 2. Browser client hints
   if (req.headers.get("sec-ch-ua")) return true;
+
+  // 3. Browsers explicitly request text/html in their Accept header along with browser user-agent tokens
+  const isBrowserUA =
+    lowerUA.includes("mozilla") ||
+    lowerUA.includes("chrome") ||
+    lowerUA.includes("safari") ||
+    lowerUA.includes("edge") ||
+    lowerUA.includes("firefox");
+
+  if (isBrowserUA && (accept.includes("text/html") || accept.includes("application/xhtml"))) {
+    return true;
+  }
 
   return false;
 }

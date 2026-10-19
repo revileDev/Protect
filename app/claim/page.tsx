@@ -13,10 +13,7 @@ import {
   ShieldCheck,
   RefreshCw,
   MessageSquare,
-  Info,
   ExternalLink,
-  Sparkles,
-  Crown,
   Shield,
   Flame,
   Zap,
@@ -47,7 +44,7 @@ export default function ClaimKeyPage() {
   const [currentTimer, setCurrentTimer] = useState<number | null>(null);
   const [timerRunning, setTimerRunning] = useState(false);
 
-  // Guns.lol Creator Profile
+  // Creator Profile
   const [profile, setProfile] = useState<CreatorProfile>({
     display_name: "Revile",
     bio: "Lead Developer & Script Engineer. High performance Lua scripts with advanced protection.",
@@ -101,57 +98,64 @@ export default function ClaimKeyPage() {
   };
 
   useEffect(() => {
-    let slug = "";
-    let id = "";
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      slug = params.get("script") || "";
-      id = params.get("id") || params.get("hwid") || "";
-      setScriptSlug(slug);
-      setClaimId(id);
-    }
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const slug = params.get("script") || "";
+    const cid = params.get("hwid") || params.get("claim_id") || "";
 
-    // Check if claimant IP has already claimed an active key for this script
+    setScriptSlug(slug);
+    setClaimId(cid);
+
     checkAlreadyClaimed(slug);
 
-    // Fetch active scripts
-    fetch("/api/scripts")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.scripts) {
-          const active = data.scripts.filter((s: any) => s.is_active !== false);
-          setAvailableScripts(active);
-          if (!slug && active.length === 1) {
-            setScriptSlug(active[0].slug);
-            setTargetScript(active[0]);
-            checkAlreadyClaimed(active[0].slug);
-          }
-        }
-      })
-      .catch(() => {});
-
-    // Fetch system settings
+    // Fetch site settings
     fetch("/api/settings")
-      .then((res) => res.json())
+      .then((r) => r.json())
+      .then((s) => {
+        if (s.claim_method) setClaimMethod(s.claim_method);
+        if (s.discord_invite_url) setDiscordInvite(s.discord_invite_url);
+      })
+      .catch(() => {});
+
+    // Fetch list of active scripts
+    fetch("/api/scripts")
+      .then((r) => r.json())
       .then((data) => {
-        if (data.settings) {
-          setClaimMethod(data.settings.claim_method || "checkpoints");
-          if (data.settings.discord_invite_url) {
-            setDiscordInvite(data.settings.discord_invite_url);
+        if (Array.isArray(data)) {
+          const activeOnly = data
+            .filter((sc: { is_active?: boolean }) => sc.is_active !== false)
+            .map((sc: { id: string; name: string; slug: string }) => ({
+              id: sc.id,
+              name: sc.name,
+              slug: sc.slug,
+            }));
+          setAvailableScripts(activeOnly);
+
+          if (slug) {
+            const found = activeOnly.find((sc) => sc.slug === slug);
+            if (found) setTargetScript(found);
           }
         }
       })
       .catch(() => {});
 
-    // Fetch checkpoints and profile for this script
-    const cpUrl = slug ? `/api/checkpoints?script_slug=${encodeURIComponent(slug)}` : "/api/checkpoints";
-    fetch(cpUrl)
-      .then((res) => res.json())
+    // Fetch checkpoints
+    const cpEndpoint = slug
+      ? `/api/checkpoints?script_slug=${encodeURIComponent(slug)}`
+      : "/api/checkpoints";
+
+    fetch(cpEndpoint)
+      .then((res) => {
+        if (res.status === 403) {
+          setVpnDetected(true);
+          throw new Error("VPN_DETECTED");
+        }
+        return res.json();
+      })
       .then((data) => {
         if (data.checkpoints && data.checkpoints.length > 0) {
           setCheckpoints(data.checkpoints);
         } else {
-          // Fallback single checkpoint if none configured
           setCheckpoints([
             {
               id: "fallback-cp-1",
@@ -169,7 +173,6 @@ export default function ClaimKeyPage() {
       })
       .catch(() => {});
 
-    // Notify telemetry that claimant arrived
     fetch("/api/claim", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -177,7 +180,7 @@ export default function ClaimKeyPage() {
     }).catch(() => {});
   }, []);
 
-  // Timer Countdown Handler for Active Checkpoint
+  // Timer Countdown Handler
   useEffect(() => {
     if (!timerRunning || currentTimer === null) return;
 
@@ -204,12 +207,10 @@ export default function ClaimKeyPage() {
     if (completedCpIds.includes(cp.id)) return;
     if (index !== activeCpIndex) return;
 
-    // Open checkpoint link in a new tab
     if (cp.url) {
       window.open(cp.url, "_blank", "noopener,noreferrer");
     }
 
-    // Start timer for duration
     setCurrentTimer(cp.duration_seconds || 5);
     setTimerRunning(true);
   };
@@ -250,19 +251,23 @@ export default function ClaimKeyPage() {
 
       const data = await res.json();
 
+      if (res.status === 403 && data.error?.includes("VPN")) {
+        setVpnDetected(true);
+        throw new Error(data.error);
+      }
+
       if (!res.ok) {
-        if (data.is_vpn) setVpnDetected(true);
-        throw new Error(data.error || "Failed to claim key.");
+        throw new Error(data.error || "Failed to claim license key");
       }
 
       setClaimedKey(data.key);
       setBoundIp(data.bound_ip);
       setExpiresAt(data.expires_at);
-      setAlreadyClaimed(Boolean(data.already_claimed));
+      setAlreadyClaimed(data.already_claimed || false);
       setStep("claimed");
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Error claiming key";
-      setError(message);
+      const msg = err instanceof Error ? err.message : "Error claiming key";
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -270,75 +275,64 @@ export default function ClaimKeyPage() {
 
   const copyKey = () => {
     if (!claimedKey) return;
-    navigator.clipboard?.writeText(claimedKey);
+    navigator.clipboard.writeText(claimedKey);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const renderEmblemIcon = (icon: string) => {
-    switch (icon) {
-      case "crown":
-        return <Crown className="w-3.5 h-3.5" />;
+  const renderEmblemIcon = (iconName: string) => {
+    switch (iconName) {
       case "shield":
-        return <Shield className="w-3.5 h-3.5" />;
+        return <Shield className="w-3 h-3" />;
       case "flame":
-        return <Flame className="w-3.5 h-3.5" />;
+        return <Flame className="w-3 h-3" />;
       case "zap":
-        return <Zap className="w-3.5 h-3.5" />;
+        return <Zap className="w-3 h-3" />;
       case "star":
-        return <Star className="w-3.5 h-3.5" />;
+        return <Star className="w-3 h-3" />;
       case "skull":
-        return <Skull className="w-3.5 h-3.5" />;
-      case "verified":
+        return <Skull className="w-3 h-3" />;
       default:
-        return <Sparkles className="w-3.5 h-3.5" />;
+        return <ShieldCheck className="w-3 h-3" />;
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#08090f] text-gray-200">
-      <Navbar />
+    <div className="min-h-screen flex flex-col bg-obsidian-950 text-zinc-100 selection:bg-white selection:text-black">
+      <Navbar discordUrl={discordInvite} />
 
       <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 lg:p-8 flex items-center justify-center">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full items-start">
-          {/* ========================================================================= */}
-          {/* LEFT COLUMN: GUNS.LOL CREATOR PROFILE CARD */}
-          {/* ========================================================================= */}
-          <div className="lg:col-span-5 bg-gradient-to-b from-[#141624] via-[#0f111d] to-[#090b12] border border-gray-800 rounded-2xl p-6 sm:p-7 shadow-2xl relative overflow-hidden flex flex-col items-center text-center">
-            {/* Ambient Background Glow */}
-            <div className="absolute -top-14 -left-14 w-40 h-40 bg-purple-600/15 rounded-full blur-3xl pointer-events-none" />
-            <div className="absolute -bottom-14 -right-14 w-40 h-40 bg-blue-600/15 rounded-full blur-3xl pointer-events-none" />
-
-            {/* Avatar with Guns.lol glowing ring & pulse */}
+          {/* LEFT COLUMN: CREATOR PROFILE CARD */}
+          <div className="lg:col-span-5 bg-obsidian-900 border border-obsidian-700 rounded-2xl p-6 sm:p-7 shadow-2xl relative overflow-hidden flex flex-col items-center text-center">
+            {/* Avatar */}
             <div className="relative mb-3.5">
-              <div className="w-20 h-20 rounded-full p-1 bg-gradient-to-tr from-purple-500 via-blue-500 to-emerald-400 shadow-xl shadow-purple-500/20">
+              <div className="w-20 h-20 rounded-2xl p-0.5 bg-obsidian-750 border border-obsidian-700 shadow-md">
                 <img
                   src={profile.avatar_url || "https://api.dicebear.com/7.x/bottts/svg?seed=Revile21"}
                   alt="Creator Avatar"
-                  className="w-full h-full rounded-full object-cover bg-black"
+                  className="w-full h-full rounded-xl object-cover bg-black"
                   onError={(e) => {
                     (e.target as HTMLImageElement).src =
                       "https://api.dicebear.com/7.x/bottts/svg?seed=Revile21";
                   }}
                 />
               </div>
-              <span className="absolute bottom-1 right-1 w-4 h-4 rounded-full bg-emerald-400 border-2 border-[#12141e] animate-pulse" />
+              <span className="absolute bottom-1 right-1 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-obsidian-900" />
             </div>
 
-            {/* Display Name with Sparkle */}
-            <h2 className="text-lg font-extrabold text-white tracking-wide flex items-center justify-center gap-1.5">
-              <span>{profile.display_name || "Revile"}</span>
-              <Sparkles className="w-4 h-4 text-blue-400" />
+            {/* Display Name */}
+            <h2 className="text-base sm:text-lg font-bold text-white tracking-wide">
+              {profile.display_name || "Revile"}
             </h2>
 
-            {/* Guns.lol Emblems & Badges */}
+            {/* Emblems */}
             <div className="flex flex-wrap items-center justify-center gap-1.5 my-3">
               {(profile.emblems || []).map((emb) => (
                 <div
                   key={emb.id}
-                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase border backdrop-blur-sm shadow-sm"
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wide uppercase border bg-obsidian-850"
                   style={{
-                    backgroundColor: `${emb.color || "#3b82f6"}15`,
                     borderColor: `${emb.color || "#3b82f6"}40`,
                     color: emb.color || "#3b82f6",
                   }}
@@ -350,43 +344,43 @@ export default function ClaimKeyPage() {
             </div>
 
             {/* Bio */}
-            <p className="text-xs text-gray-400 max-w-sm leading-relaxed mb-4">
+            <p className="text-xs text-zinc-400 max-w-sm leading-relaxed mb-4">
               {profile.bio || "Lead Developer & Script Engineer."}
             </p>
 
-            {/* Target Script Isolation Indicator */}
+            {/* Target Script Indicator */}
             {targetScript ? (
-              <div className="w-full mb-4 p-3 rounded-xl bg-blue-500/10 border border-blue-500/30 text-left">
-                <div className="flex items-center gap-2 text-xs font-bold text-blue-300">
-                  <Lock className="w-3.5 h-3.5" />
+              <div className="w-full mb-4 p-3 rounded-xl bg-obsidian-850 border border-obsidian-700 text-left">
+                <div className="flex items-center gap-2 text-xs font-bold text-white">
+                  <Lock className="w-3.5 h-3.5 text-zinc-400" />
                   <span>Script-Locked Key</span>
                 </div>
-                <p className="text-[11px] text-gray-300 mt-0.5 leading-snug">
-                  This key will be authorized exclusively for <strong>{targetScript.name}</strong> (/{targetScript.slug}).
+                <p className="text-[11px] text-zinc-400 mt-0.5 leading-snug">
+                  Key authorized for <strong>{targetScript.name}</strong> (/{targetScript.slug}).
                 </p>
               </div>
             ) : scriptSlug ? (
-              <div className="w-full mb-4 p-3 rounded-xl bg-purple-500/10 border border-purple-500/30 text-left">
-                <div className="flex items-center gap-2 text-xs font-bold text-purple-300">
-                  <Lock className="w-3.5 h-3.5" />
+              <div className="w-full mb-4 p-3 rounded-xl bg-obsidian-850 border border-obsidian-700 text-left">
+                <div className="flex items-center gap-2 text-xs font-bold text-white">
+                  <Lock className="w-3.5 h-3.5 text-zinc-400" />
                   <span>Script: {scriptSlug}</span>
                 </div>
-                <p className="text-[11px] text-gray-300 mt-0.5 leading-snug">
-                  Key will be locked exclusively to this script identifier.
+                <p className="text-[11px] text-zinc-400 mt-0.5 leading-snug">
+                  Key will be locked strictly to this script identifier.
                 </p>
               </div>
             ) : null}
 
             {/* Social Buttons */}
-            <div className="w-full flex flex-wrap items-center justify-center gap-2 pt-2 border-t border-gray-800/80">
+            <div className="w-full flex flex-wrap items-center justify-center gap-2 pt-3 border-t border-obsidian-750">
               {profile.socials.discord && (
                 <a
                   href={profile.socials.discord}
                   target="_blank"
                   rel="noreferrer"
-                  className="px-3 py-1.5 rounded-lg bg-gray-800/90 hover:bg-[#5865F2] text-gray-300 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5"
+                  className="px-3 py-1.5 rounded-xl bg-obsidian-800 hover:bg-obsidian-750 border border-obsidian-700 text-zinc-300 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5"
                 >
-                  <MessageSquare className="w-3.5 h-3.5" />
+                  <MessageSquare className="w-3.5 h-3.5 text-indigo-400" />
                   <span>Discord</span>
                 </a>
               )}
@@ -395,9 +389,9 @@ export default function ClaimKeyPage() {
                   href={profile.socials.youtube}
                   target="_blank"
                   rel="noreferrer"
-                  className="px-3 py-1.5 rounded-lg bg-gray-800/90 hover:bg-red-600 text-gray-300 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5"
+                  className="px-3 py-1.5 rounded-xl bg-obsidian-800 hover:bg-obsidian-750 border border-obsidian-700 text-zinc-300 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5"
                 >
-                  <ExternalLink className="w-3.5 h-3.5" />
+                  <ExternalLink className="w-3.5 h-3.5 text-red-400" />
                   <span>YouTube</span>
                 </a>
               )}
@@ -406,9 +400,9 @@ export default function ClaimKeyPage() {
                   href={profile.socials.twitter}
                   target="_blank"
                   rel="noreferrer"
-                  className="px-3 py-1.5 rounded-lg bg-gray-800/90 hover:bg-blue-500 text-gray-300 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5"
+                  className="px-3 py-1.5 rounded-xl bg-obsidian-800 hover:bg-obsidian-750 border border-obsidian-700 text-zinc-300 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5"
                 >
-                  <ExternalLink className="w-3.5 h-3.5" />
+                  <ExternalLink className="w-3.5 h-3.5 text-cyan-400" />
                   <span>Twitter</span>
                 </a>
               )}
@@ -417,57 +411,55 @@ export default function ClaimKeyPage() {
                   href={profile.socials.github}
                   target="_blank"
                   rel="noreferrer"
-                  className="px-3 py-1.5 rounded-lg bg-gray-800/90 hover:bg-gray-700 text-gray-300 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5"
+                  className="px-3 py-1.5 rounded-xl bg-obsidian-800 hover:bg-obsidian-750 border border-obsidian-700 text-zinc-300 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5"
                 >
-                  <Link2 className="w-3.5 h-3.5" />
+                  <Link2 className="w-3.5 h-3.5 text-zinc-400" />
                   <span>GitHub</span>
                 </a>
               )}
             </div>
 
             {claimId && (
-              <div className="mt-4 pt-3 border-t border-gray-800/60 w-full text-[10px] text-gray-500 font-mono truncate">
+              <div className="mt-4 pt-3 border-t border-obsidian-750 w-full text-[10px] text-zinc-500 font-mono truncate">
                 HWID: {claimId.slice(0, 16)}...
               </div>
             )}
           </div>
 
-          {/* ========================================================================= */}
-          {/* RIGHT COLUMN: MULTI-CHECKPOINT VERIFICATION GATE */}
-          {/* ========================================================================= */}
-          <div className="lg:col-span-7 bg-[#12141f] border border-gray-800 rounded-2xl p-6 sm:p-8 shadow-2xl">
+          {/* RIGHT COLUMN: VERIFICATION GATE */}
+          <div className="lg:col-span-7 bg-obsidian-900 border border-obsidian-700 rounded-2xl p-6 sm:p-8 shadow-2xl">
             {/* Header */}
             <div className="mb-6">
               <div className="flex items-center gap-2 mb-1.5">
-                <div className="w-7 h-7 rounded-lg bg-blue-600/10 border border-blue-500/20 text-blue-400 flex items-center justify-center">
+                <div className="w-7 h-7 rounded-lg bg-obsidian-800 border border-obsidian-700 text-white flex items-center justify-center">
                   <Key className="w-4 h-4" />
                 </div>
-                <h1 className="text-xl font-bold text-white tracking-tight">
-                  License Key Gateway
+                <h1 className="text-lg sm:text-xl font-bold text-white tracking-tight">
+                  Script License Allocation
                 </h1>
               </div>
-              <p className="text-xs text-gray-400">
-                Complete the security checkpoints below to allocate your verified license key. Single-device lock enforced.
+              <p className="text-xs text-zinc-400">
+                Complete the security checkpoints below to generate your single-device license key.
               </p>
             </div>
 
-            {/* VPN Alert Modal */}
+            {/* VPN Alert */}
             {vpnDetected && (
-              <div className="mb-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300">
+              <div className="mb-6 p-4 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-300">
                 <div className="flex items-start gap-3">
                   <ShieldAlert className="w-5 h-5 flex-shrink-0 text-rose-400 mt-0.5" />
                   <div>
                     <h3 className="text-sm font-bold text-rose-300">VPN / Proxy Detected</h3>
                     <p className="text-xs text-rose-300/80 mt-1 leading-relaxed">
-                      Our anti-tamper system detected an active VPN or proxy. Please turn off your VPN/proxy and reload this page to claim a key.
+                      Keys cannot be bound to commercial VPN or datacenter proxy IP addresses. Disconnect from your VPN and reload this page.
                     </p>
                     <button
                       type="button"
                       onClick={() => window.location.reload()}
-                      className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold"
+                      className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white text-black text-xs font-semibold hover:bg-zinc-200 transition-colors"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
-                      Reload Page
+                      <span>Reload Page</span>
                     </button>
                   </div>
                 </div>
@@ -475,30 +467,27 @@ export default function ClaimKeyPage() {
             )}
 
             {error && !vpnDetected && (
-              <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs">
+              <div className="mb-4 p-3 rounded-xl bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs font-mono">
                 {error}
               </div>
             )}
 
-            {/* =================================================================== */}
-            {/* STAGE 1: VERIFICATION & SEQUENTIAL CHECKPOINTS */}
-            {/* =================================================================== */}
+            {/* STAGE 1: CHECKPOINTS */}
             {step === "verification" && !vpnDetected && (
               <div className="space-y-5">
-                {/* Script Selector Banner if not pre-selected */}
                 {!scriptSlug && availableScripts.length > 0 ? (
-                  <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/30 space-y-3">
+                  <div className="p-4 rounded-xl bg-obsidian-850 border border-obsidian-700 space-y-3">
                     <div className="flex items-center justify-between text-xs font-bold text-white">
-                      <span className="flex items-center gap-1.5 text-blue-300">
-                        <Lock className="w-4 h-4 text-blue-400" />
+                      <span className="flex items-center gap-1.5">
+                        <Lock className="w-4 h-4 text-zinc-400" />
                         Select Target Script
                       </span>
-                      <span className="text-[10px] text-amber-400 font-semibold bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/20">
-                        Selection Required
+                      <span className="text-[10px] text-amber-400 font-mono font-semibold bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/20">
+                        Required
                       </span>
                     </div>
-                    <p className="text-xs text-gray-300">
-                      Keys are uniquely restricted to a single script. Please select the script you want to claim a key for:
+                    <p className="text-xs text-zinc-400">
+                      Keys are uniquely restricted to a single script:
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
                       {availableScripts.map((s) => (
@@ -517,25 +506,25 @@ export default function ClaimKeyPage() {
                                 if (d.script) setTargetScript(d.script);
                               });
                           }}
-                          className="p-3 rounded-xl border border-gray-700 bg-[#121422] hover:border-blue-500 hover:bg-[#181c2f] text-left transition-all flex items-center justify-between group"
+                          className="p-3 rounded-xl border border-obsidian-700 bg-obsidian-800/60 hover:border-zinc-400 text-left transition-all flex items-center justify-between group"
                         >
                           <div>
-                            <span className="text-xs font-bold text-white group-hover:text-blue-300 block">
+                            <span className="text-xs font-bold text-white block">
                               {s.name}
                             </span>
-                            <span className="text-[10px] font-mono text-gray-400">/{s.slug}</span>
+                            <span className="text-[10px] font-mono text-zinc-400">/{s.slug}</span>
                           </div>
-                          <ChevronRight className="w-4 h-4 text-gray-500 group-hover:text-blue-400 group-hover:translate-x-0.5 transition-all" />
+                          <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:text-white transition-all" />
                         </button>
                       ))}
                     </div>
                   </div>
                 ) : targetScript ? (
-                  <div className="p-3 rounded-xl bg-[#0f1322] border border-blue-500/30 flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <Lock className="w-3.5 h-3.5 text-blue-400" />
-                      <span className="text-gray-300">
-                        Target Script: <strong className="text-white">{targetScript.name}</strong> <span className="text-[10px] text-blue-400 font-mono">({targetScript.slug})</span>
+                  <div className="p-3 rounded-xl bg-obsidian-850 border border-obsidian-700 flex items-center justify-between text-xs font-mono">
+                    <div className="flex items-center gap-2 text-zinc-300">
+                      <Lock className="w-3.5 h-3.5 text-zinc-400" />
+                      <span>
+                        Target: <strong className="text-white">{targetScript.name}</strong> ({targetScript.slug})
                       </span>
                     </div>
                     {availableScripts.length > 1 && (
@@ -545,63 +534,59 @@ export default function ClaimKeyPage() {
                           setScriptSlug("");
                           setTargetScript(null);
                         }}
-                        className="text-[11px] text-blue-400 hover:text-blue-300 underline font-medium"
+                        className="text-[11px] text-zinc-400 hover:text-white underline font-medium"
                       >
-                        Change Script
+                        Change
                       </button>
                     )}
                   </div>
                 ) : null}
 
                 {claimMethod === "discord_oauth" ? (
-                  /* Discord OAuth alternative mode */
-                  <div className="p-4 rounded-xl bg-[#0e1018] border border-gray-800 space-y-3">
-                    <div className="flex items-center justify-between text-xs font-semibold text-gray-300">
+                  <div className="p-4 rounded-xl bg-obsidian-850 border border-obsidian-700 space-y-3">
+                    <div className="flex items-center justify-between text-xs font-semibold text-zinc-300">
                       <span>Step 1: Join Discord Community</span>
                       {discordJoined ? (
-                        <span className="text-emerald-400 flex items-center gap-1 text-[11px]">
+                        <span className="text-emerald-400 flex items-center gap-1 text-[11px] font-mono">
                           <CheckCircle2 className="w-3.5 h-3.5" /> Verified
                         </span>
                       ) : (
-                        <span className="text-amber-400 text-[11px]">Required</span>
+                        <span className="text-amber-400 text-[11px] font-mono">Required</span>
                       )}
                     </div>
-                    <p className="text-xs text-gray-400">
-                      You must be an active member in our Discord server to claim a valid key.
+                    <p className="text-xs text-zinc-400">
+                      Active membership in our Discord server is required to claim a key.
                     </p>
                     <a
                       href={discordInvite}
                       target="_blank"
                       rel="noreferrer"
                       onClick={() => setDiscordJoined(true)}
-                      className="w-full py-2.5 px-3 rounded-lg bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold text-xs transition-all flex items-center justify-center gap-2"
+                      className="w-full py-2.5 px-3 rounded-xl bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold text-xs transition-all flex items-center justify-center gap-2"
                     >
-                      Join Discord Server
+                      <span>Join Discord Server</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </a>
 
-                    <div className="pt-2 border-t border-gray-800/80 space-y-1.5">
-                      <label className="block text-xs font-semibold text-gray-300">
-                        Step 2: Enter Your Discord Username
+                    <div className="pt-2 border-t border-obsidian-750 space-y-1.5">
+                      <label className="block text-xs font-semibold text-zinc-300">
+                        Step 2: Enter Discord Username
                       </label>
                       <input
                         type="text"
                         value={discordUsername}
                         onChange={(e) => setDiscordUsername(e.target.value)}
-                        placeholder="e.g. revile or username#0001"
-                        className="w-full bg-[#12141f] border border-gray-700/80 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-500 outline-none focus:border-blue-500"
+                        placeholder="e.g. revile or username"
+                        className="w-full bg-obsidian-800 border border-obsidian-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 outline-none focus:border-zinc-400 font-mono"
                       />
-                      <p className="text-[10px] text-gray-500">
-                        Your license key will be associated with this Discord account.
-                      </p>
                     </div>
                   </div>
                 ) : (
-                  /* Multi-Checkpoint Sequential Steps */
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between text-xs font-semibold text-gray-300 mb-1">
+                  /* Checkpoints */
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between text-xs font-mono text-zinc-400 mb-1">
                       <span>Checkpoints Required:</span>
-                      <span className="text-emerald-400 font-mono text-[11px]">
+                      <span className="text-emerald-400">
                         {completedCpIds.length} of {checkpoints.length} Completed
                       </span>
                     </div>
@@ -618,8 +603,8 @@ export default function ClaimKeyPage() {
                             isCompleted
                               ? "bg-emerald-500/5 border-emerald-500/30"
                               : isCurrent
-                              ? "bg-[#161826] border-blue-500/50 shadow-md shadow-blue-500/5"
-                              : "bg-[#0d0f17] border-gray-800 opacity-60"
+                              ? "bg-obsidian-800 border-zinc-500"
+                              : "bg-obsidian-850 border-obsidian-700 opacity-60"
                           }`}
                         >
                           <div className="flex items-center justify-between gap-3">
@@ -629,8 +614,8 @@ export default function ClaimKeyPage() {
                                   isCompleted
                                     ? "bg-emerald-500/20 text-emerald-300"
                                     : isCurrent
-                                    ? "bg-blue-600/20 text-blue-300 border border-blue-500/40"
-                                    : "bg-gray-800 text-gray-500"
+                                    ? "bg-white text-black"
+                                    : "bg-obsidian-750 text-zinc-500"
                                 }`}
                               >
                                 {isCompleted ? <Check className="w-4 h-4" /> : `#${idx + 1}`}
@@ -643,31 +628,30 @@ export default function ClaimKeyPage() {
                                       ? "text-emerald-300"
                                       : isCurrent
                                       ? "text-white"
-                                      : "text-gray-400"
+                                      : "text-zinc-400"
                                   }`}
                                 >
                                   {cp.title}
                                 </h4>
-                                <p className="text-[11px] text-gray-400 truncate">
+                                <p className="text-[11px] text-zinc-400 truncate">
                                   {isCompleted
                                     ? "Checkpoint validated."
                                     : isCurrent && timerRunning
-                                    ? `Please wait ${currentTimer}s on the destination page...`
-                                    : `Visit link and wait ${cp.duration_seconds}s to validate.`}
+                                    ? `Wait ${currentTimer}s on the destination page...`
+                                    : `Visit link and wait ${cp.duration_seconds}s.`}
                                 </p>
                               </div>
                             </div>
 
-                            {/* Action Button / Status */}
                             <div>
                               {isCompleted ? (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 font-semibold text-[11px]">
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 font-mono text-[11px]">
                                   <CheckCircle2 className="w-3.5 h-3.5" />
                                   <span>Done</span>
                                 </span>
                               ) : isCurrent ? (
                                 timerRunning ? (
-                                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-600/20 border border-blue-500/40 text-blue-300 text-xs font-mono">
+                                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-obsidian-750 border border-obsidian-600 text-zinc-200 text-xs font-mono">
                                     <Clock className="w-3.5 h-3.5 animate-spin" />
                                     <span>{currentTimer}s</span>
                                   </div>
@@ -675,25 +659,24 @@ export default function ClaimKeyPage() {
                                   <button
                                     type="button"
                                     onClick={() => handleStartCheckpoint(cp, idx)}
-                                    className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition-all shadow-md flex items-center gap-1.5"
+                                    className="px-3.5 py-1.5 rounded-xl bg-white hover:bg-zinc-200 text-black font-semibold text-xs transition-all flex items-center gap-1.5"
                                   >
                                     <span>Visit Link</span>
                                     <ExternalLink className="w-3 h-3" />
                                   </button>
                                 )
                               ) : (
-                                <span className="text-[11px] text-gray-600 font-mono">
+                                <span className="text-[11px] text-zinc-600 font-mono">
                                   Locked
                                 </span>
                               )}
                             </div>
                           </div>
 
-                          {/* Countdown Progress Bar for active checkpoint */}
                           {isCurrent && timerRunning && currentTimer !== null && (
-                            <div className="mt-3 w-full bg-gray-800 rounded-full h-1.5 overflow-hidden">
+                            <div className="mt-3 w-full bg-obsidian-750 rounded-full h-1 overflow-hidden">
                               <div
-                                className="bg-blue-500 h-1.5 transition-all duration-1000"
+                                className="bg-white h-1 transition-all duration-1000"
                                 style={{
                                   width: `${
                                     ((cp.duration_seconds - currentTimer) /
@@ -710,7 +693,7 @@ export default function ClaimKeyPage() {
                   </div>
                 )}
 
-                {/* Final Claim Key Button */}
+                {/* Final Button */}
                 <button
                   type="button"
                   onClick={handleClaimKey}
@@ -719,14 +702,14 @@ export default function ClaimKeyPage() {
                     (claimMethod === "checkpoints" && !allCheckpointsDone) ||
                     (claimMethod === "discord_oauth" && (!discordJoined || !discordUsername.trim()))
                   }
-                  className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs transition-all shadow-lg shadow-blue-600/25 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  className="w-full py-3 rounded-xl bg-white hover:bg-zinc-200 text-black font-bold text-xs transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-sm"
                 >
                   {loading ? (
-                    <span>Allocating Key from Script Pool...</span>
+                    <span>Allocating key from pool...</span>
                   ) : (claimMethod === "checkpoints" && allCheckpointsDone) ||
                     (claimMethod === "discord_oauth" && discordJoined && discordUsername.trim()) ? (
                     <>
-                      <span>Get My License Key</span>
+                      <span>Generate License Key</span>
                       <ArrowRight className="w-4 h-4" />
                     </>
                   ) : claimMethod === "discord_oauth" ? (
@@ -738,100 +721,95 @@ export default function ClaimKeyPage() {
               </div>
             )}
 
-            {/* =================================================================== */}
-            {/* STAGE 2: KEY CLAIMED SUCCESSFULLY */}
-            {/* =================================================================== */}
+            {/* STAGE 2: CLAIMED */}
             {step === "claimed" && claimedKey && (
               <div className="space-y-4">
                 <div
                   className={`p-4 rounded-xl border text-center ${
                     alreadyClaimed
-                      ? "bg-amber-500/10 border-amber-500/30"
-                      : "bg-emerald-500/10 border-emerald-500/30"
+                      ? "bg-amber-500/5 border-amber-500/20"
+                      : "bg-emerald-500/5 border-emerald-500/20"
                   }`}
                 >
                   {alreadyClaimed ? (
-                    <Key className="w-8 h-8 text-amber-400 mx-auto mb-2 animate-bounce" />
+                    <Key className="w-7 h-7 text-amber-400 mx-auto mb-2" />
                   ) : (
-                    <ShieldCheck className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
+                    <ShieldCheck className="w-7 h-7 text-emerald-400 mx-auto mb-2" />
                   )}
                   <h3 className="text-sm font-bold text-white">
-                    {alreadyClaimed ? "You Have Already Claimed a Key" : "License Key Allocated"}
+                    {alreadyClaimed ? "Existing License Key Retrieved" : "License Key Allocated"}
                   </h3>
-                  <p className="text-[11px] text-gray-300 mt-1">
-                    Bound to IP: <code className="text-blue-300 font-mono">{boundIp || "Your Network IP"}</code>.
-                    {alreadyClaimed &&
-                      " You have already claimed an active license key for this script. If you need another key, join our Discord server."}
+                  <p className="text-xs text-zinc-400 mt-1">
+                    Bound to network IP: <code className="text-zinc-200 font-mono">{boundIp || "Your Network IP"}</code>.
                   </p>
                 </div>
 
                 {targetScript && (
-                  <div className="p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-xs text-blue-300 flex items-center gap-2">
-                    <Lock className="w-3.5 h-3.5 flex-shrink-0" />
+                  <div className="p-3 rounded-xl bg-obsidian-850 border border-obsidian-700 text-xs text-zinc-300 flex items-center gap-2 font-mono">
+                    <Lock className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0" />
                     <span>
-                      Locked to: <strong>{targetScript.name}</strong>. This key cannot be used with other scripts.
+                      Locked to: <strong className="text-white">{targetScript.name}</strong>.
                     </span>
                   </div>
                 )}
 
-                {/* The License Key Box */}
-                <div className="bg-[#0b0d14] border border-gray-800 rounded-xl p-4">
-                  <label className="block text-[11px] font-medium text-gray-400 mb-1.5 uppercase tracking-wider">
-                    Your License Key:
+                {/* Key Box */}
+                <div className="bg-obsidian-850 border border-obsidian-700 rounded-xl p-4 space-y-2">
+                  <label className="block text-[11px] font-mono text-zinc-400 uppercase tracking-wider">
+                    Your License Key
                   </label>
-                  <div className="flex items-center gap-2 bg-[#12141f] border border-gray-700/80 rounded-lg p-2.5">
-                    <span className="font-mono text-sm font-bold text-blue-300 flex-1 select-all truncate">
+                  <div className="flex items-center gap-2 bg-obsidian-950 border border-obsidian-700 rounded-lg p-2.5">
+                    <span className="font-mono text-sm font-bold text-white flex-1 select-all truncate">
                       {claimedKey}
                     </span>
                     <button
                       type="button"
                       onClick={copyKey}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold whitespace-nowrap transition-all"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white text-black hover:bg-zinc-200 text-xs font-semibold whitespace-nowrap transition-all"
                     >
-                      {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                      {copied ? "Copied" : "Copy Key"}
+                      {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copied ? "Copied" : "Copy"}</span>
                     </button>
                   </div>
                 </div>
 
                 {expiresAt ? (
-                  <div className="text-center text-[11px] text-gray-400">
-                    Expires: <span className="text-gray-200 font-mono">{new Date(expiresAt).toLocaleString()}</span>
+                  <div className="text-center text-xs font-mono text-zinc-400">
+                    Expires: <span className="text-white">{new Date(expiresAt).toLocaleString()}</span>
                   </div>
                 ) : (
-                  <div className="text-center text-[11px] text-emerald-400/90 font-medium bg-emerald-500/10 border border-emerald-500/20 py-2 rounded-lg">
-                    <span>✓ Key Saved: Your timer does not start until your first in-game execution.</span>
+                  <div className="text-center text-xs font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 py-2 rounded-xl">
+                    ✓ Key active. Timer initiates on first in-game execution.
                   </div>
                 )}
 
-                {/* Discord Renewal Card */}
-                <div className="p-4 rounded-xl bg-gradient-to-br from-[#121422] to-[#18162b] border border-[#5865F2]/40 space-y-3 shadow-lg shadow-[#5865F2]/10">
+                {/* Discord renewal link */}
+                <div className="p-4 rounded-xl bg-obsidian-850 border border-obsidian-700 space-y-2">
                   <div className="flex items-center gap-2 text-xs font-bold text-white">
-                    <MessageSquare className="w-4 h-4 text-[#5865F2]" />
-                    <span>Need Another Key or Key Renewal?</span>
+                    <MessageSquare className="w-4 h-4 text-indigo-400" />
+                    <span>Need Another Key or HWID Reset?</span>
                   </div>
-                  <p className="text-[11px] text-gray-300 leading-relaxed">
-                    Users can claim one active key per network. If you need another key, want to reset your IP binding, or request a renewal, join our official Discord server below!
+                  <p className="text-xs text-zinc-400 leading-relaxed">
+                    Keys are bound to a single IP address. For IP resets or key extensions, join our Discord server.
                   </p>
                   <a
                     href={discordInvite}
                     target="_blank"
                     rel="noreferrer"
-                    className="w-full py-2.5 px-4 rounded-xl bg-[#5865F2] hover:bg-[#4752C4] text-white font-bold text-xs transition-all flex items-center justify-center gap-2 shadow-md shadow-[#5865F2]/30"
+                    className="w-full py-2 px-3 rounded-xl bg-obsidian-800 hover:bg-obsidian-750 border border-obsidian-700 text-white font-semibold text-xs transition-all flex items-center justify-center gap-2"
                   >
-                    <MessageSquare className="w-4 h-4" />
-                    <span>Join Discord to Get Another Key</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Open Discord Server</span>
+                    <ExternalLink className="w-3.5 h-3.5 text-zinc-400" />
                   </a>
                 </div>
 
-                {/* Usage Instructions */}
-                <div className="p-3.5 rounded-lg bg-gray-900/60 border border-gray-800 text-[11px] text-gray-400 leading-relaxed">
-                  <p className="font-semibold text-gray-200 mb-1">Execution Steps:</p>
-                  <ol className="list-decimal list-inside space-y-0.5">
-                    <li>Launch Roblox and execute your script loadstring.</li>
-                    <li>Paste your key into the Auth Loader and hit <strong>Verify</strong>.</li>
-                    <li>Your session starts and connects to the background telemetry heartbeat.</li>
+                {/* Usage instructions */}
+                <div className="p-3.5 rounded-xl bg-obsidian-850 border border-obsidian-700 text-xs text-zinc-400 leading-relaxed font-mono">
+                  <p className="font-bold text-white mb-1">Execution Steps:</p>
+                  <ol className="list-decimal list-inside space-y-0.5 text-zinc-400">
+                    <li>Execute your script loadstring in Roblox.</li>
+                    <li>Paste your key into the prompt and hit Verify.</li>
+                    <li>Your key caches locally to skip future prompts.</li>
                   </ol>
                 </div>
               </div>

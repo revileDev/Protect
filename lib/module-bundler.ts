@@ -141,6 +141,7 @@ end
 -- Inject __vfs_require into environment
 local env = getfenv and getfenv() or _G
 env.require = __vfs_require
+local require = __vfs_require
 
 -- =======================================================
 -- ENTRY SCRIPT EXECUTION (${entryFile})
