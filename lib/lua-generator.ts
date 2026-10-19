@@ -22,6 +22,10 @@ export interface LoaderConfig {
   discord_invite_url?: string;
   watermark_text?: string;
   show_watermark?: boolean;
+  status_verifying?: string;
+  status_verified?: string;
+  status_expired?: string;
+  status_error?: string;
   layout_positions?: Record<string, { x: number; y: number; w?: number; h?: number }>;
 }
 
@@ -166,6 +170,7 @@ local TweenService = game:GetService("TweenService")
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 if not LocalPlayer then
     _pcall(function()
@@ -394,9 +399,40 @@ MainFrame.Position = UDim2.new(0.5, -${Math.round((config.frame_width || 360) / 
 MainFrame.BackgroundColor3 = Color3.fromRGB(${bg.r}, ${bg.g}, ${bg.b})
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
-MainFrame.Draggable = true
 MainFrame.ClipsDescendants = true
 MainFrame.Parent = ScreenGui
+
+-- Smooth Mouse & Touch Dragging Controller
+local _dragging = false
+local _dragInput, _dragStart, _startPos
+MainFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        _dragging = true
+        _dragStart = input.Position
+        _startPos = MainFrame.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                _dragging = false
+            end
+        end)
+    end
+end)
+MainFrame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        _dragInput = input
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if input == _dragInput and _dragging then
+        local delta = input.Position - _dragStart
+        MainFrame.Position = UDim2.new(
+            _startPos.X.Scale,
+            _startPos.X.Offset + delta.X,
+            _startPos.Y.Scale,
+            _startPos.Y.Offset + delta.Y
+        )
+    end
+end)
 
 local Corner = Instance.new("UICorner")
 Corner.CornerRadius = UDim.new(0, ${config.corner_radius})
@@ -462,7 +498,7 @@ Subtitle.Parent = MainFrame
 -- Key Input Box
 local KeyBox = Instance.new("TextBox")
 KeyBox.Name = "KeyBox"
-KeyBox.Size = UDim2.new(0, ${keyW}, 0, ${keyH})
+KeyBox.Size = UDim2.new(0, ${keyW - 55}, 0, ${keyH})
 KeyBox.Position = UDim2.new(0, ${keyX}, 0, ${keyY})
 KeyBox.BackgroundColor3 = Color3.fromRGB(${card.r}, ${card.g}, ${card.b})
 KeyBox.TextColor3 = Color3.fromRGB(${text.r}, ${text.g}, ${text.b})
@@ -482,6 +518,47 @@ local KeyBoxStroke = Instance.new("UIStroke")
 KeyBoxStroke.Thickness = 1
 KeyBoxStroke.Color = Color3.fromRGB(60, 60, 72)
 KeyBoxStroke.Parent = KeyBox
+
+-- One-Click Paste Button
+local PasteBtn = Instance.new("TextButton")
+PasteBtn.Name = "PasteBtn"
+PasteBtn.Size = UDim2.new(0, 50, 0, ${keyH})
+PasteBtn.Position = UDim2.new(0, ${keyX + keyW - 50}, 0, ${keyY})
+PasteBtn.BackgroundColor3 = Color3.fromRGB(${card.r}, ${card.g}, ${card.b})
+PasteBtn.TextColor3 = Color3.fromRGB(${accent.r}, ${accent.g}, ${accent.b})
+PasteBtn.Text = "PASTE"
+PasteBtn.TextSize = 11
+PasteBtn.Font = boldFont
+PasteBtn.Parent = MainFrame
+
+local PasteCorner = Instance.new("UICorner")
+PasteCorner.CornerRadius = UDim.new(0, 6)
+PasteCorner.Parent = PasteBtn
+
+local PasteStroke = Instance.new("UIStroke")
+PasteStroke.Thickness = 1
+PasteStroke.Color = Color3.fromRGB(${accent.r}, ${accent.g}, ${accent.b})
+PasteStroke.Transparency = 0.6
+PasteStroke.Parent = PasteBtn
+
+PasteBtn.MouseButton1Click:Connect(function()
+    local clip = ""
+    pcall(function()
+        if getclipboard then clip = getclipboard()
+        elseif syn and syn.get_clipboard then clip = syn.get_clipboard()
+        end
+    end)
+    if clip and clip ~= "" then
+        KeyBox.Text = tostring(clip):gsub("^%s*(.-)%s*$", "%1")
+        StatusLabel.TextColor3 = Color3.fromRGB(50, 220, 120)
+        StatusLabel.Text = "Pasted from clipboard!"
+        task.delay(1.5, function() StatusLabel.Text = "" end)
+    else
+        StatusLabel.TextColor3 = Color3.fromRGB(240, 180, 50)
+        StatusLabel.Text = "Clipboard empty."
+        task.delay(1.5, function() StatusLabel.Text = "" end)
+    end
+end)
 
 -- Status/Alert Label
 local StatusLabel = Instance.new("TextLabel")
@@ -601,7 +678,7 @@ ${
     ? `
     -- 1. Create Top Screen Watermark
     local WatermarkGui = Instance.new("ScreenGui")
-    WatermarkGui.Name = "AeroWatermark"
+    WatermarkGui.Name = "AtomProtectWatermark"
     WatermarkGui.ResetOnSpawn = false
     pcall(function()
         if gethui then WatermarkGui.Parent = gethui() else WatermarkGui.Parent = CoreGui end
@@ -609,8 +686,8 @@ ${
     if not WatermarkGui.Parent then WatermarkGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
 
     local WatermarkFrame = Instance.new("Frame")
-    WatermarkFrame.Size = UDim2.new(0, 240, 0, 26)
-    WatermarkFrame.Position = UDim2.new(0.5, -120, 0, 12)
+    WatermarkFrame.Size = UDim2.new(0, 260, 0, 26)
+    WatermarkFrame.Position = UDim2.new(0.5, -130, 0, 12)
     WatermarkFrame.BackgroundColor3 = Color3.fromRGB(${card.r}, ${card.g}, ${card.b})
     WatermarkFrame.BorderSizePixel = 0
     WatermarkFrame.Parent = WatermarkGui
@@ -628,17 +705,44 @@ ${
     local WLabel = Instance.new("TextLabel")
     WLabel.Size = UDim2.new(1, 0, 1, 0)
     WLabel.BackgroundTransparency = 1
-    WLabel.Text = isAdminKey and "★ Staff Review Mode | Untracked" or "${watermarkTitle} | Online: 1"
+    WLabel.Text = isAdminKey and "★ Staff Review Mode | Untracked" or "${watermarkTitle} | 60 FPS | Online: 1"
     WLabel.TextColor3 = isAdminKey and Color3.fromRGB(220, 190, 255) or Color3.fromRGB(${text.r}, ${text.g}, ${text.b})
-    WLabel.TextSize = 11
+    WLabel.TextSize = 10
     WLabel.Font = appFont
     WLabel.Parent = WatermarkFrame
+
+    local _currentOnlineCount = 1
+    local _fps = 60
+    local _ping = 20
+    task.spawn(function()
+        local lastTime = os.clock()
+        local frames = 0
+        RunService.RenderStepped:Connect(function()
+            frames = frames + 1
+            local now = os.clock()
+            if now - lastTime >= 1.0 then
+                _fps = frames
+                frames = 0
+                lastTime = now
+                pcall(function()
+                    local stats = game:GetService("Stats")
+                    local net = stats and stats.Network
+                    if net and net.ServerStatsItem and net.ServerStatsItem["Data Ping"] then
+                        _ping = math.floor(net.ServerStatsItem["Data Ping"]:GetValue())
+                    end
+                end)
+                if WLabel and WLabel.Parent and not isAdminKey then
+                    WLabel.Text = "${watermarkTitle} | " .. tostring(_fps) .. " FPS | " .. tostring(_ping) .. "ms | Online: " .. tostring(_currentOnlineCount)
+                end
+            end
+        end)
+    end)
 `
     : ""
 }
     -- 2. Floating Expiration Countdown Overlay
     local ExpireGui = Instance.new("ScreenGui")
-    ExpireGui.Name = "AeroCountdownOverlay"
+    ExpireGui.Name = "AtomProtectCountdown"
     ExpireGui.ResetOnSpawn = false
     pcall(function() if gethui then ExpireGui.Parent = gethui() else ExpireGui.Parent = CoreGui end end)
     if not ExpireGui.Parent then ExpireGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
@@ -698,9 +802,34 @@ ${
         end
     end
 
-    if initialRemainingSeconds and not isAdminKey then
-        ELabel.Text = "⏳ " .. formatTime(initialRemainingSeconds)
-    end
+    local remainingSeconds = initialRemainingSeconds or 0
+    local isLifetime = (initialRemainingSeconds == nil or initialRemainingSeconds <= 0)
+
+    task.spawn(function()
+        while ExpireFrame and ExpireFrame.Parent do
+            if isAdminKey then
+                ELabel.Text = "★ Staff Access"
+                break
+            elseif isLifetime then
+                ELabel.Text = "★ Lifetime Key"
+                break
+            elseif remainingSeconds > 0 then
+                remainingSeconds = remainingSeconds - 1
+                ELabel.Text = "⏳ " .. formatTime(remainingSeconds)
+                if remainingSeconds < 300 then
+                    EStroke.Color = Color3.fromRGB(240, 70, 70)
+                elseif remainingSeconds < 1800 then
+                    EStroke.Color = Color3.fromRGB(240, 180, 50)
+                else
+                    EStroke.Color = Color3.fromRGB(59, 130, 246)
+                end
+            else
+                ELabel.Text = "⏳ Expired - Click to Renew"
+                EStroke.Color = Color3.fromRGB(240, 70, 70)
+            end
+            task.wait(1.0)
+        end
+    end)
 
     -- 3. Global Sliding Announcement Banner
     local function showGlobalAnnouncement(title, msg, duration)
@@ -932,6 +1061,8 @@ ${
                     Body = HttpService:JSONEncode({
                         session_token = sessionToken,
                         hwid = getHWID(),
+                        roblox_username = LocalPlayer.Name,
+                        roblox_user_id = tostring(LocalPlayer.UserId),
                         place_id = tostring(game.PlaceId),
                         job_id = tostring(game.JobId),
                         tamper_flags = verifyIntegrity(),
@@ -945,20 +1076,11 @@ ${
                 local data = nil
                 pcall(function() data = HttpService:JSONDecode(res.Body) end)
                 if data then
-                    ${
-                      showWatermark
-                        ? `if data.online_count and WLabel then
-                        WLabel.Text = "${watermarkTitle} | Online: " .. tostring(data.online_count)
-                    end`
-                        : ""
-                    }
+                    if data.online_count then
+                        _currentOnlineCount = data.online_count
+                    end
                     if data.remaining_seconds and not isAdminKey then
-                        ELabel.Text = "⏳ " .. formatTime(data.remaining_seconds)
-                        if data.remaining_seconds < 300 then
-                            EStroke.Color = Color3.fromRGB(240, 70, 70)
-                        elseif data.remaining_seconds < 1800 then
-                            EStroke.Color = Color3.fromRGB(240, 180, 50)
-                        end
+                        remainingSeconds = data.remaining_seconds
                     end
                     if data.action == "kick" then
                         safeKick("[${safeBrandName}] " .. (data.reason or "You were kicked by the dashboard administrator."))
@@ -1029,74 +1151,217 @@ ${
 end
 
 -- =======================================================
--- KEY VERIFICATION ACTION
+-- BANNED SCREEN MODAL & APPEAL DISPATCHER
 -- =======================================================
-VerifyBtn.MouseButton1Click:Connect(function()
-    local key = KeyBox.Text:gsub("^%s*(.-)%s*$", "%1")
+local function showBannedScreen(banReason)
+    pcall(function()
+        if ScreenGui then ScreenGui:Destroy() end
+    end)
+
+    local BanGui = Instance.new("ScreenGui")
+    BanGui.Name = "AtomProtectBanned"
+    BanGui.ResetOnSpawn = false
+    pcall(function()
+        if gethui then BanGui.Parent = gethui() else BanGui.Parent = CoreGui end
+    end)
+    if not BanGui.Parent then BanGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+
+    local BFrame = Instance.new("Frame")
+    BFrame.Size = UDim2.new(0, 380, 0, 210)
+    BFrame.Position = UDim2.new(0.5, -190, 0.5, -105)
+    BFrame.BackgroundColor3 = Color3.fromRGB(18, 14, 20)
+    BFrame.BorderSizePixel = 0
+    BFrame.Active = true
+    BFrame.Parent = BanGui
+
+    local BCorner = Instance.new("UICorner")
+    BCorner.CornerRadius = UDim.new(0, 10)
+    BCorner.Parent = BFrame
+
+    local BStroke = Instance.new("UIStroke")
+    BStroke.Color = Color3.fromRGB(240, 70, 70)
+    BStroke.Thickness = 1.5
+    BStroke.Parent = BFrame
+
+    local BTitle = Instance.new("TextLabel")
+    BTitle.Size = UDim2.new(1, -20, 0, 26)
+    BTitle.Position = UDim2.new(0, 10, 0, 14)
+    BTitle.BackgroundTransparency = 1
+    BTitle.Text = "🚫 ACCESS BLACKLISTED"
+    BTitle.TextColor3 = Color3.fromRGB(250, 80, 80)
+    BTitle.TextSize = 14
+    BTitle.Font = boldFont
+    BTitle.Parent = BFrame
+
+    local BSub = Instance.new("TextLabel")
+    BSub.Size = UDim2.new(1, -24, 0, 70)
+    BSub.Position = UDim2.new(0, 12, 0, 44)
+    BSub.BackgroundTransparency = 1
+    BSub.Text = tostring(banReason or "Your IP address or Account has been permanently blacklisted by the script administrator.")
+    BSub.TextColor3 = Color3.fromRGB(215, 215, 225)
+    BSub.TextSize = 11
+    BSub.Font = appFont
+    BSub.TextWrapped = true
+    BSub.Parent = BFrame
+
+    local AppealBtn = Instance.new("TextButton")
+    AppealBtn.Size = UDim2.new(0, 220, 0, 36)
+    AppealBtn.Position = UDim2.new(0.5, -110, 1, -48)
+    AppealBtn.BackgroundColor3 = Color3.fromRGB(88, 101, 242)
+    AppealBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    AppealBtn.Text = "COPY DISCORD APPEAL LINK"
+    AppealBtn.TextSize = 11
+    AppealBtn.Font = boldFont
+    AppealBtn.Parent = BFrame
+
+    local ACorner = Instance.new("UICorner")
+    ACorner.CornerRadius = UDim.new(0, 6)
+    ACorner.Parent = AppealBtn
+
+    AppealBtn.MouseButton1Click:Connect(function()
+        safeSetClipboard(DISCORD_URL)
+        AppealBtn.Text = "✓ APPEAL LINK COPIED!"
+        task.delay(2.0, function() AppealBtn.Text = "COPY DISCORD APPEAL LINK" end)
+    end)
+end
+
+-- =======================================================
+-- KEY VERIFICATION & AUTO-LAUNCH HANDLER
+-- =======================================================
+local function performVerify(rawKey, isSilent)
+    local key = tostring(rawKey or ""):gsub("^%s*(.-)%s*$", "%1")
     if key == "" then
-        StatusLabel.TextColor3 = Color3.fromRGB(240, 80, 80)
-        StatusLabel.Text = "Please enter your key."
-        return
+        if not isSilent then
+            StatusLabel.TextColor3 = Color3.fromRGB(240, 80, 80)
+            StatusLabel.Text = "Please enter your key."
+        end
+        return false
     end
 
-    StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-    StatusLabel.Text = "Verifying key with server..."
+    if not isSilent then
+        StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+        StatusLabel.Text = "${config.status_verifying || "Verifying key with server..."}"
+    end
 
-    task.spawn(function()
-        local verifyUrl = BASE_URL .. "/api/auth/verify"
-        local clientNonce = (HttpService and HttpService.GenerateGUID and HttpService:GenerateGUID(false)) or ("nc_" .. _tostring(os.time()) .. "_" .. _tostring(_math.random(100000, 999999)))
-        local success, response = pcall(function()
-            local currentTamperFlags = detectTampering()
-            return httpRequest({
-                Url = verifyUrl,
-                Method = "POST",
-                Headers = {
-                    ["Content-Type"] = "application/json",
-                    ["User-Agent"] = "Roblox/WinInet"
-                },
-                Body = HttpService:JSONEncode({
-                    key = key,
-                    script_slug = SCRIPT_SLUG,
-                    hwid = getHWID(),
-                    roblox_username = LocalPlayer.Name,
-                    roblox_user_id = tostring(LocalPlayer.UserId),
-                    place_id = tostring(game.PlaceId),
-                    job_id = tostring(game.JobId),
-                    executor = getExecutorName(),
-                    os = getClientOS(),
-                    timestamp = os.time(),
-                    client_nonce = clientNonce,
-                    tamper_flags = currentTamperFlags
-                })
+    local verifyUrl = BASE_URL .. "/api/auth/verify"
+    local clientNonce = (HttpService and HttpService.GenerateGUID and HttpService:GenerateGUID(false)) or ("nc_" .. _tostring(os.time()) .. "_" .. _tostring(_math.random(100000, 999999)))
+    
+    local success, response = pcall(function()
+        local currentTamperFlags = detectTampering()
+        return httpRequest({
+            Url = verifyUrl,
+            Method = "POST",
+            Headers = {
+                ["Content-Type"] = "application/json",
+                ["User-Agent"] = "Roblox/WinInet"
+            },
+            Body = HttpService:JSONEncode({
+                key = key,
+                script_slug = SCRIPT_SLUG,
+                hwid = getHWID(),
+                roblox_username = LocalPlayer.Name,
+                roblox_user_id = tostring(LocalPlayer.UserId),
+                place_id = tostring(game.PlaceId),
+                job_id = tostring(game.JobId),
+                executor = getExecutorName(),
+                os = getClientOS(),
+                timestamp = os.time(),
+                client_nonce = clientNonce,
+                tamper_flags = currentTamperFlags
             })
-        end)
+        })
+    end)
 
-        if not success or not response then
+    if not success or not response then
+        if not isSilent then
             StatusLabel.TextColor3 = Color3.fromRGB(240, 80, 80)
             StatusLabel.Text = "Connection error. Please try again."
-            return
         end
+        return false
+    end
 
-        local data = nil
-        pcall(function() data = HttpService:JSONDecode(response.Body) end)
+    local data = nil
+    pcall(function() data = HttpService:JSONDecode(response.Body) end)
 
-        if response.StatusCode == 200 and data and data.success then
-            local isAdmin = data.is_staff_review or data.is_admin_key
+    if response.StatusCode == 200 and data and data.success then
+        -- Cache key in workspace folder for silent instant subsequent executions
+        pcall(function()
+            if makefolder and not isfolder("AtomProtect") then
+                makefolder("AtomProtect")
+            end
+            if writefile then
+                writefile("AtomProtect/" .. SCRIPT_SLUG .. "_key.txt", key)
+            end
+        end)
+
+        local isAdmin = data.is_staff_review or data.is_admin_key
+        if not isSilent then
             if isAdmin then
                 StatusLabel.TextColor3 = Color3.fromRGB(180, 120, 255)
                 StatusLabel.Text = "★ Admin Review Key Verified! Launching..."
             else
                 StatusLabel.TextColor3 = Color3.fromRGB(50, 220, 120)
-                StatusLabel.Text = "Verified! Launching script..."
+                StatusLabel.Text = "${config.status_verified || "Verified! Launching script..."}"
             end
-            task.wait(0.4)
-            startProtectedRuntime(data.session_token, data, isAdmin, data.remaining_seconds, data.nonce, key)
-        else
-            local err = (data and (data.error or data.message)) or ("Auth failed (HTTP " .. tostring(response.StatusCode) .. ")")
+            task.wait(0.3)
+        end
+
+        startProtectedRuntime(data.session_token, data, isAdmin, data.remaining_seconds, data.nonce, key)
+        return true
+    else
+        local err = (data and (data.error or data.message)) or ("Auth failed (HTTP " .. tostring(response.StatusCode) .. ")")
+        local isBanned = response.StatusCode == 403 and (
+            err:lower():find("banned") or err:lower():find("blacklist") or err:lower():find("denied") or err:lower():find("violation")
+        )
+
+        if isBanned then
+            showBannedScreen(err)
+            return false
+        end
+
+        if not isSilent then
             StatusLabel.TextColor3 = Color3.fromRGB(240, 80, 80)
             StatusLabel.Text = err
         end
+        return false
+    end
+end
+
+-- Wire Verify Button Click
+VerifyBtn.MouseButton1Click:Connect(function()
+    task.spawn(function()
+        performVerify(KeyBox.Text, false)
     end)
+end)
+
+-- Silent Instant Auto-Launch Handshake via Workspace Cache
+task.spawn(function()
+    local cachedKey = nil
+    pcall(function()
+        if isfile and isfile("AtomProtect/" .. SCRIPT_SLUG .. "_key.txt") and readfile then
+            local raw = readfile("AtomProtect/" .. SCRIPT_SLUG .. "_key.txt")
+            if raw then cachedKey = raw:gsub("^%s*(.-)%s*$", "%1") end
+        end
+    end)
+
+    if cachedKey and #cachedKey >= 6 then
+        -- Hide GUI initially to execute 100% silently if valid
+        ScreenGui.Enabled = false
+        local ok = performVerify(cachedKey, true)
+        if not ok then
+            -- Delete invalid or expired cached key and reveal GUI
+            pcall(function()
+                if delfile and isfile("AtomProtect/" .. SCRIPT_SLUG .. "_key.txt") then
+                    delfile("AtomProtect/" .. SCRIPT_SLUG .. "_key.txt")
+                end
+            end)
+            ScreenGui.Enabled = true
+            StatusLabel.TextColor3 = Color3.fromRGB(240, 180, 50)
+            StatusLabel.Text = "${config.status_expired || "Saved key expired. Please enter a key."}"
+        end
+    else
+        ScreenGui.Enabled = true
+    end
 end)
 `;
 }

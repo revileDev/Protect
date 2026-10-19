@@ -22,7 +22,7 @@ export default function Navbar({ scripts, discordUrl = "https://discord.gg/AeCYn
             </div>
             <div className="flex items-center gap-2">
               <span className="font-bold tracking-tight text-white text-sm font-mono">
-                AERO<span className="text-zinc-400">AUTH</span>
+                ATOM<span className="text-zinc-400">PROTECT</span>
               </span>
             </div>
           </Link>
@@ -44,9 +44,6 @@ export default function Navbar({ scripts, discordUrl = "https://discord.gg/AeCYn
           </a>
           <a href="#scripts" className="hover:text-white transition-colors">
             Scripts
-          </a>
-          <a href="#docs" className="hover:text-white transition-colors">
-            Docs & API
           </a>
         </nav>
 

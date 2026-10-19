@@ -18,7 +18,7 @@ export default function DashboardLayout({
               <Shield className="h-4 w-4" />
             </div>
             <div>
-              <span className="font-bold text-sm text-white font-mono">AEROAUTH</span>
+              <span className="font-bold text-sm text-white font-mono">ATOMPROTECT</span>
               <span className="block text-[10px] text-zinc-500 font-mono -mt-0.5">Admin Console</span>
             </div>
           </Link>

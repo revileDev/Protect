@@ -25,7 +25,9 @@ import {
   Layers,
   ArrowRight,
   MessageSquare,
+  RefreshCw,
 } from "lucide-react";
+import { SOCIAL_PLATFORMS, BADGE_PRESETS } from "@/lib/social-platforms";
 
 export default function CheckpointsPage() {
   const [activeTab, setActiveTab] = useState<"checkpoints" | "profile">("checkpoints");
@@ -58,12 +60,24 @@ export default function CheckpointsPage() {
       discord: "https://discord.gg/yourserver",
       youtube: "https://youtube.com/@revile",
       twitter: "https://x.com/revile",
+      x: "https://x.com/revile",
       github: "https://github.com/",
       tiktok: "",
+      cashapp: "",
+      paypal: "",
+      spotify: "",
       roblox: "",
       telegram: "",
     },
+    social_toggles: {},
+    badge_toggles: {},
   });
+
+  // Guns.lol Sync state
+  const [gunsUsername, setGunsUsername] = useState("");
+  const [syncingGuns, setSyncingGuns] = useState(false);
+  const [syncSuccess, setSyncSuccess] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   // New Emblem Inputs
   const [newEmblemLabel, setNewEmblemLabel] = useState("");
@@ -73,6 +87,65 @@ export default function CheckpointsPage() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
+
+  const handleSyncGuns = async () => {
+    if (!gunsUsername.trim()) return;
+    setSyncingGuns(true);
+    setSyncError(null);
+    setSyncSuccess(false);
+    try {
+      const res = await fetch("/api/creator-profile/guns-resolver", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: gunsUsername.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to sync Guns.lol profile.");
+
+      if (data.data) {
+        setProfile((prev) => {
+          const mergedSocials = { ...prev.socials, ...(data.data.socials || {}) };
+          return {
+            ...prev,
+            display_name: data.data.display_name || prev.display_name,
+            bio: data.data.bio || prev.bio,
+            avatar_url: data.data.avatar_url || prev.avatar_url,
+            raw_avatar_url: data.data.raw_avatar_url || prev.raw_avatar_url,
+            socials: mergedSocials,
+          };
+        });
+        setSyncSuccess(true);
+        setTimeout(() => setSyncSuccess(false), 3000);
+      }
+    } catch (err: unknown) {
+      setSyncError(err instanceof Error ? err.message : "Sync failed");
+    } finally {
+      setSyncingGuns(false);
+    }
+  };
+
+  const toggleBadgePreset = (preset: typeof BADGE_PRESETS[0]) => {
+    setProfile((prev) => {
+      const existing = (prev.emblems || []).find((e) => e.label === preset.label);
+      if (existing) {
+        return { ...prev, emblems: (prev.emblems || []).filter((e) => e.label !== preset.label) };
+      }
+      return {
+        ...prev,
+        emblems: [...(prev.emblems || []), { id: crypto.randomUUID(), ...preset }],
+      };
+    });
+  };
+
+  const toggleSocialEnabled = (key: string) => {
+    setProfile((prev) => ({
+      ...prev,
+      social_toggles: {
+        ...(prev.social_toggles || {}),
+        [key]: prev.social_toggles?.[key] === false ? true : false,
+      },
+    }));
+  };
 
   useEffect(() => {
     fetchScripts();
@@ -589,6 +662,36 @@ export default function CheckpointsPage() {
             )}
 
             <div className="space-y-4 text-xs">
+              {/* One-Click Sync from Guns.lol */}
+              <div className="p-3.5 bg-gradient-to-r from-purple-950/40 via-purple-900/20 to-blue-950/40 border border-purple-500/30 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-purple-300 flex items-center gap-1.5 uppercase tracking-wider">
+                    <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                    One-Click Sync from Guns.lol
+                  </span>
+                  {syncSuccess && <span className="text-[10px] text-emerald-400 font-medium font-mono">✓ Profile Synced!</span>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={gunsUsername}
+                    onChange={(e) => setGunsUsername(e.target.value)}
+                    placeholder="guns.lol username or URL (e.g. revile or https://guns.lol/revile)"
+                    className="flex-1 bg-[#0d0f17] border border-gray-700/80 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-purple-500 font-mono"
+                  />
+                  <button
+                    type="button"
+                    disabled={syncingGuns || !gunsUsername.trim()}
+                    onClick={handleSyncGuns}
+                    className="px-3.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-semibold text-xs transition-all flex items-center gap-1.5 shadow-md shadow-purple-600/20"
+                  >
+                    {syncingGuns ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                    <span>{syncingGuns ? "Syncing..." : "Sync from Guns.lol"}</span>
+                  </button>
+                </div>
+                {syncError && <p className="text-[10px] text-rose-400 mt-1">{syncError}</p>}
+              </div>
+
               {/* Avatar URL & Presets */}
               <div>
                 <label className="block text-gray-300 font-semibold mb-1">
@@ -616,7 +719,7 @@ export default function CheckpointsPage() {
                       onClick={() => setProfile((p) => ({ ...p, avatar_url: preset }))}
                       className="w-6 h-6 rounded-full overflow-hidden border border-gray-700 hover:border-purple-500 transition-colors"
                     >
-                      <img src={preset} alt="preset" className="w-full h-full object-cover" />
+                      <img src={preset} alt="preset" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                     </button>
                   ))}
                 </div>
@@ -650,7 +753,7 @@ export default function CheckpointsPage() {
                 />
               </div>
 
-              {/* Emblems & Badges (Guns.lol style) */}
+              {/* Quick Badge Toggles & Custom Emblems */}
               <div className="pt-2 border-t border-gray-800 space-y-3">
                 <div className="flex items-center justify-between">
                   <label className="text-gray-300 font-semibold flex items-center gap-1.5">
@@ -662,8 +765,34 @@ export default function CheckpointsPage() {
                   </span>
                 </div>
 
+                {/* Quick Toggle Presets */}
+                <div className="space-y-1.5">
+                  <span className="text-[10px] text-gray-400 block font-medium">Quick Preset Badges:</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {BADGE_PRESETS.map((bp) => {
+                      const isActive = (profile.emblems || []).some((e) => e.label === bp.label);
+                      return (
+                        <button
+                          key={bp.label}
+                          type="button"
+                          onClick={() => toggleBadgePreset(bp)}
+                          className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border flex items-center gap-1 transition-all ${
+                            isActive
+                              ? "bg-purple-600/20 border-purple-500 text-purple-300 shadow-sm"
+                              : "bg-[#0d0f17] border-gray-800 text-gray-400 hover:text-gray-200 hover:border-gray-700"
+                          }`}
+                        >
+                          {renderEmblemIcon(bp.icon)}
+                          <span>{bp.label}</span>
+                          <span className="text-[9px] font-bold">{isActive ? "✓" : "+"}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {/* Active emblems pills */}
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 pt-1">
                   {(profile.emblems || []).map((emb) => (
                     <div
                       key={emb.id}
@@ -694,7 +823,7 @@ export default function CheckpointsPage() {
                     type="text"
                     value={newEmblemLabel}
                     onChange={(e) => setNewEmblemLabel(e.target.value)}
-                    placeholder="Emblem label (e.g. VIP, Founder)"
+                    placeholder="Custom badge label..."
                     className="col-span-5 bg-[#0d0f17] border border-gray-700/80 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-purple-500"
                   />
 
@@ -733,75 +862,75 @@ export default function CheckpointsPage() {
                 </div>
               </div>
 
-              {/* Socials Section */}
+              {/* 9 Social Platforms Section */}
               <div className="pt-2 border-t border-gray-800 space-y-3">
-                <label className="block text-gray-300 font-semibold">
-                  Social Links
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <span className="text-[10px] text-gray-400 block mb-0.5">Discord Server</span>
-                    <input
-                      type="text"
-                      value={profile.socials.discord || ""}
-                      onChange={(e) =>
-                        setProfile((p) => ({
-                          ...p,
-                          socials: { ...p.socials, discord: e.target.value },
-                        }))
-                      }
-                      placeholder="https://discord.gg/..."
-                      className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-purple-500"
-                    />
-                  </div>
+                <div className="flex items-center justify-between">
+                  <label className="text-gray-300 font-semibold flex items-center gap-1.5">
+                    <Globe className="w-3.5 h-3.5 text-purple-400" />
+                    Social Media Platforms (9 Supported)
+                  </label>
+                  <span className="text-[10px] text-gray-500">Toggle on/off & set custom links</span>
+                </div>
 
-                  <div>
-                    <span className="text-[10px] text-gray-400 block mb-0.5">YouTube</span>
-                    <input
-                      type="text"
-                      value={profile.socials.youtube || ""}
-                      onChange={(e) =>
-                        setProfile((p) => ({
-                          ...p,
-                          socials: { ...p.socials, youtube: e.target.value },
-                        }))
-                      }
-                      placeholder="https://youtube.com/@..."
-                      className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-purple-500"
-                    />
-                  </div>
+                <div className="space-y-2.5">
+                  {SOCIAL_PLATFORMS.map((platform) => {
+                    const isEnabled = profile.social_toggles?.[platform.key] !== false;
+                    const currentValue = (profile.socials as Record<string, string | undefined>)[platform.key] || "";
 
-                  <div>
-                    <span className="text-[10px] text-gray-400 block mb-0.5">Twitter / X</span>
-                    <input
-                      type="text"
-                      value={profile.socials.twitter || ""}
-                      onChange={(e) =>
-                        setProfile((p) => ({
-                          ...p,
-                          socials: { ...p.socials, twitter: e.target.value },
-                        }))
-                      }
-                      placeholder="https://x.com/..."
-                      className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-purple-500"
-                    />
-                  </div>
+                    return (
+                      <div
+                        key={platform.key}
+                        className={`p-2.5 rounded-xl border transition-all ${
+                          isEnabled
+                            ? "bg-[#0d0f17] border-gray-800"
+                            : "bg-[#090b10] border-gray-800/40 opacity-50"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="w-5 h-5 rounded-md flex items-center justify-center text-white"
+                              style={{ backgroundColor: `${platform.color}30`, color: platform.color }}
+                            >
+                              <svg className="w-3 h-3 fill-current" viewBox="0 0 24 24">
+                                <path d={platform.path} />
+                              </svg>
+                            </span>
+                            <span className="text-xs font-semibold text-gray-200">{platform.name}</span>
+                          </div>
 
-                  <div>
-                    <span className="text-[10px] text-gray-400 block mb-0.5">GitHub / Portfolio</span>
-                    <input
-                      type="text"
-                      value={profile.socials.github || ""}
-                      onChange={(e) =>
-                        setProfile((p) => ({
-                          ...p,
-                          socials: { ...p.socials, github: e.target.value },
-                        }))
-                      }
-                      placeholder="https://github.com/..."
-                      className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-purple-500"
-                    />
-                  </div>
+                          <button
+                            type="button"
+                            onClick={() => toggleSocialEnabled(platform.key)}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase transition-colors ${
+                              isEnabled
+                                ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                                : "bg-gray-800 text-gray-500"
+                            }`}
+                          >
+                            {isEnabled ? "Visible" : "Hidden"}
+                          </button>
+                        </div>
+
+                        <input
+                          type="text"
+                          value={currentValue}
+                          disabled={!isEnabled}
+                          onChange={(e) =>
+                            setProfile((p) => ({
+                              ...p,
+                              socials: {
+                                ...p.socials,
+                                [platform.key]: e.target.value,
+                              },
+                            }))
+                          }
+                          placeholder={platform.placeholder}
+                          className="w-full bg-[#12141e] border border-gray-700/70 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-purple-500 font-mono"
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -831,6 +960,7 @@ export default function CheckpointsPage() {
                     src={profile.avatar_url || "https://api.dicebear.com/7.x/bottts/svg?seed=Revile21"}
                     alt="avatar"
                     className="w-full h-full rounded-full object-cover bg-black"
+                    referrerPolicy="no-referrer"
                     onError={(e) => {
                       (e.target as HTMLImageElement).src =
                         "https://api.dicebear.com/7.x/bottts/svg?seed=Revile21";
@@ -871,52 +1001,29 @@ export default function CheckpointsPage() {
                 {profile.bio || "Lead Developer & Script Engineer."}
               </p>
 
-              {/* Social Links Bar */}
-              <div className="flex items-center justify-center gap-2.5">
-                {profile.socials.discord && (
-                  <a
-                    href={profile.socials.discord}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="p-2 rounded-xl bg-gray-800/80 hover:bg-[#5865F2] text-gray-300 hover:text-white transition-all text-xs font-semibold flex items-center gap-1.5 shadow-sm"
-                  >
-                    <MessageSquare className="w-3.5 h-3.5" />
-                    <span>Discord</span>
-                  </a>
-                )}
-                {profile.socials.youtube && (
-                  <a
-                    href={profile.socials.youtube}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="p-2 rounded-xl bg-gray-800/80 hover:bg-red-600 text-gray-300 hover:text-white transition-all text-xs font-semibold flex items-center gap-1.5 shadow-sm"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    <span>YouTube</span>
-                  </a>
-                )}
-                {profile.socials.twitter && (
-                  <a
-                    href={profile.socials.twitter}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="p-2 rounded-xl bg-gray-800/80 hover:bg-blue-500 text-gray-300 hover:text-white transition-all text-xs font-semibold flex items-center gap-1.5 shadow-sm"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    <span>Twitter/X</span>
-                  </a>
-                )}
-                {profile.socials.github && (
-                  <a
-                    href={profile.socials.github}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="p-2 rounded-xl bg-gray-800/80 hover:bg-gray-700 text-gray-300 hover:text-white transition-all text-xs font-semibold flex items-center gap-1.5 shadow-sm"
-                  >
-                    <Link2 className="w-3.5 h-3.5" />
-                    <span>GitHub</span>
-                  </a>
-                )}
+              {/* Branded Social Links Bar */}
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                {SOCIAL_PLATFORMS.map((platform) => {
+                  const isEnabled = profile.social_toggles?.[platform.key] !== false;
+                  const link = (profile.socials as Record<string, string | undefined>)[platform.key];
+                  if (!isEnabled || !link) return null;
+
+                  return (
+                    <a
+                      key={platform.key}
+                      href={link}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-1.5 rounded-xl bg-gray-800/80 hover:brightness-125 text-gray-200 hover:text-white transition-all text-xs font-semibold flex items-center gap-1.5 shadow-sm border border-gray-700/60"
+                      style={{ borderLeftColor: platform.color, borderLeftWidth: "3px" }}
+                    >
+                      <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24" style={{ color: platform.color }}>
+                        <path d={platform.path} />
+                      </svg>
+                      <span>{platform.name}</span>
+                    </a>
+                  );
+                })}
               </div>
 
               {/* Simulated Script Key Claim Badge */}

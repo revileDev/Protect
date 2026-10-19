@@ -29,6 +29,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import type { ExecutionLog, ClientErrorLog } from "@/lib/store";
+import WorldMapTelemetry, { ActivePlayerSession } from "@/components/WorldMapTelemetry";
 
 function RobloxAvatar({
   userId,
@@ -53,9 +54,10 @@ function RobloxAvatar({
     return (
       <div className={`${sizeClass} overflow-hidden bg-[#181a24] border border-gray-700/60 shrink-0 relative shadow-inner flex items-center justify-center`}>
         <img
-          src={`https://www.roblox.com/headshot-thumbnail/image?userId=${userId}&width=150&height=150&format=png`}
+          src={`/api/roblox/avatar?userId=${userId}`}
           alt={username || "Roblox Avatar"}
           className="w-full h-full object-cover"
+          referrerPolicy="no-referrer"
           onError={() => setImgError(true)}
           loading="lazy"
         />
@@ -118,6 +120,8 @@ export default function AnalyticsPage() {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const [activeSessions, setActiveSessions] = useState<ActivePlayerSession[]>([]);
+
   // Tab: Execution Logs vs Client Runtime Errors
   const [activeLogTab, setActiveLogTab] = useState<"audit" | "errors">("audit");
   const [clientErrors, setClientErrors] = useState<ClientErrorLog[]>([]);
@@ -163,6 +167,15 @@ export default function AnalyticsPage() {
       const res = await fetch(`/api/analytics?${params.toString()}`);
       const json = await res.json();
       setData(json);
+
+      // Fetch active sessions for World Map Telemetry
+      fetch("/api/players")
+        .then((r) => r.json())
+        .then((pj) => {
+          if (pj.sessions) setActiveSessions(pj.sessions);
+        })
+        .catch(() => {});
+
       fetchClientErrors(scriptId);
     } catch (err) {
       console.error("Error fetching analytics", err);
@@ -497,6 +510,9 @@ export default function AnalyticsPage() {
           </span>
         </div>
       </div>
+
+      {/* Interactive Global Player Telemetry World Map */}
+      <WorldMapTelemetry sessions={activeSessions} logs={data?.recentLogs || []} />
 
       {/* Activity Timeline Bar Chart */}
       {timeline.length > 0 && (

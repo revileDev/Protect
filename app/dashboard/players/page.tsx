@@ -115,9 +115,10 @@ function RobloxAvatar({
     return (
       <div className={`${sizeClass} overflow-hidden bg-[#181a24] border border-gray-700/60 shrink-0 relative shadow-inner flex items-center justify-center`}>
         <img
-          src={`https://www.roblox.com/headshot-thumbnail/image?userId=${userId}&width=150&height=150&format=png`}
+          src={`/api/roblox/avatar?userId=${userId}`}
           alt={username || "Roblox Avatar"}
           className="w-full h-full object-cover"
+          referrerPolicy="no-referrer"
           onError={() => setImgError(true)}
           loading="lazy"
         />
@@ -153,7 +154,7 @@ export default function PlayersPage() {
 
   // Code injection modal state
   const [codeModal, setCodeModal] = useState<{ sessionId: string; username: string } | null>(null);
-  const [codeText, setCodeText] = useState('print("Aero Auth: Hello from dashboard!")');
+  const [codeText, setCodeText] = useState('print("AtomProtect: Hello from dashboard!")');
 
   // Teleport modal state
   const [teleportModal, setTeleportModal] = useState<{ sessionId: string; username: string; placeId?: string } | null>(null);
@@ -240,29 +241,7 @@ export default function PlayersPage() {
     }
   };
 
-  // Automatic card removal check:
-  // If a player has stopped sending heartbeat pings for > 5s, they become "Disconnected".
-  // After displaying "Disconnected" for 5 seconds, remove their card from the tab.
-  useEffect(() => {
-    const toRemove: string[] = [];
-
-    sessions.forEach((s) => {
-      const lastPingTime = new Date(s.last_heartbeat).getTime();
-      const elapsedPingMs = Math.max(0, now - lastPingTime);
-
-      if (elapsedPingMs >= 5000) {
-        const timeSinceDisconnectSec = Math.floor((elapsedPingMs - 5000) / 1000);
-        // If disconnected for more than 5 seconds, auto-prune card
-        if (timeSinceDisconnectSec >= 5 && !removedSessionIdsRef.current.has(s.id)) {
-          toRemove.push(s.id);
-        }
-      }
-    });
-
-    if (toRemove.length > 0) {
-      toRemove.forEach((id) => handleRemoveCard(id));
-    }
-  }, [now, sessions]);
+  // Let the server-side telemetry debounce (15s timeout with 15s grace period) govern session pruning smoothly.
 
   const handleKick = async (sessionId: string) => {
     if (!confirm("Kick this player off the script? Their in-game script will terminate immediately.")) return;

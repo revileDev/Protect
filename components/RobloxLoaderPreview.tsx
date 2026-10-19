@@ -47,7 +47,7 @@ interface Props {
 export default function RobloxLoaderPreview({
   config,
   claimUrl = "http://localhost:3000/claim",
-  watermarkText = "AERO PROTECT",
+  watermarkText = "AtomProtect",
   showWatermark = true,
   layoutPositions,
   onPositionChange,
@@ -392,7 +392,7 @@ export default function RobloxLoaderPreview({
         {/* Watermark preview */}
         {showWatermark && (
           <div
-            className="hidden sm:flex items-center gap-2 px-3 py-0.5 rounded-full text-[11px] font-medium border"
+            className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-mono font-medium border shadow-sm"
             style={{
               backgroundColor: card,
               borderColor: `${accent}40`,
@@ -400,7 +400,7 @@ export default function RobloxLoaderPreview({
             }}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span>{config.watermark_text || config.brand_name || watermarkText} | Online: 14</span>
+            <span>{config.watermark_text || config.brand_name || watermarkText} | 60 FPS | 18ms | Online: 14</span>
           </div>
         )}
       </div>
@@ -412,6 +412,10 @@ export default function RobloxLoaderPreview({
           if (mode === "design") setSelectedElement(null);
         }}
       >
+        {/* Floating countdown preview badge */}
+        <div className="absolute top-4 left-4 z-20 flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-mono font-bold bg-[#141624]/90 border border-blue-500/50 text-blue-300 shadow-xl backdrop-blur-sm pointer-events-none select-none">
+          <span>⏳ 23:59:45</span>
+        </div>
         {/* Figma Grid Pattern */}
         <div
           className="absolute inset-0 opacity-20 pointer-events-none"
@@ -548,7 +552,7 @@ export default function RobloxLoaderPreview({
               </>
             )}
             <div
-              className="w-full h-full rounded-md border p-1 transition-all flex items-center"
+              className="w-full h-full rounded-md border p-1 transition-all flex items-center gap-1.5"
               style={{
                 backgroundColor: card,
                 borderColor: `${subtext}30`,
@@ -560,11 +564,24 @@ export default function RobloxLoaderPreview({
                 value={testKey}
                 onChange={(e) => setTestKey(e.target.value)}
                 placeholder={config.key_placeholder || "Paste your license key here..."}
-                className={`w-full bg-transparent px-2.5 py-1 text-xs outline-none ${
+                className={`flex-1 bg-transparent px-2.5 py-1 text-xs outline-none ${
                   mode === "design" ? "pointer-events-none select-none" : ""
                 }`}
                 style={{ color: text }}
               />
+              <button
+                type="button"
+                disabled={mode === "design"}
+                onClick={() => setTestKey("ATOM-DEV-7788-9900")}
+                className={`px-2.5 py-1 rounded text-[10px] font-mono font-bold uppercase transition-all shrink-0 ${
+                  mode === "design"
+                    ? "opacity-50 pointer-events-none bg-blue-600/20 text-blue-300"
+                    : "bg-blue-600 hover:bg-blue-500 text-white active:scale-95 shadow-sm"
+                }`}
+                title="Simulate pasting key"
+              >
+                Paste
+              </button>
             </div>
           </div>
 

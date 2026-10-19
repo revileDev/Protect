@@ -37,7 +37,7 @@ export default function LoaderBuilderPage() {
   // Form State
   const [configId, setConfigId] = useState<string>("");
   const [name, setName] = useState("Dark Theme (Default)");
-  const [brandName, setBrandName] = useState("AERO AUTH");
+  const [brandName, setBrandName] = useState("AtomProtect");
   const [title, setTitle] = useState("Key System");
   const [customSubtitle, setCustomSubtitle] = useState("Enter your license key below");
   const [keyPlaceholder, setKeyPlaceholder] = useState("Paste your license key here...");
@@ -47,7 +47,13 @@ export default function LoaderBuilderPage() {
   const [discordButtonText, setDiscordButtonText] = useState("JOIN DISCORD");
   const [discordInviteUrl, setDiscordInviteUrl] = useState("https://discord.gg/yourserver");
   const [showWatermark, setShowWatermark] = useState(true);
-  const [watermarkText, setWatermarkText] = useState("AERO PROTECT");
+  const [watermarkText, setWatermarkText] = useState("AtomProtect");
+
+  // Custom Status Messages
+  const [statusVerifying, setStatusVerifying] = useState("Checking license key...");
+  const [statusVerified, setStatusVerified] = useState("Access Granted! Loading script...");
+  const [statusExpired, setStatusExpired] = useState("License key expired or invalid.");
+  const [statusError, setStatusError] = useState("Verification failed. Check network or key.");
 
   // Colors & Geometry
   const [accentColor, setAccentColor] = useState("#00a2ff");
@@ -152,7 +158,11 @@ export default function LoaderBuilderPage() {
     setDiscordButtonText(cfg.discord_button_text || "JOIN DISCORD");
     setDiscordInviteUrl(cfg.discord_invite_url || "https://discord.gg/yourserver");
     setShowWatermark(cfg.show_watermark !== false);
-    setWatermarkText(cfg.watermark_text || "AERO PROTECT");
+    setWatermarkText(cfg.watermark_text || "AtomProtect");
+    setStatusVerifying(cfg.status_verifying || "Checking license key...");
+    setStatusVerified(cfg.status_verified || "Access Granted! Loading script...");
+    setStatusExpired(cfg.status_expired || "License key expired or invalid.");
+    setStatusError(cfg.status_error || "Verification failed. Check network or key.");
 
     setAccentColor(cfg.accent_color);
     setBackgroundColor(cfg.background_color);
@@ -299,6 +309,10 @@ export default function LoaderBuilderPage() {
           discord_invite_url: discordInviteUrl,
           show_watermark: showWatermark,
           watermark_text: watermarkText,
+          status_verifying: statusVerifying,
+          status_verified: statusVerified,
+          status_expired: statusExpired,
+          status_error: statusError,
           accent_color: accentColor,
           background_color: backgroundColor,
           card_color: cardColor,
@@ -578,6 +592,53 @@ export default function LoaderBuilderPage() {
                 onChange={(e) => setClaimButtonText(e.target.value)}
                 className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-purple-500"
               />
+            </div>
+
+            {/* Custom Status Messages */}
+            <div className="pt-2 border-t border-gray-800 space-y-2.5">
+              <span className="text-[11px] font-bold text-gray-300 block">Verification Status Strings</span>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-[10px] text-gray-400 mb-1">Verifying Message</label>
+                  <input
+                    type="text"
+                    value={statusVerifying}
+                    onChange={(e) => setStatusVerifying(e.target.value)}
+                    placeholder="Checking license key..."
+                    className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-gray-400 mb-1">Success / Verified</label>
+                  <input
+                    type="text"
+                    value={statusVerified}
+                    onChange={(e) => setStatusVerified(e.target.value)}
+                    placeholder="Access Granted! Loading script..."
+                    className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-gray-400 mb-1">Expired Key</label>
+                  <input
+                    type="text"
+                    value={statusExpired}
+                    onChange={(e) => setStatusExpired(e.target.value)}
+                    placeholder="License key expired or invalid."
+                    className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-gray-400 mb-1">Network / Error</label>
+                  <input
+                    type="text"
+                    value={statusError}
+                    onChange={(e) => setStatusError(e.target.value)}
+                    placeholder="Verification failed. Check network or key."
+                    className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-purple-500"
+                  />
+                </div>
+              </div>
             </div>
           </div>
 

@@ -24,7 +24,8 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized. Admin session required." }, { status: 401 });
   }
   const keys = await dbService.getKeys();
-  return NextResponse.json({ keys });
+  const bannedIps = await dbService.getBannedIps();
+  return NextResponse.json({ keys, banned_ips: bannedIps });
 }
 
 export async function POST(req: NextRequest) {

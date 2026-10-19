@@ -25,11 +25,16 @@ import {
   ChevronRight,
 } from "lucide-react";
 import type { CheckpointItem, CreatorProfile, CreatorEmblem } from "@/lib/store";
+import { SOCIAL_PLATFORMS } from "@/lib/social-platforms";
 
 export default function ClaimKeyPage() {
   const [step, setStep] = useState<"verification" | "claimed">("verification");
   const [vpnDetected, setVpnDetected] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // Dynamic IP Reset State
+  const [ipResetting, setIpResetting] = useState(false);
+  const [ipResetStatus, setIpResetStatus] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   // Script and HWID parameters from URL
   const [scriptSlug, setScriptSlug] = useState("");
@@ -74,6 +79,30 @@ export default function ClaimKeyPage() {
   const [discordInvite, setDiscordInvite] = useState("https://discord.gg/AeCYnnQmq5");
   const [discordJoined, setDiscordJoined] = useState(false);
   const [discordUsername, setDiscordUsername] = useState("");
+
+  const handleResetIp = async () => {
+    if (!claimedKey) return;
+    setIpResetting(true);
+    setIpResetStatus(null);
+    try {
+      const res = await fetch("/api/claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reset_ip", key: claimedKey }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to reset IP");
+      setIpResetStatus({ message: data.message || "IP rebound successfully!", type: "success" });
+      if (data.bound_ip) setBoundIp(data.bound_ip);
+    } catch (err: unknown) {
+      setIpResetStatus({
+        message: err instanceof Error ? err.message : "Failed to reset IP",
+        type: "error",
+      });
+    } finally {
+      setIpResetting(false);
+    }
+  };
 
   const checkAlreadyClaimed = async (slugToCheck: string) => {
     try {
@@ -305,20 +334,25 @@ export default function ClaimKeyPage() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full items-start">
           {/* LEFT COLUMN: CREATOR PROFILE CARD */}
           <div className="lg:col-span-5 bg-obsidian-900 border border-obsidian-700 rounded-2xl p-6 sm:p-7 shadow-2xl relative overflow-hidden flex flex-col items-center text-center">
-            {/* Avatar */}
-            <div className="relative mb-3.5">
-              <div className="w-20 h-20 rounded-2xl p-0.5 bg-obsidian-750 border border-obsidian-700 shadow-md">
+            {/* Background ambient lighting */}
+            <div className="absolute -top-16 -left-16 w-48 h-48 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute -bottom-16 -right-16 w-48 h-48 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
+
+            {/* Avatar with Guns.lol glowing ring & pulse */}
+            <div className="relative mb-3.5 group">
+              <div className="w-20 h-20 rounded-full p-1 bg-gradient-to-tr from-purple-500 via-blue-500 to-emerald-400 shadow-xl shadow-purple-500/20">
                 <img
                   src={profile.avatar_url || "https://api.dicebear.com/7.x/bottts/svg?seed=Revile21"}
                   alt="Creator Avatar"
-                  className="w-full h-full rounded-xl object-cover bg-black"
+                  className="w-full h-full rounded-full object-cover bg-black"
+                  referrerPolicy="no-referrer"
                   onError={(e) => {
                     (e.target as HTMLImageElement).src =
                       "https://api.dicebear.com/7.x/bottts/svg?seed=Revile21";
                   }}
                 />
               </div>
-              <span className="absolute bottom-1 right-1 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-obsidian-900" />
+              <span className="absolute bottom-1 right-1 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-obsidian-900 animate-pulse" />
             </div>
 
             {/* Display Name */}
@@ -371,52 +405,29 @@ export default function ClaimKeyPage() {
               </div>
             ) : null}
 
-            {/* Social Buttons */}
+            {/* Branded Social Buttons (All 9 Supported Platforms) */}
             <div className="w-full flex flex-wrap items-center justify-center gap-2 pt-3 border-t border-obsidian-750">
-              {profile.socials.discord && (
-                <a
-                  href={profile.socials.discord}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="px-3 py-1.5 rounded-xl bg-obsidian-800 hover:bg-obsidian-750 border border-obsidian-700 text-zinc-300 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5"
-                >
-                  <MessageSquare className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>Discord</span>
-                </a>
-              )}
-              {profile.socials.youtube && (
-                <a
-                  href={profile.socials.youtube}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="px-3 py-1.5 rounded-xl bg-obsidian-800 hover:bg-obsidian-750 border border-obsidian-700 text-zinc-300 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5"
-                >
-                  <ExternalLink className="w-3.5 h-3.5 text-red-400" />
-                  <span>YouTube</span>
-                </a>
-              )}
-              {profile.socials.twitter && (
-                <a
-                  href={profile.socials.twitter}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="px-3 py-1.5 rounded-xl bg-obsidian-800 hover:bg-obsidian-750 border border-obsidian-700 text-zinc-300 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5"
-                >
-                  <ExternalLink className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Twitter</span>
-                </a>
-              )}
-              {profile.socials.github && (
-                <a
-                  href={profile.socials.github}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="px-3 py-1.5 rounded-xl bg-obsidian-800 hover:bg-obsidian-750 border border-obsidian-700 text-zinc-300 hover:text-white transition-all text-xs font-medium flex items-center gap-1.5"
-                >
-                  <Link2 className="w-3.5 h-3.5 text-zinc-400" />
-                  <span>GitHub</span>
-                </a>
-              )}
+              {SOCIAL_PLATFORMS.map((platform) => {
+                const isEnabled = profile.social_toggles?.[platform.key] !== false;
+                const link = (profile.socials as Record<string, string | undefined>)[platform.key];
+                if (!isEnabled || !link) return null;
+
+                return (
+                  <a
+                    key={platform.key}
+                    href={link}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3 py-1.5 rounded-xl bg-obsidian-800 hover:bg-obsidian-750 border border-obsidian-700 text-zinc-200 hover:text-white transition-all text-xs font-semibold flex items-center gap-1.5 shadow-sm"
+                    style={{ borderLeftColor: platform.color, borderLeftWidth: "3px" }}
+                  >
+                    <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24" style={{ color: platform.color }}>
+                      <path d={platform.path} />
+                    </svg>
+                    <span>{platform.name}</span>
+                  </a>
+                );
+              })}
             </div>
 
             {claimId && (
@@ -782,6 +793,40 @@ export default function ClaimKeyPage() {
                     ✓ Key active. Timer initiates on first in-game execution.
                   </div>
                 )}
+
+                {/* Self-Service Dynamic IP Reset (12h cooldown) */}
+                <div className="p-4 rounded-xl bg-obsidian-850 border border-obsidian-700 space-y-2.5 text-left">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-bold text-white">
+                      <RefreshCw className="w-4 h-4 text-blue-400" />
+                      <span>Dynamic IP Address Reset</span>
+                    </div>
+                    <span className="text-[10px] text-zinc-400 font-mono">12-Hour Cooldown</span>
+                  </div>
+                  <p className="text-xs text-zinc-400 leading-relaxed">
+                    If your ISP dynamic IP changed or you moved networks, click below to rebind this key to your current IP.
+                  </p>
+                  {ipResetStatus && (
+                    <div
+                      className={`p-2 rounded-lg text-xs font-mono ${
+                        ipResetStatus.type === "success"
+                          ? "bg-emerald-500/10 text-emerald-300 border border-emerald-500/30"
+                          : "bg-rose-500/10 text-rose-300 border border-rose-500/30"
+                      }`}
+                    >
+                      {ipResetStatus.message}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    disabled={ipResetting}
+                    onClick={handleResetIp}
+                    className="w-full py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold text-xs transition-all flex items-center justify-center gap-2 shadow-sm"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${ipResetting ? "animate-spin" : ""}`} />
+                    <span>{ipResetting ? "Rebinding Key IP..." : "Rebind Key to Current Network IP"}</span>
+                  </button>
+                </div>
 
                 {/* Discord renewal link */}
                 <div className="p-4 rounded-xl bg-obsidian-850 border border-obsidian-700 space-y-2">

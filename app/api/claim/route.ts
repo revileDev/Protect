@@ -82,6 +82,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ status: "checkpoint_started" });
     }
 
+    // Handle self-service Dynamic IP Reset (12h cooldown)
+    if (action === "reset_ip") {
+      const { key } = body;
+      if (!key || typeof key !== "string" || !key.trim()) {
+        return NextResponse.json({ error: "License key is required to reset IP." }, { status: 400 });
+      }
+      try {
+        const updated = await dbService.resetKeyIp(key.trim(), ip);
+        return NextResponse.json({
+          success: true,
+          message: `License key successfully rebound to your current IP (${ip}).`,
+          bound_ip: updated.claimed_ip,
+        });
+      } catch (resetErr: unknown) {
+        const msg = resetErr instanceof Error ? resetErr.message : "Failed to reset IP";
+        return NextResponse.json({ error: msg }, { status: 400 });
+      }
+    }
+
     const settings = await dbService.getSettings();
 
     // 1. IP Ban check

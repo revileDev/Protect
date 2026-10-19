@@ -40,6 +40,7 @@ function isLifetimePaidKey(k: KeyRecord | null | undefined): boolean {
 export default function KeysPage() {
   const [keys, setKeys] = useState<KeyRecord[]>([]);
   const [scripts, setScripts] = useState<ScriptRecord[]>([]);
+  const [bannedIps, setBannedIps] = useState<Record<string, { reason: string; banned_at: string }>>({});
   const [loading, setLoading] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>("all");
@@ -47,7 +48,7 @@ export default function KeysPage() {
   // Generator modal (Regular batch / Lifetime)
   const [showGenModal, setShowGenModal] = useState(false);
   const [genCount, setGenCount] = useState(1);
-  const [genPrefix, setGenPrefix] = useState("AERO");
+  const [genPrefix, setGenPrefix] = useState("ATOM");
   const [genScriptId, setGenScriptId] = useState("");
   const [genDuration, setGenDuration] = useState<string>("lifetime");
   const [genNotes, setGenNotes] = useState("");
@@ -76,6 +77,7 @@ export default function KeysPage() {
       const res = await fetch("/api/keys");
       const data = await res.json();
       if (data.keys) setKeys(data.keys);
+      if (data.banned_ips) setBannedIps(data.banned_ips);
     } catch (err) {
       console.error(err);
     } finally {
@@ -222,6 +224,25 @@ export default function KeysPage() {
   };
 
   const handleBanIp = async (ip: string) => {
+    const isCurrentlyBanned = Boolean(bannedIps[ip]);
+    if (isCurrentlyBanned) {
+      if (!confirm(`Unban IP ${ip}? Associated keys will remain status as configured.`)) return;
+      try {
+        const res = await fetch("/api/ip-bans", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ip_address: ip }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          fetchKeys();
+        }
+      } catch (err) {
+        console.error(err);
+      }
+      return;
+    }
+
     const reason = prompt(`Enter blacklist reason for IP ${ip}:`, "License Key Abuse / Script Tampering");
     if (!reason) return;
     try {
@@ -232,7 +253,7 @@ export default function KeysPage() {
       });
       const data = await res.json();
       if (data.success) {
-        alert(`IP ${ip} has been permanently blacklisted.`);
+        fetchKeys();
       } else {
         alert(data.error || "Failed to ban IP");
       }
@@ -265,56 +286,60 @@ export default function KeysPage() {
   const renderStatusBadge = (key: KeyRecord) => {
     if (isStaffReviewKey(key)) {
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-purple-500/15 text-purple-300 border border-purple-500/40 shadow-sm shadow-purple-500/10">
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-sm shadow-purple-500/10">
           <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
-          <span>( Staff Review Key )</span>
+          <span>STAFF REVIEW</span>
         </span>
       );
     }
     if (isLifetimePaidKey(key)) {
       if (key.status === "banned") {
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/30 shadow-sm">
-            <span>( Banned Lifetime )</span>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-rose-500/20 text-rose-400 border border-rose-500/40 shadow-sm shadow-rose-500/10">
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+            <span>BANNED LIFETIME</span>
           </span>
         );
       }
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/35 shadow-sm">
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm shadow-emerald-500/10">
           <Sparkles className="w-3 h-3 text-emerald-400" />
-          <span>{key.status === "active" ? "( Active Lifetime )" : "( Paid Lifetime )"}</span>
+          <span>{key.status === "active" ? "ACTIVE LIFETIME" : "PAID LIFETIME"}</span>
         </span>
       );
     }
     switch (key.status) {
       case "unclaimed":
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30 shadow-sm">
-            <span>( Not claimed )</span>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-amber-500/15 text-amber-400 border border-amber-500/30 shadow-sm shadow-amber-500/10">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+            <span>UNCLAIMED</span>
           </span>
         );
       case "claimed":
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/30 shadow-sm">
-            <span>( Claimed not activated )</span>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-blue-500/15 text-blue-400 border border-blue-500/30 shadow-sm shadow-blue-500/10">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+            <span>CLAIMED</span>
           </span>
         );
       case "active":
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shadow-sm">
-            <CheckCircle2 className="w-3 h-3" />
-            <span>( Activated )</span>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm shadow-emerald-500/10">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>ACTIVE</span>
           </span>
         );
       case "banned":
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/30 shadow-sm">
-            <span>( Banned )</span>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-rose-500/20 text-rose-400 border border-rose-500/40 shadow-sm shadow-rose-500/10">
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+            <span>BANNED</span>
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-700 text-gray-300">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-gray-700 text-gray-300">
             {key.status}
           </span>
         );
@@ -525,15 +550,26 @@ export default function KeysPage() {
                             <span>♾️ Infinite (No Lock)</span>
                           </span>
                         ) : k.claimed_ip ? (
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-blue-300">{k.claimed_ip}</span>
+                          <div className="flex items-center gap-2">
+                            <span className={Boolean(bannedIps[k.claimed_ip]) ? "text-rose-400 font-bold line-through" : "text-blue-300"}>
+                              {k.claimed_ip}
+                            </span>
+                            {Boolean(bannedIps[k.claimed_ip]) && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-600 text-white font-mono text-[9px] font-bold tracking-wider shadow-sm">
+                                [BANNED IP]
+                              </span>
+                            )}
                             <button
                               type="button"
                               onClick={() => handleBanIp(k.claimed_ip!)}
-                              className="px-1.5 py-0.5 rounded bg-rose-500/15 hover:bg-rose-500/35 text-rose-300 border border-rose-500/25 text-[10px] font-sans font-medium transition-colors"
-                              title={`Ban IP ${k.claimed_ip}`}
+                              className={`px-2 py-0.5 rounded border text-[10px] font-sans font-semibold transition-colors ${
+                                Boolean(bannedIps[k.claimed_ip])
+                                  ? "bg-amber-500/15 hover:bg-amber-500/35 text-amber-300 border-amber-500/30"
+                                  : "bg-rose-500/15 hover:bg-rose-500/35 text-rose-300 border-rose-500/25"
+                              }`}
+                              title={Boolean(bannedIps[k.claimed_ip]) ? `Unban IP ${k.claimed_ip}` : `Ban IP ${k.claimed_ip}`}
                             >
-                              Ban IP
+                              {Boolean(bannedIps[k.claimed_ip]) ? "Unban IP" : "Ban IP"}
                             </button>
                           </div>
                         ) : isLifetime ? (

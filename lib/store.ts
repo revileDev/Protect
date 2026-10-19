@@ -27,6 +27,10 @@ export interface LoaderConfigRecord {
   discord_invite_url?: string;
   show_watermark?: boolean;
   watermark_text?: string;
+  status_verifying?: string;
+  status_verified?: string;
+  status_expired?: string;
+  status_error?: string;
   logo_url?: string;
   show_logo?: boolean;
   webhook_enabled?: boolean;
@@ -185,16 +189,24 @@ export interface CreatorProfile {
   display_name: string;
   bio: string;
   avatar_url: string;
+  raw_avatar_url?: string;
+  accent_color?: string;
   emblems: CreatorEmblem[];
   socials: {
     discord?: string;
     youtube?: string;
+    x?: string;
     twitter?: string;
     github?: string;
     tiktok?: string;
+    cashapp?: string;
+    paypal?: string;
+    spotify?: string;
     roblox?: string;
     telegram?: string;
   };
+  social_toggles?: Record<string, boolean>;
+  badge_toggles?: Record<string, boolean>;
 }
 
 export interface SystemSettings {
@@ -241,9 +253,9 @@ const DB_FILE = path.join(DB_DIR, "db.json");
 
 const defaultLoaderConfig: LoaderConfigRecord = {
   id: "a0000000-0000-0000-0000-000000000001",
-  name: "Cyberpunk Cyan (Default)",
-  brand_name: "AERO LUA",
-  title: "Script Authentication",
+  name: "AtomProtect Dark (Default)",
+  brand_name: "AtomProtect",
+  title: "Key System",
   accent_color: "#00a2ff",
   background_color: "#16161e",
   card_color: "#21222e",
@@ -254,6 +266,18 @@ const defaultLoaderConfig: LoaderConfigRecord = {
   frame_height: 250,
   font_face: "GothamMedium",
   custom_subtitle: "Enter your license key below",
+  key_placeholder: "Paste your license key here...",
+  verify_button_text: "VERIFY KEY",
+  claim_button_text: "GET KEY (COPY LINK)",
+  show_discord_button: false,
+  discord_button_text: "JOIN DISCORD",
+  discord_invite_url: "https://discord.gg/AeCYnnQmq5",
+  show_watermark: true,
+  watermark_text: "AtomProtect",
+  status_verifying: "Verifying key with server...",
+  status_verified: "Verified! Launching script...",
+  status_expired: "Key expired. Please get a new key.",
+  status_error: "Verification failed. Check your key.",
   webhook_enabled: false,
   webhook_url: "",
   created_at: new Date().toISOString(),
@@ -984,6 +1008,58 @@ export const dbService = {
     return local;
   },
 
+  async resetKeyIp(keyString: string, newIp: string): Promise<KeyRecord> {
+    const cleanKey = keyString.trim();
+    const key = await this.getKeyByString(cleanKey);
+    if (!key) {
+      throw new Error("License key not found.");
+    }
+    if (key.status === "banned") {
+      throw new Error("This license key is banned and cannot be transferred.");
+    }
+    if (await this.isIpBanned(newIp)) {
+      throw new Error("Cannot bind key to blacklisted IP address.");
+    }
+
+    // 12-hour cooldown check via note tag [IP_RESET:<timestamp>]
+    const COOLDOWN_MS = 12 * 60 * 60 * 1000;
+    const match = (key.notes || "").match(/\[IP_RESET:(\d+)\]/);
+    if (match) {
+      const lastReset = Number(match[1]);
+      const elapsed = Date.now() - lastReset;
+      if (elapsed < COOLDOWN_MS) {
+        const remainingHours = Math.ceil((COOLDOWN_MS - elapsed) / (60 * 60 * 1000));
+        throw new Error(`IP reset is on cooldown. You can reset your key IP again in ${remainingHours} hour(s).`);
+      }
+    }
+
+    const normNewIp = normalizeIp(newIp);
+    key.claimed_ip = normNewIp;
+    const cleanNotes = (key.notes || "").replace(/\[IP_RESET:\d+\]/g, "").trim();
+    key.notes = cleanNotes ? `${cleanNotes} [IP_RESET:${Date.now()}]` : `[IP_RESET:${Date.now()}]`;
+
+    const db = readLocalDb();
+    const localIdx = db.keys.findIndex((k) => k.id === key.id);
+    if (localIdx >= 0) db.keys[localIdx] = key;
+    writeLocalDb(db);
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase
+          .from("keys")
+          .update({
+            claimed_ip: key.claimed_ip,
+            notes: key.notes,
+          })
+          .eq("id", key.id);
+      } catch (err) {
+        console.error("Supabase resetKeyIp error:", err);
+      }
+    }
+
+    return key;
+  },
+
   async updateKeyStatus(id: string, status: KeyRecord["status"]) {
     const db = readLocalDb();
     const key = db.keys.find((k) => k.id === id);
@@ -1460,6 +1536,14 @@ export const dbService = {
     const db = readLocalDb();
     const banned_at = new Date().toISOString();
     db.banned_ips[cleanIp] = { reason, banned_at };
+
+    // Cascading IP Ban: automatically set status = "banned" on all keys claimed by or bound to this IP
+    db.keys.forEach((k) => {
+      if (k.claimed_ip && normalizeIp(k.claimed_ip) === cleanIp) {
+        k.status = "banned";
+      }
+    });
+
     db.sessions.forEach((s) => {
       if (s.ip_address && normalizeIp(s.ip_address) === cleanIp) {
         s.status = "kicked";
@@ -1471,6 +1555,7 @@ export const dbService = {
     if (isSupabaseConfigured && supabase) {
       try {
         await supabase.from("banned_ips").upsert({ ip_address: cleanIp, reason, banned_at });
+        await supabase.from("keys").update({ status: "banned" }).eq("claimed_ip", cleanIp);
       } catch (err) {
         console.error("Supabase banIp error:", err);
       }

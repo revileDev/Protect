@@ -19,7 +19,6 @@ import {
 import { dbService } from "@/lib/store";
 import ClaimScriptModal, { ScriptSummary } from "@/components/ClaimScriptModal";
 import InteractiveTelemetryDemo from "@/components/InteractiveTelemetryDemo";
-import DocsSection from "@/components/DocsSection";
 
 export const revalidate = 0;
 
@@ -58,7 +57,7 @@ export default async function HomePage() {
         <div className="relative z-10 max-w-4xl mx-auto text-center space-y-6">
           <div className="inline-flex items-center gap-2 rounded-full border border-obsidian-700 bg-obsidian-850 px-3.5 py-1 text-xs font-mono text-zinc-400 shadow-sm">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>AEROAUTH // SCRIPT ACCESS GATEWAY & TELEMETRY</span>
+            <span>ATOMPROTECT // SCRIPT ACCESS GATEWAY & TELEMETRY</span>
           </div>
 
           <h1 className="text-3xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-tight">
@@ -77,14 +76,6 @@ export default async function HomePage() {
             />
 
             <a
-              href="#docs"
-              className="inline-flex items-center gap-2 rounded-xl border border-obsidian-700 bg-obsidian-850 px-5 py-3 text-xs sm:text-sm font-medium text-zinc-300 hover:text-white hover:bg-obsidian-800 transition-colors"
-            >
-              <FileCode className="w-4 h-4 text-zinc-400" />
-              <span>Explore Docs</span>
-            </a>
-
-            <a
               href={discordUrl}
               target="_blank"
               rel="noreferrer"
@@ -92,6 +83,14 @@ export default async function HomePage() {
             >
               <span>Join Discord</span>
               <ExternalLink className="w-3.5 h-3.5 text-zinc-500" />
+            </a>
+
+            <a
+              href="#scripts"
+              className="inline-flex items-center gap-2 rounded-xl border border-obsidian-700 bg-obsidian-850 px-5 py-3 text-xs sm:text-sm font-medium text-zinc-300 hover:text-white hover:bg-obsidian-800 transition-colors"
+            >
+              <FileCode className="w-4 h-4 text-zinc-400" />
+              <span>Available Scripts</span>
             </a>
           </div>
         </div>
@@ -251,9 +250,6 @@ export default async function HomePage() {
         </section>
       )}
 
-      {/* Interactive Developer Documentation Section */}
-      <DocsSection />
-
       {/* Terms of Service Section */}
       <section className="py-14 px-4 sm:px-6 lg:px-8 border-t border-obsidian-700/80 bg-obsidian-900 mt-auto">
         <div className="max-w-4xl mx-auto space-y-4">
@@ -278,7 +274,7 @@ export default async function HomePage() {
 
       {/* Clean Footer with hidden Admin link */}
       <footer className="py-5 px-6 border-t border-obsidian-800 bg-obsidian-950 flex items-center justify-between text-xs font-mono text-zinc-500">
-        <span>&copy; {new Date().getFullYear()} AeroAuth. All rights reserved.</span>
+        <span>&copy; {new Date().getFullYear()} AtomProtect. All rights reserved.</span>
         <div className="flex items-center gap-4">
           <a
             href={discordUrl}

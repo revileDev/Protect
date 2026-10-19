@@ -11,8 +11,8 @@ export async function GET() {
   const bannedIps = await dbService.getBannedIps();
 
   const now = Date.now();
-  const HEARTBEAT_TIMEOUT_MS = 5000; // After 5 seconds of no heartbeat, user is determined disconnected
-  const DISCONNECT_REMOVAL_GRACE_MS = 5000; // Show "Disconnected" for 5 seconds before removing player card
+  const HEARTBEAT_TIMEOUT_MS = 15000; // 15 seconds heartbeat timeout
+  const DISCONNECT_REMOVAL_GRACE_MS = 15000; // Show "Disconnected" for 15 seconds before omitting player card
 
   const enriched = [];
   const deadSessionIds: string[] = [];
@@ -23,7 +23,7 @@ export async function GET() {
     const startTime = new Date(s.session_started).getTime();
     const pingElapsed = Math.max(0, now - lastPing);
 
-    // After 5 seconds if no heartbeat, determine user is no longer using the script
+    // After 15 seconds if no heartbeat, determine user is disconnected
     const isTimedOut = pingElapsed >= HEARTBEAT_TIMEOUT_MS;
     const isOnline = s.status === "active" && !isTimedOut;
 
@@ -46,7 +46,7 @@ export async function GET() {
       ? "kicked"
       : "disconnected";
 
-    const avatarUrl = s.avatar_url || (s.roblox_user_id ? `https://www.roblox.com/headshot-thumbnail/image?userId=${s.roblox_user_id}&width=150&height=150&format=png` : null);
+    const avatarUrl = s.avatar_url || (s.roblox_user_id ? `/api/roblox/avatar?userId=${s.roblox_user_id}` : null);
 
     enriched.push({
       ...s,

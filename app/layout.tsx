@@ -3,8 +3,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AeroAuth | Lua Script Protection & Access Gateway",
-  description: "Cryptographic IP-locking, in-game loader verification, and 1-second heartbeat telemetry for Roblox script creators.",
+  title: "AtomProtect | Lua Script Protection & Access Gateway",
+  description: "Cryptographic IP-locking, in-game loader verification, and live heartbeat telemetry for Roblox script creators.",
 };
 
 export default function RootLayout({
