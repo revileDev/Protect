@@ -369,19 +369,41 @@ export default function ClaimKeyPage() {
     fetch("/api/scripts")
       .then((r) => r.json())
       .then((data) => {
-        if (Array.isArray(data)) {
-          const activeOnly = data
-            .filter((sc: { is_active?: boolean }) => sc.is_active !== false)
-            .map((sc: { id: string; name: string; slug: string }) => ({
-              id: sc.id,
-              name: sc.name,
-              slug: sc.slug,
-            }));
-          setAvailableScripts(activeOnly);
+        const scriptList = Array.isArray(data) ? data : (data.scripts || []);
+        const activeOnly = scriptList
+          .filter((sc: { is_active?: boolean }) => sc.is_active !== false)
+          .map((sc: { id: string; name: string; slug: string }) => ({
+            id: sc.id,
+            name: sc.name,
+            slug: sc.slug,
+          }));
+        setAvailableScripts(activeOnly);
 
-          if (slug) {
-            const found = activeOnly.find((sc) => sc.slug === slug);
-            if (found) setTargetScript(found);
+        let target: { id: string; name: string; slug: string } | null = null;
+        if (slug) {
+          target =
+            activeOnly.find(
+              (sc: { id: string; name: string; slug: string }) =>
+                sc.slug.toLowerCase() === slug.toLowerCase() ||
+                sc.id === slug ||
+                sc.name.toLowerCase() === slug.toLowerCase()
+            ) || null;
+        }
+        if (!target && activeOnly.length > 0) {
+          target =
+            activeOnly.find(
+              (sc: { id: string; name: string; slug: string }) =>
+                sc.slug === "atomware-hub" || sc.name.toLowerCase().includes("atom")
+            ) ||
+            activeOnly[activeOnly.length - 1] ||
+            null;
+        }
+        if (target) {
+          setTargetScript(target);
+          if (!slug) {
+            setScriptSlug(target.slug);
+            checkAlreadyClaimed(target.slug);
+            initCheckpointSession(target.slug, cid);
           }
         }
       })
@@ -402,12 +424,17 @@ export default function ClaimKeyPage() {
       })
       .then((data) => {
         if (data.profile) setProfile(data.profile);
-        if (data.script) setTargetScript(data.script);
+        if (data.script) {
+          setTargetScript(data.script);
+          if (!slug && data.script.slug) {
+            setScriptSlug(data.script.slug);
+          }
+        }
       })
       .catch(() => {});
 
     // Initialize anti-bypass session
-    initCheckpointSession(slug, cid);
+    initCheckpointSession(slug || "atomware-hub", cid);
   }, []);
 
   // Timer Countdown Handler

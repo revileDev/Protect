@@ -70,12 +70,13 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
-    const { userId } = body;
+    const { userId, reader } = body;
     if (!userId) {
       return NextResponse.json({ success: false, error: "userId is required" }, { status: 400 });
     }
 
-    await dbService.markDevMessagesRead(String(userId));
+    const readerRole = reader === "player" ? "player" : (reader === "all" ? "all" : "admin");
+    await dbService.markDevMessagesRead(String(userId), readerRole);
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error("Error marking messages read:", error);

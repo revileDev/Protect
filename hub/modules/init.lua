@@ -4,7 +4,7 @@
 ======================================================================
   * Key: THEBESTFIXED
   * Discord: https://discord.gg/AeCYnnQmq5
-  * Compiled At: 2026-10-20T19:36:12.456Z
+  * Compiled At: 2026-10-20T23:15:44.935Z
   * Features:
     - Auto Game Detection (700+ Place IDs)
     - Key Auth Prompt Modal with Discord Clipboard Integration
@@ -3655,9 +3655,20 @@ do
             end
 
             --------------------------------------------------------------------------
-            -- 8. LOAD HISTORY & REAL-TIME SYNC
+            -- 8. LOAD HISTORY & REAL-TIME SYNC (Deduplicated with persistent read tracking)
             --------------------------------------------------------------------------
-            local seenMessageIds = {}
+            -- GUI element rendering caches (cleared on tab switch so bubbles re-render properly)
+            local renderedGlobalIds = {}
+            local renderedDevIds = {}
+
+            -- Persistent notification and read sets (NEVER CLEARED across session)
+            -- notifiedMessageIds: messages that have already triggered a sound/toast/badge alert
+            -- readMessageIds: messages that the player has actually seen in-view
+            local notifiedMessageIds = {}
+            local readMessageIds = {}
+
+            local initialGlobalSyncDone = false
+            local initialDevSyncDone = false
 
             local function clearMessagesView()
                 for _, child in ipairs(messagesFrame:GetChildren()) do
@@ -3665,7 +3676,19 @@ do
                         child:Destroy()
                     end
                 end
-                table.clear(seenMessageIds)
+                table.clear(renderedGlobalIds)
+                table.clear(renderedDevIds)
+            end
+
+            local function markDevMessagesReadOnServer()
+                task.spawn(function()
+                    pcall(function()
+                        safeHttpRequest(API_BASE .. "/dms", "PATCH", HttpService:JSONEncode({
+                            userId = tostring(LocalPlayer.UserId),
+                            reader = "player"
+                        }))
+                    end)
+                end)
             end
 
             local function loadGlobalHistory()
@@ -3682,14 +3705,21 @@ do
                             end
                             if parsed.messages then
                                 for _, m in ipairs(parsed.messages) do
-                                    if m.id and not seenMessageIds[m.id] then
-                                        seenMessageIds[m.id] = true
-                                        renderMessageBubble(m, false)
-                                        lastGlobalTimestamp = m.created_at
+                                    if m.id then
+                                        notifiedMessageIds[m.id] = true
+                                        if isOpen and activeTab == "global" then
+                                            readMessageIds[m.id] = true
+                                        end
+                                        if not renderedGlobalIds[m.id] then
+                                            renderedGlobalIds[m.id] = true
+                                            renderMessageBubble(m, false)
+                                            lastGlobalTimestamp = m.created_at
+                                        end
                                     end
                                 end
                                 scrollToBottom()
                             end
+                            initialGlobalSyncDone = true
                         end
                     end
                 end)
@@ -3706,13 +3736,24 @@ do
                         end)
                         if ok and parsed and parsed.messages then
                             for _, m in ipairs(parsed.messages) do
-                                if m.id and not seenMessageIds[m.id] then
-                                    seenMessageIds[m.id] = true
-                                    renderMessageBubble(m, true)
-                                    lastDevTimestamp = m.created_at
+                                if m.id then
+                                    notifiedMessageIds[m.id] = true
+                                    if isOpen and activeTab == "dev" then
+                                        readMessageIds[m.id] = true
+                                    end
+                                    if not renderedDevIds[m.id] then
+                                        renderedDevIds[m.id] = true
+                                        renderMessageBubble(m, true)
+                                        lastDevTimestamp = m.created_at
+                                    end
                                 end
                             end
                             scrollToBottom()
+                            initialDevSyncDone = true
+
+                            if isOpen and activeTab == "dev" then
+                                markDevMessagesReadOnServer()
+                            end
                         end
                     end
                 end)
@@ -3800,10 +3841,22 @@ do
                                 showWarning("Message contains blacklisted words and was blocked.")
                             elseif parsed.message then
                                 local m = parsed.message
-                                if m.id and not seenMessageIds[m.id] then
-                                    seenMessageIds[m.id] = true
-                                    renderMessageBubble(m, activeTab == "dev")
-                                    scrollToBottom()
+                                if m.id then
+                                    notifiedMessageIds[m.id] = true
+                                    readMessageIds[m.id] = true
+                                    if activeTab == "dev" then
+                                        if not renderedDevIds[m.id] then
+                                            renderedDevIds[m.id] = true
+                                            renderMessageBubble(m, true)
+                                            scrollToBottom()
+                                        end
+                                    else
+                                        if not renderedGlobalIds[m.id] then
+                                            renderedGlobalIds[m.id] = true
+                                            renderMessageBubble(m, false)
+                                            scrollToBottom()
+                                        end
+                                    end
                                 end
 
                                 -- Start cooldown visual countdown on the Send button
@@ -3877,21 +3930,43 @@ do
 
                                 if parsed.messages then
                                     local newIncoming = 0
+                                    local isActivelyViewingGlobal = (isOpen and activeTab == "global")
+
                                     for _, m in ipairs(parsed.messages) do
-                                        if m.id and not seenMessageIds[m.id] then
-                                            seenMessageIds[m.id] = true
-                                            lastGlobalTimestamp = m.created_at
-                                            if activeTab == "global" then
+                                        if m.id then
+                                            if activeTab == "global" and not renderedGlobalIds[m.id] then
+                                                renderedGlobalIds[m.id] = true
                                                 renderMessageBubble(m, false)
                                                 scrollToBottom()
                                             end
-                                            if tostring(m.user_id) ~= tostring(LocalPlayer.UserId) then
-                                                newIncoming = newIncoming + 1
+
+                                            lastGlobalTimestamp = m.created_at
+
+                                            local isFromSelf = (tostring(m.user_id) == tostring(LocalPlayer.UserId))
+                                            local alreadyNotified = (notifiedMessageIds[m.id] == true)
+                                            local alreadyRead = (readMessageIds[m.id] == true)
+
+                                            if not initialGlobalSyncDone then
+                                                -- Initial sync: mark as notified without firing alerts for past messages
+                                                notifiedMessageIds[m.id] = true
+                                                if isActivelyViewingGlobal then
+                                                    readMessageIds[m.id] = true
+                                                end
+                                            elseif not isFromSelf and not alreadyNotified and not alreadyRead then
+                                                notifiedMessageIds[m.id] = true
+                                                if isActivelyViewingGlobal then
+                                                    readMessageIds[m.id] = true
+                                                else
+                                                    newIncoming = newIncoming + 1
+                                                end
                                             end
                                         end
                                     end
 
-                                    if newIncoming > 0 and (not isOpen or activeTab ~= "global") then
+                                    initialGlobalSyncDone = true
+
+                                    -- Trigger notification ONLY for genuinely new, unread, unnotified incoming messages
+                                    if newIncoming > 0 and not isActivelyViewingGlobal then
                                         updateBadge(newIncoming)
                                         if isGlobalNotificationsEnabled and not isMasterMuted and NotificationModule then
                                             pcall(function()
@@ -3915,21 +3990,47 @@ do
                             end)
                             if okDm and parsedDm and parsedDm.messages then
                                 local newDevReplies = 0
+                                local isActivelyViewingDev = (isOpen and activeTab == "dev")
+
                                 for _, m in ipairs(parsedDm.messages) do
-                                    if m.id and not seenMessageIds[m.id] then
-                                        seenMessageIds[m.id] = true
-                                        lastDevTimestamp = m.created_at
-                                        if activeTab == "dev" then
+                                    if m.id then
+                                        if activeTab == "dev" and not renderedDevIds[m.id] then
+                                            renderedDevIds[m.id] = true
                                             renderMessageBubble(m, true)
                                             scrollToBottom()
                                         end
-                                        if m.sender_type == "dev" then
-                                            newDevReplies = newDevReplies + 1
+
+                                        lastDevTimestamp = m.created_at
+
+                                        local isDevReply = (m.sender_type == "dev")
+                                        local alreadyNotified = (notifiedMessageIds[m.id] == true)
+                                        local alreadyRead = (readMessageIds[m.id] == true)
+
+                                        if not initialDevSyncDone then
+                                            -- Initial sync: mark as notified without firing alerts for past replies
+                                            notifiedMessageIds[m.id] = true
+                                            if isActivelyViewingDev then
+                                                readMessageIds[m.id] = true
+                                            end
+                                        elseif isDevReply and not alreadyNotified and not alreadyRead then
+                                            notifiedMessageIds[m.id] = true
+                                            if isActivelyViewingDev then
+                                                readMessageIds[m.id] = true
+                                            else
+                                                newDevReplies = newDevReplies + 1
+                                            end
                                         end
                                     end
                                 end
 
-                                if newDevReplies > 0 and (not isOpen or activeTab ~= "dev") then
+                                initialDevSyncDone = true
+
+                                if isActivelyViewingDev and newDevReplies == 0 then
+                                    markDevMessagesReadOnServer()
+                                end
+
+                                -- Trigger notification ONLY for genuinely new, unread developer replies
+                                if newDevReplies > 0 and not isActivelyViewingDev then
                                     updateBadge(newDevReplies)
                                     if isDevNotificationsEnabled and not isMasterMuted and NotificationModule then
                                         pcall(function()

@@ -48,6 +48,16 @@ export async function POST(req: NextRequest) {
         if (script) targetScriptId = script.id;
       }
 
+      if (!targetScriptId) {
+        const allScripts = await dbService.getScripts();
+        const active = allScripts.filter((s) => s.is_active !== false);
+        const preferred =
+          active.find((s) => s.slug === "atomware-hub" || s.name.toLowerCase().includes("atom")) ||
+          active[active.length - 1] ||
+          active[0];
+        if (preferred) targetScriptId = preferred.id;
+      }
+
       const checkpoints = await dbService.getCheckpoints(targetScriptId || undefined);
 
       // If no checkpoints configured, return an internal verification step

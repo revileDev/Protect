@@ -268,7 +268,18 @@ export default function CheckpointsPage() {
     try {
       const res = await fetch("/api/scripts");
       const data = await res.json();
-      if (data.scripts) setScripts(data.scripts);
+      const list = Array.isArray(data) ? data : (data.scripts || []);
+      if (list.length > 0) {
+        setScripts(list);
+        const active = list.filter((s: ScriptRecord) => s.is_active !== false);
+        const preferred =
+          active.find((s: ScriptRecord) => s.slug === "atomware-hub" || s.name.toLowerCase().includes("atom")) ||
+          active[0];
+        if (preferred) {
+          setFilterScript(preferred.id);
+          setCpScriptId(preferred.id);
+        }
+      }
     } catch (err) {
       console.error("Error fetching scripts", err);
     }
@@ -276,7 +287,7 @@ export default function CheckpointsPage() {
 
   const fetchCheckpoints = async () => {
     try {
-      const res = await fetch("/api/checkpoints");
+      const res = await fetch("/api/checkpoints?script_id=all");
       const data = await res.json();
       if (data.checkpoints) setCheckpoints(data.checkpoints);
     } catch (err) {
@@ -436,7 +447,9 @@ export default function CheckpointsPage() {
 
   const filteredCheckpoints = checkpoints.filter((cp) => {
     if (filterScript === "all") return true;
-    return cp.script_id === filterScript || cp.script_id === "all";
+    const targetScriptObj = scripts.find((s) => s.id === filterScript || s.slug === filterScript);
+    const targetId = targetScriptObj ? targetScriptObj.id : filterScript;
+    return cp.script_id === targetId || cp.script_id === "all";
   });
 
   return (

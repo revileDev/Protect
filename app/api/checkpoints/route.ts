@@ -20,6 +20,20 @@ export async function GET(req: NextRequest) {
       targetScript = allScripts.find((s) => s.id === scriptId) || null;
     }
 
+    // Auto-resolve active script if no specific script or target is identified
+    if (!targetScript && (!scriptId || scriptId === "")) {
+      const allScripts = await dbService.getScripts();
+      const active = allScripts.filter((s) => s.is_active !== false);
+      const preferred =
+        active.find((s) => s.slug === "atomware-hub" || s.name.toLowerCase().includes("atom")) ||
+        active[active.length - 1] ||
+        active[0];
+      if (preferred) {
+        targetScript = preferred;
+        scriptId = preferred.id;
+      }
+    }
+
     const checkpoints = await dbService.getCheckpoints(scriptId || undefined);
     const profile = await dbService.getCreatorProfile();
 

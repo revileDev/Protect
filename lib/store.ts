@@ -626,17 +626,39 @@ export const dbService = {
   },
 
   async getScriptBySlug(slug: string): Promise<ScriptRecord | null> {
-    const local = readLocalDb().scripts.find((s) => s.slug === slug) || null;
+    if (!slug) return null;
+    const clean = slug.trim();
+    const normalized = clean.toLowerCase();
+    const local = readLocalDb().scripts.find(
+      (s) => s.slug.toLowerCase() === normalized || s.name.toLowerCase() === normalized || s.id === clean
+    ) || null;
+
     if (isSupabaseConfigured && supabase) {
       try {
-        const { data, error } = await supabase.from("scripts").select("*").eq("slug", slug).maybeSingle();
+        const { data, error } = await supabase.from("scripts").select("*").eq("slug", clean).maybeSingle();
         if (data && !error) {
           return {
             ...local,
             ...data,
-            modules: data.modules || local?.modules || {},
+            modules: typeof data.modules === "string" ? JSON.parse(data.modules) : (data.modules || local?.modules || {}),
             use_auth: data.use_auth ?? local?.use_auth ?? true,
             loader_config_id: data.loader_config_id || local?.loader_config_id || null,
+          };
+        }
+
+        // Case-insensitive / slug or name or ID lookup
+        const { data: list } = await supabase
+          .from("scripts")
+          .select("*")
+          .or(`slug.ilike.${normalized},name.ilike.${normalized},id.eq.${clean}`);
+        if (list && list.length > 0) {
+          const matched = list[0];
+          return {
+            ...local,
+            ...matched,
+            modules: typeof matched.modules === "string" ? JSON.parse(matched.modules) : (matched.modules || local?.modules || {}),
+            use_auth: matched.use_auth ?? local?.use_auth ?? true,
+            loader_config_id: matched.loader_config_id || local?.loader_config_id || null,
           };
         }
       } catch (err) {
@@ -2334,10 +2356,26 @@ export const dbService = {
   // Checkpoints Management
   async getCheckpoints(scriptId?: string): Promise<CheckpointItem[]> {
     const all = await this.getAllCheckpoints();
-    return all.filter((cp) => {
-      if (!scriptId || scriptId === "all") return true;
-      return cp.script_id === scriptId || cp.script_id === "all" || !cp.script_id;
-    });
+    if (scriptId === "all") {
+      return all;
+    }
+    if (scriptId) {
+      return all.filter((cp) => cp.script_id === scriptId || cp.script_id === "all" || !cp.script_id);
+    }
+
+    // If no scriptId provided, resolve the active project to prevent leaking checkpoints from other projects
+    const scripts = await this.getScripts();
+    const active = scripts.filter((s) => s.is_active !== false);
+    const preferred =
+      active.find((s) => s.slug === "atomware-hub" || s.name.toLowerCase().includes("atom")) ||
+      active[active.length - 1] ||
+      active[0];
+
+    if (preferred) {
+      return all.filter((cp) => cp.script_id === preferred.id || cp.script_id === "all" || !cp.script_id);
+    }
+
+    return all.filter((cp) => cp.script_id === "all" || !cp.script_id);
   },
 
   async getAllCheckpoints(): Promise<CheckpointItem[]> {
@@ -3011,7 +3049,7 @@ export const dbService = {
         : `/api/roblox/avatar?username=${encodeURIComponent(msg.username || "")}`),
       sender_type: msg.sender_type,
       message: rawText,
-      read: isDev, // dev's own message is already read
+      read: false, // unread until the recipient (admin or player) reads it
       created_at: new Date().toISOString(),
     };
 
@@ -3031,12 +3069,13 @@ export const dbService = {
     return { success: true, data: record };
   },
 
-  async markDevMessagesRead(userId: string): Promise<boolean> {
+  async markDevMessagesRead(userId: string, reader: "admin" | "player" | "all" = "admin"): Promise<boolean> {
     const uid = String(userId);
+    const targetSender = reader === "admin" ? "user" : (reader === "player" ? "dev" : null);
     const db = readLocalDb();
     if (db.dev_messages) {
       for (const m of db.dev_messages) {
-        if (String(m.user_id) === uid && m.sender_type === "user") {
+        if (String(m.user_id) === uid && (!targetSender || m.sender_type === targetSender)) {
           m.read = true;
         }
       }
@@ -3045,11 +3084,11 @@ export const dbService = {
 
     if (isSupabaseConfigured && supabase) {
       try {
-        await supabase
-          .from("dev_messages")
-          .update({ read: true })
-          .eq("user_id", uid)
-          .eq("sender_type", "user");
+        let query = supabase.from("dev_messages").update({ read: true }).eq("user_id", uid);
+        if (targetSender) {
+          query = query.eq("sender_type", targetSender);
+        }
+        await query;
       } catch {
         // fallback
       }

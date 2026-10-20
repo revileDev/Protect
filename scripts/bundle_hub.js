@@ -90,6 +90,11 @@ ${indent(mod8, 8)}
 end
 `;
 
-const outputPath = path.join(modulesDir, "init.lua");
-fs.writeFileSync(outputPath, header, "utf8");
-console.log("Successfully generated:", outputPath, "Size:", header.length, "bytes");
+const outputPath1 = path.join(modulesDir, "init.lua");
+const outputPath2 = path.join(__dirname, "..", "hub", "init.lua");
+const outputPath3 = path.join(__dirname, "..", "hub", "build", "atomware_hub.bundle.lua");
+
+fs.writeFileSync(outputPath1, header, "utf8");
+fs.writeFileSync(outputPath2, header, "utf8");
+fs.writeFileSync(outputPath3, header, "utf8");
+console.log("Successfully generated bundles at:\n", outputPath1, "\n", outputPath2, "\n", outputPath3, "\nSize:", header.length, "bytes");
