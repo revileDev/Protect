@@ -1,62 +1,86 @@
 #!/usr/bin/env python3
 r"""
 AtomWare Giant Hub Compiler
-Parses all 418 game txt files from C:\Users\Revil\Documents\New folder
-and compiles them into an optimized Lua database: hub/games_database.lua
+Parses game txt files from:
+- Primary / Newest: C:\Users\Revil\Documents\New folder\New folder
+- Base: C:\Users\Revil\Documents\New folder
+and compiles them into an optimized Lua database: hub/modules/games_database.lua
 """
 
 import os
 import re
 import glob
 
-SOURCE_DIR = r"C:\Users\Revil\Documents\New folder"
+DIR_BASE = r"C:\Users\Revil\Documents\New folder"
+DIR_NEW = r"C:\Users\Revil\Documents\New folder\New folder"
 
 _parent = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if os.path.exists(os.path.join(_parent, "init.lua")):
-    OUTPUT_FILE = os.path.join(_parent, "games_database.lua")
-else:
-    OUTPUT_FILE = os.path.join(_parent, "hub", "games_database.lua")
+OUTPUT_FILE = os.path.join(_parent, "hub", "modules", "games_database.lua")
 
 def escape_lua_string(s: str) -> str:
     """Escapes string safely for Lua double-quoted literal."""
-    return s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '')
+    s = s.replace('\\', '\\\\')
+    s = s.replace('"', '\\"')
+    s = s.replace('\n', '\\n')
+    s = s.replace('\r', '')
+    return s
+
+def parse_game_file(fpath):
+    with open(fpath, "r", encoding="utf-8", errors="replace") as fh:
+        content = fh.read()
+
+    m_game = re.search(r"# Game:\s*(.+)", content)
+    m_pid = re.search(r"# Place(?:/Game)? ID:\s*(\d+)", content)
+    m_load = re.search(r"Loadstring:\s*\n([^\n]+)", content)
+    m_title = re.search(r"Title:\s*(.+)", content)
+
+    if m_pid and m_load:
+        game_name = m_game.group(1).strip() if m_game else os.path.basename(fpath)[:-4]
+        place_id = int(m_pid.group(1).strip())
+        loadstring = m_load.group(1).strip()
+        title = m_title.group(1).strip() if m_title else "Script"
+
+        return {
+            "place_id": place_id,
+            "name": game_name,
+            "title": title,
+            "loadstring": loadstring,
+            "file": fpath
+        }
+    return None
 
 def main():
-    files = glob.glob(os.path.join(SOURCE_DIR, "*.txt"))
-    print(f"Compiling from {len(files)} game files in: {SOURCE_DIR}")
+    games_map = {}
 
-    games = []
-    seen_ids = set()
+    # 1. Load base folder if exists
+    if os.path.exists(DIR_BASE):
+        base_files = glob.glob(os.path.join(DIR_BASE, "*.txt"))
+        print(f"Reading base directory: {len(base_files)} files in {DIR_BASE}")
+        for f in base_files:
+            g = parse_game_file(f)
+            if g:
+                games_map[g["place_id"]] = g
 
-    for fpath in files:
-        with open(fpath, "r", encoding="utf-8", errors="replace") as fh:
-            content = fh.read()
+    # 2. Load new folder (takes precedence, updates existing games & adds new ones)
+    if os.path.exists(DIR_NEW):
+        new_files = glob.glob(os.path.join(DIR_NEW, "*.txt"))
+        print(f"Reading new directory: {len(new_files)} files in {DIR_NEW}")
+        updated_count = 0
+        added_count = 0
+        for f in new_files:
+            g = parse_game_file(f)
+            if g:
+                if g["place_id"] in games_map:
+                    updated_count += 1
+                else:
+                    added_count += 1
+                games_map[g["place_id"]] = g
+        print(f"-> From New folder: {updated_count} existing games updated, {added_count} new games added.")
 
-        m_game = re.search(r"# Game:\s*(.+)", content)
-        m_pid = re.search(r"# Place(?:/Game)? ID:\s*(\d+)", content)
-        m_load = re.search(r"Loadstring:\s*\n([^\n]+)", content)
-        m_title = re.search(r"Title:\s*(.+)", content)
-
-        if m_game and m_pid and m_load:
-            game_name = m_game.group(1).strip()
-            place_id = int(m_pid.group(1).strip())
-            loadstring = m_load.group(1).strip()
-            title = m_title.group(1).strip() if m_title else "Script"
-
-            if place_id in seen_ids:
-                continue
-            seen_ids.add(place_id)
-
-            games.append({
-                "place_id": place_id,
-                "name": game_name,
-                "title": title,
-                "loadstring": loadstring
-            })
-
+    games = list(games_map.values())
     # Sort games alphabetically by name
     games.sort(key=lambda x: x["name"].lower())
-    print(f"Successfully processed {len(games)} unique games.")
+    print(f"Total compiled games: {len(games)} unique Roblox games.")
 
     # Generate Lua Code
     lines = [
@@ -93,6 +117,7 @@ def main():
 
     # Add helper search and query methods
     lines.extend([
+        "",
         "--// Helper Methods",
         "function GamesDatabase:GetAll()",
         "    return self.List",
@@ -136,10 +161,11 @@ def main():
         "return GamesDatabase"
     ])
 
+    os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
     with open(OUTPUT_FILE, "w", encoding="utf-8") as out:
         out.write("\n".join(lines))
 
-    print(f"Generated {OUTPUT_FILE} ({os.path.getsize(OUTPUT_FILE)} bytes).")
+    print(f"Generated {OUTPUT_FILE} ({os.path.getsize(OUTPUT_FILE):,} bytes).")
 
 if __name__ == "__main__":
     main()
