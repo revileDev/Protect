@@ -456,3 +456,45 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
     NULL;
 END $$;
+
+-- ----------------------------------------------------------------------------
+-- 15. Banned HWIDs (Device Hardware Lockout)
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.banned_hwids (
+    hwid TEXT PRIMARY KEY,
+    ip_address TEXT,
+    reason TEXT NOT NULL DEFAULT 'Bypass attempts exceeded threshold (3x)',
+    banned_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+CREATE INDEX IF NOT EXISTS idx_banned_hwids_banned_at ON public.banned_hwids(banned_at DESC);
+
+-- ----------------------------------------------------------------------------
+-- 16. Checkpoint Bypass Attempts Telemetry
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.bypass_attempts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    ip_address TEXT NOT NULL,
+    hwid TEXT,
+    script_id TEXT,
+    step_index INTEGER,
+    reason TEXT NOT NULL,
+    metadata JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+CREATE INDEX IF NOT EXISTS idx_bypass_attempts_ip ON public.bypass_attempts(ip_address);
+CREATE INDEX IF NOT EXISTS idx_bypass_attempts_hwid ON public.bypass_attempts(hwid);
+CREATE INDEX IF NOT EXISTS idx_bypass_attempts_created_at ON public.bypass_attempts(created_at DESC);
+
+ALTER TABLE public.banned_hwids ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.bypass_attempts ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+    DROP POLICY IF EXISTS "Public full access on banned_hwids" ON public.banned_hwids;
+    CREATE POLICY "Public full access on banned_hwids" ON public.banned_hwids FOR ALL USING (true) WITH CHECK (true);
+
+    DROP POLICY IF EXISTS "Public full access on bypass_attempts" ON public.bypass_attempts;
+    CREATE POLICY "Public full access on bypass_attempts" ON public.bypass_attempts FOR ALL USING (true) WITH CHECK (true);
+EXCEPTION WHEN OTHERS THEN
+    NULL;
+END $$;

@@ -270,6 +270,17 @@ export interface DevMessage {
   created_at: string;
 }
 
+export interface BypassAttemptRecord {
+  id: string;
+  ip_address: string;
+  hwid?: string | null;
+  script_id?: string | null;
+  step_index?: number;
+  reason: string;
+  metadata?: Record<string, any>;
+  created_at: string;
+}
+
 interface LocalDatabase {
   loader_configs: LoaderConfigRecord[];
   scripts: ScriptRecord[];
@@ -280,6 +291,8 @@ interface LocalDatabase {
   checkpoints: CheckpointItem[];
   creator_profile: CreatorProfile;
   banned_ips: Record<string, { reason: string; banned_at: string }>;
+  banned_hwids?: Record<string, { reason: string; banned_at: string; ip_address?: string }>;
+  bypass_attempts?: BypassAttemptRecord[];
   settings: SystemSettings;
   staff_reviews: StaffReviewRecord[];
   global_announcements: GlobalAnnouncement[];
@@ -367,6 +380,8 @@ const initialDb: LocalDatabase = {
   checkpoints: defaultCheckpoints,
   creator_profile: defaultCreatorProfile,
   banned_ips: {},
+  banned_hwids: {},
+  bypass_attempts: [],
   settings: {
     claim_method: "checkpoints",
     checkpoint_delay_seconds: 5,
@@ -413,6 +428,8 @@ function readLocalDb(): LocalDatabase {
       chatroom_messages: data.chatroom_messages || [],
       chatroom_blacklist: data.chatroom_blacklist || [],
       dev_messages: data.dev_messages || [],
+      banned_hwids: data.banned_hwids || {},
+      bypass_attempts: data.bypass_attempts || [],
     };
     inMemoryDbCache = parsed;
     return parsed;
@@ -1769,6 +1786,213 @@ export const dbService = {
       }
     }
     return local;
+  },
+
+  // HWID Bans & Checkpoint Bypass Lockouts
+  async isHwidBanned(hwid: string): Promise<boolean> {
+    const cleanHwid = (hwid || "").trim();
+    if (!cleanHwid) return false;
+    const db = readLocalDb();
+    if (db.banned_hwids && Boolean(db.banned_hwids[cleanHwid])) return true;
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data } = await supabase.from("banned_hwids").select("hwid").eq("hwid", cleanHwid).maybeSingle();
+        if (data) return true;
+      } catch (err) {
+        console.error("Supabase isHwidBanned error:", err);
+      }
+    }
+    return false;
+  },
+
+  async banHwid(hwid: string, ip?: string, reason: string = "Checkpoint Bypass Lockout (3 attempts reached)") {
+    const cleanHwid = (hwid || "").trim();
+    if (!cleanHwid) return;
+    const db = readLocalDb();
+    if (!db.banned_hwids) db.banned_hwids = {};
+    const banned_at = new Date().toISOString();
+    db.banned_hwids[cleanHwid] = { reason, banned_at, ip_address: ip };
+
+    // Kick any active sessions matching this HWID
+    db.sessions.forEach((s) => {
+      if (s.hwid && s.hwid.trim() === cleanHwid) {
+        s.status = "kicked";
+        s.pending_commands.push({ id: crypto.randomUUID(), type: "kick", reason: "Device HWID has been locked out." });
+      }
+    });
+
+    writeLocalDb(db);
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase.from("banned_hwids").upsert({
+          hwid: cleanHwid,
+          ip_address: ip || null,
+          reason,
+          banned_at,
+        });
+      } catch (err) {
+        console.error("Supabase banHwid error:", err);
+      }
+    }
+  },
+
+  async unbanHwid(hwid: string) {
+    const cleanHwid = (hwid || "").trim();
+    const db = readLocalDb();
+    if (db.banned_hwids) {
+      delete db.banned_hwids[cleanHwid];
+      writeLocalDb(db);
+    }
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase.from("banned_hwids").delete().eq("hwid", cleanHwid);
+      } catch (err) {
+        console.error("Supabase unbanHwid error:", err);
+      }
+    }
+  },
+
+  async getBannedHwids(): Promise<Record<string, { reason: string; banned_at: string; ip_address?: string }>> {
+    const local = readLocalDb().banned_hwids || {};
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase.from("banned_hwids").select("*");
+        if (data && !error) {
+          const map: Record<string, { reason: string; banned_at: string; ip_address?: string }> = { ...local };
+          data.forEach((row) => {
+            map[row.hwid] = { reason: row.reason, banned_at: row.banned_at, ip_address: row.ip_address };
+          });
+          return map;
+        }
+      } catch (err) {
+        console.error("Supabase getBannedHwids error:", err);
+      }
+    }
+    return local;
+  },
+
+  // Record a detected bypass attempt and enforce 3-strikes auto-lockout
+  async recordBypassAttempt(
+    ip: string,
+    hwid?: string | null,
+    scriptId?: string | null,
+    reason: string = "Checkpoint Bypass Attempt",
+    stepIndex?: number
+  ): Promise<{ lockedOut: boolean; attemptCount: number; bannedIps: string[]; bannedHwids: string[] }> {
+    const cleanIp = normalizeIp(ip);
+    const cleanHwid = (hwid || "").trim();
+    const db = readLocalDb();
+    if (!db.bypass_attempts) db.bypass_attempts = [];
+
+    const attempt: BypassAttemptRecord = {
+      id: crypto.randomUUID(),
+      ip_address: cleanIp,
+      hwid: cleanHwid || null,
+      script_id: scriptId || null,
+      step_index: stepIndex,
+      reason,
+      created_at: new Date().toISOString(),
+    };
+
+    db.bypass_attempts.unshift(attempt);
+    if (db.bypass_attempts.length > 1000) {
+      db.bypass_attempts = db.bypass_attempts.slice(0, 1000);
+    }
+    writeLocalDb(db);
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase.from("bypass_attempts").insert({
+          id: attempt.id,
+          ip_address: cleanIp,
+          hwid: cleanHwid || null,
+          script_id: scriptId || null,
+          step_index: stepIndex,
+          reason,
+          created_at: attempt.created_at,
+        });
+      } catch (err) {
+        console.error("Supabase recordBypassAttempt error:", err);
+      }
+    }
+
+    // Count attempts for this IP or HWID
+    const matchingAttempts = db.bypass_attempts.filter((a) => {
+      const matchIp = a.ip_address === cleanIp;
+      const matchHwid = Boolean(cleanHwid && a.hwid && a.hwid.trim() === cleanHwid);
+      return matchIp || matchHwid;
+    });
+
+    const attemptCount = matchingAttempts.length;
+    const bannedIps: string[] = [];
+    const bannedHwids: string[] = [];
+
+    // Auto-lockout rule: 3 or more attempts locks out IP and HWID permanently
+    if (attemptCount >= 3) {
+      const lockoutReason = `Automated Security Lockout: 3 bypass attempts recorded on checkpoint claim (Latest: ${reason})`;
+      if (cleanIp && cleanIp !== "127.0.0.1") {
+        await this.banIp(cleanIp, lockoutReason);
+        bannedIps.push(cleanIp);
+      }
+      if (cleanHwid) {
+        await this.banHwid(cleanHwid, cleanIp, lockoutReason);
+        bannedHwids.push(cleanHwid);
+      }
+      return { lockedOut: true, attemptCount, bannedIps, bannedHwids };
+    }
+
+    return { lockedOut: false, attemptCount, bannedIps, bannedHwids };
+  },
+
+  async getBypassAttempts(): Promise<BypassAttemptRecord[]> {
+    const local = readLocalDb().bypass_attempts || [];
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from("bypass_attempts")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(200);
+        if (data && !error) {
+          return data as BypassAttemptRecord[];
+        }
+      } catch (err) {
+        console.error("Supabase getBypassAttempts error:", err);
+      }
+    }
+    return local;
+  },
+
+  async clearBypassAttempts(filter?: { ip?: string; hwid?: string }): Promise<void> {
+    const db = readLocalDb();
+    if (!filter || (!filter.ip && !filter.hwid)) {
+      db.bypass_attempts = [];
+    } else {
+      const cleanIp = filter.ip ? normalizeIp(filter.ip) : null;
+      const cleanHwid = filter.hwid ? filter.hwid.trim() : null;
+      db.bypass_attempts = (db.bypass_attempts || []).filter((a) => {
+        if (cleanIp && a.ip_address === cleanIp) return false;
+        if (cleanHwid && a.hwid && a.hwid.trim() === cleanHwid) return false;
+        return true;
+      });
+    }
+    writeLocalDb(db);
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        if (!filter || (!filter.ip && !filter.hwid)) {
+          await supabase.from("bypass_attempts").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+        } else {
+          let query = supabase.from("bypass_attempts").delete();
+          if (filter.ip) query = query.eq("ip_address", normalizeIp(filter.ip));
+          if (filter.hwid) query = query.eq("hwid", filter.hwid.trim());
+          await query;
+        }
+      } catch (err) {
+        console.error("Supabase clearBypassAttempts error:", err);
+      }
+    }
   },
 
   // Settings

@@ -26,14 +26,40 @@ import {
   ArrowRight,
   MessageSquare,
   RefreshCw,
+  ShieldAlert,
+  Search,
+  Unlock,
+  Ban,
+  ShieldCheck,
 } from "lucide-react";
 import { SOCIAL_PLATFORMS, BADGE_PRESETS } from "@/lib/social-platforms";
 
 export default function CheckpointsPage() {
-  const [activeTab, setActiveTab] = useState<"checkpoints" | "profile">("checkpoints");
+  const [activeTab, setActiveTab] = useState<"checkpoints" | "profile" | "bypass_attempts">("checkpoints");
   const [scripts, setScripts] = useState<ScriptRecord[]>([]);
   const [checkpoints, setCheckpoints] = useState<CheckpointItem[]>([]);
   const [filterScript, setFilterScript] = useState<string>("all");
+
+  // Bypass & Lockout State
+  const [bypassAttempts, setBypassAttempts] = useState<Array<{
+    id: string;
+    ip_address: string;
+    hwid?: string | null;
+    script_id?: string | null;
+    step_index?: number;
+    reason: string;
+    created_at: string;
+  }>>([]);
+  const [lockedIps, setLockedIps] = useState<Array<{ ip: string; reason: string; banned_at: string; attemptCount: number }>>([]);
+  const [lockedHwids, setLockedHwids] = useState<Array<{ hwid: string; ip?: string | null; reason: string; banned_at: string; attemptCount: number }>>([]);
+  const [bypassSummary, setBypassSummary] = useState({
+    total_attempts: 0,
+    total_locked_ips: 0,
+    total_locked_hwids: 0,
+    lockout_threshold: 3,
+  });
+  const [loadingBypass, setLoadingBypass] = useState(false);
+  const [bypassSearch, setBypassSearch] = useState("");
 
   // Checkpoint Form State
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -151,7 +177,92 @@ export default function CheckpointsPage() {
     fetchScripts();
     fetchCheckpoints();
     fetchProfile();
+    fetchBypassData();
   }, []);
+
+  const fetchBypassData = async () => {
+    setLoadingBypass(true);
+    try {
+      const res = await fetch("/api/checkpoints/bypass-attempts");
+      const data = await res.json();
+      if (data.success) {
+        setBypassAttempts(data.attempts || []);
+        setLockedIps(data.locked_ips || []);
+        setLockedHwids(data.locked_hwids || []);
+        if (data.summary) setBypassSummary(data.summary);
+      }
+    } catch (err) {
+      console.error("Error fetching bypass data", err);
+    } finally {
+      setLoadingBypass(false);
+    }
+  };
+
+  const handleUnlockIp = async (ip: string) => {
+    try {
+      await fetch("/api/checkpoints/bypass-attempts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "unban_ip", ip }),
+      });
+      fetchBypassData();
+    } catch (err) {
+      console.error("Error unlocking IP", err);
+    }
+  };
+
+  const handleUnlockHwid = async (hwid: string) => {
+    try {
+      await fetch("/api/checkpoints/bypass-attempts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "unban_hwid", hwid }),
+      });
+      fetchBypassData();
+    } catch (err) {
+      console.error("Error unlocking HWID", err);
+    }
+  };
+
+  const handleLockoutIp = async (ip: string) => {
+    try {
+      await fetch("/api/checkpoints/bypass-attempts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "ban_ip", ip, reason: "Manual Lockout from Admin Dashboard" }),
+      });
+      fetchBypassData();
+    } catch (err) {
+      console.error("Error locking IP", err);
+    }
+  };
+
+  const handleLockoutHwid = async (hwid: string) => {
+    try {
+      await fetch("/api/checkpoints/bypass-attempts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "ban_hwid", hwid, reason: "Manual Lockout from Admin Dashboard" }),
+      });
+      fetchBypassData();
+    } catch (err) {
+      console.error("Error locking HWID", err);
+    }
+  };
+
+  const handleClearBypassLogs = async () => {
+    if (!confirm("Are you sure you want to clear all bypass logs?")) return;
+    try {
+      await fetch("/api/checkpoints/bypass-attempts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clear_attempts" }),
+      });
+      fetchBypassData();
+    } catch (err) {
+      console.error("Error clearing bypass logs", err);
+    }
+  };
 
   const fetchScripts = async () => {
     try {
@@ -367,6 +478,26 @@ export default function CheckpointsPage() {
           >
             <User className="w-3.5 h-3.5" />
             <span>guns.lol Profile</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("bypass_attempts");
+              fetchBypassData();
+            }}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all relative ${
+              activeTab === "bypass_attempts"
+                ? "bg-rose-600 text-white shadow-sm"
+                : "text-gray-400 hover:text-white"
+            }`}
+          >
+            <ShieldAlert className="w-3.5 h-3.5" />
+            <span>Bypass Shield & Lockouts</span>
+            {bypassSummary.total_attempts > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-rose-500/30 text-rose-300 border border-rose-500/40">
+                {bypassSummary.total_attempts}
+              </span>
+            )}
           </button>
         </div>
       </div>
@@ -1034,6 +1165,308 @@ export default function CheckpointsPage() {
                 </span>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 3: BYPASS SHIELD LOGS & LOCKOUTS */}
+      {/* ========================================================================= */}
+      {activeTab === "bypass_attempts" && (
+        <div className="space-y-6">
+          {/* Top Banner & Refresh */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl bg-gradient-to-r from-rose-950/40 via-[#12141e] to-rose-950/20 border border-rose-500/30">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+                <ShieldAlert className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <span>Anti-Bypass Telemetry & Auto-Lockout Engine</span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    3-Strike Rule Active
+                  </span>
+                </h3>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Monitors real-time checkpoint dwell time anomalies, bot skips, and token tampering. Users exceeding 3 bypass attempts are automatically and permanently locked out from key claims across their IP and HWID.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={fetchBypassData}
+                disabled={loadingBypass}
+                className="px-3 py-1.5 rounded-lg bg-[#181a24] hover:bg-[#202330] border border-gray-700 text-xs font-semibold text-zinc-200 hover:text-white flex items-center gap-1.5 transition-all"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingBypass ? "animate-spin" : ""}`} />
+                <span>Refresh Feed</span>
+              </button>
+              {bypassAttempts.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleClearBypassLogs}
+                  className="px-3 py-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 border border-rose-500/40 text-xs font-semibold text-rose-300 hover:text-rose-100 flex items-center gap-1.5 transition-all"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Clear Logs</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Metrics Overview Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="p-4 rounded-xl bg-[#12141e] border border-gray-800 shadow-lg">
+              <div className="flex items-center justify-between text-zinc-400 text-xs mb-1 font-mono">
+                <span>Bypass Attempts Caught</span>
+                <ShieldAlert className="w-4 h-4 text-rose-400" />
+              </div>
+              <div className="text-2xl font-bold text-white font-mono">
+                {bypassSummary.total_attempts}
+              </div>
+              <p className="text-[11px] text-zinc-500 mt-1">Real-time checkpoint anomalies blocked</p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-[#12141e] border border-gray-800 shadow-lg">
+              <div className="flex items-center justify-between text-zinc-400 text-xs mb-1 font-mono">
+                <span>Permanently Locked Users</span>
+                <Skull className="w-4 h-4 text-rose-400" />
+              </div>
+              <div className="text-2xl font-bold text-rose-400 font-mono">
+                {bypassSummary.total_locked_ips + bypassSummary.total_locked_hwids}
+              </div>
+              <p className="text-[11px] text-zinc-500 mt-1">
+                {bypassSummary.total_locked_ips} IPs • {bypassSummary.total_locked_hwids} HWIDs
+              </p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-[#12141e] border border-gray-800 shadow-lg">
+              <div className="flex items-center justify-between text-zinc-400 text-xs mb-1 font-mono">
+                <span>Auto-Lockout Threshold</span>
+                <Zap className="w-4 h-4 text-amber-400" />
+              </div>
+              <div className="text-2xl font-bold text-amber-400 font-mono">
+                3 Attempts
+              </div>
+              <p className="text-[11px] text-zinc-500 mt-1">Triggers immediate IP & HWID ban</p>
+            </div>
+          </div>
+
+          {/* Permanent Lockouts Table (IPs & HWIDs) */}
+          <div className="bg-[#12141e] border border-gray-800 rounded-xl p-5 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Skull className="w-4 h-4 text-rose-400" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+                  Active Lockouts (Blacklisted from Key Claim)
+                </h3>
+              </div>
+              <span className="text-[11px] font-mono text-zinc-400">
+                {lockedIps.length + lockedHwids.length} Locked
+              </span>
+            </div>
+
+            {lockedIps.length === 0 && lockedHwids.length === 0 ? (
+              <div className="text-center py-6 text-zinc-500 text-xs font-mono">
+                ✓ No active lockouts. All legitimate claimants are clear.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs font-mono">
+                  <thead>
+                    <tr className="border-b border-gray-800/80 text-zinc-400 text-[11px]">
+                      <th className="py-2.5 px-3">Type</th>
+                      <th className="py-2.5 px-3">Identifier (IP / HWID)</th>
+                      <th className="py-2.5 px-3">Lockout Reason</th>
+                      <th className="py-2.5 px-3">Date Locked</th>
+                      <th className="py-2.5 px-3 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-800/40">
+                    {lockedIps.map((item) => (
+                      <tr key={item.ip} className="hover:bg-white/[0.02] transition-colors">
+                        <td className="py-2.5 px-3">
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold">
+                            IP LOCK
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-white font-bold">{item.ip}</td>
+                        <td className="py-2.5 px-3 text-zinc-300 max-w-xs truncate">{item.reason}</td>
+                        <td className="py-2.5 px-3 text-zinc-400">{new Date(item.banned_at).toLocaleString()}</td>
+                        <td className="py-2.5 px-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleUnlockIp(item.ip)}
+                            className="px-2.5 py-1 rounded bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-500/30 text-emerald-300 text-[11px] font-semibold transition-all inline-flex items-center gap-1"
+                          >
+                            <Unlock className="w-3 h-3" />
+                            <span>Unlock IP</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {lockedHwids.map((item) => (
+                      <tr key={item.hwid} className="hover:bg-white/[0.02] transition-colors">
+                        <td className="py-2.5 px-3">
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-purple-500/10 text-purple-400 border border-purple-500/20 font-bold">
+                            HWID LOCK
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-white font-bold truncate max-w-xs">{item.hwid}</td>
+                        <td className="py-2.5 px-3 text-zinc-300 max-w-xs truncate">{item.reason}</td>
+                        <td className="py-2.5 px-3 text-zinc-400">{new Date(item.banned_at).toLocaleString()}</td>
+                        <td className="py-2.5 px-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleUnlockHwid(item.hwid)}
+                            className="px-2.5 py-1 rounded bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-500/30 text-emerald-300 text-[11px] font-semibold transition-all inline-flex items-center gap-1"
+                          >
+                            <Unlock className="w-3 h-3" />
+                            <span>Unlock HWID</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Real-time Bypass Attempts Feed */}
+          <div className="bg-[#12141e] border border-gray-800 rounded-xl p-5 shadow-xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-800 pb-3">
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-amber-400" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+                  Live Bypass Attempts Feed ({bypassAttempts.length})
+                </h3>
+              </div>
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={bypassSearch}
+                  onChange={(e) => setBypassSearch(e.target.value)}
+                  placeholder="Filter by IP, HWID, reason..."
+                  className="bg-[#0e1017] border border-gray-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 font-mono outline-none focus:border-zinc-500 w-64"
+                />
+              </div>
+            </div>
+
+            {bypassAttempts.length === 0 ? (
+              <div className="text-center py-10 text-zinc-500 text-xs font-mono">
+                <ShieldCheck className="w-8 h-8 mx-auto mb-2 text-emerald-500/50" />
+                <p>No bypass attempts detected yet.</p>
+                <p className="text-[11px] text-zinc-600 mt-1">Whenever a user or bot attempts skipping checkpoints, it will automatically record and alert here.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs font-mono">
+                  <thead>
+                    <tr className="border-b border-gray-800/80 text-zinc-400 text-[11px]">
+                      <th className="py-2.5 px-3">Timestamp</th>
+                      <th className="py-2.5 px-3">IP Address</th>
+                      <th className="py-2.5 px-3">HWID</th>
+                      <th className="py-2.5 px-3">Violation Reason</th>
+                      <th className="py-2.5 px-3">Attempt Status</th>
+                      <th className="py-2.5 px-3 text-right">Quick Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-800/40">
+                    {bypassAttempts
+                      .filter((a) => {
+                        if (!bypassSearch.trim()) return true;
+                        const s = bypassSearch.toLowerCase();
+                        return (
+                          a.ip_address.toLowerCase().includes(s) ||
+                          (a.hwid && a.hwid.toLowerCase().includes(s)) ||
+                          a.reason.toLowerCase().includes(s)
+                        );
+                      })
+                      .map((attempt) => {
+                        const isIpBanned = lockedIps.some((l) => l.ip === attempt.ip_address);
+                        const isHwidBanned = Boolean(attempt.hwid && lockedHwids.some((l) => l.hwid === attempt.hwid));
+
+                        return (
+                          <tr key={attempt.id} className="hover:bg-white/[0.02] transition-colors">
+                            <td className="py-2.5 px-3 text-zinc-400 whitespace-nowrap">
+                              {new Date(attempt.created_at).toLocaleTimeString()} • {new Date(attempt.created_at).toLocaleDateString()}
+                            </td>
+                            <td className="py-2.5 px-3 font-bold text-white">
+                              <span className="flex items-center gap-1.5">
+                                <span>{attempt.ip_address}</span>
+                                {isIpBanned && (
+                                  <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                    BANNED
+                                  </span>
+                                )}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-zinc-300 max-w-xs truncate">
+                              {attempt.hwid ? (
+                                <span className="flex items-center gap-1.5">
+                                  <span>{attempt.hwid.slice(0, 16)}...</span>
+                                  {isHwidBanned && (
+                                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                      BANNED
+                                    </span>
+                                  )}
+                                </span>
+                              ) : (
+                                <span className="text-zinc-600">—</span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-rose-300 max-w-sm leading-snug">
+                              {attempt.reason}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              {isIpBanned || isHwidBanned ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950/60 text-rose-300 border border-rose-500/40">
+                                  <Skull className="w-3 h-3" />
+                                  <span>LOCKED OUT</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950/60 text-amber-300 border border-amber-500/40">
+                                  <AlertCircle className="w-3 h-3" />
+                                  <span>Bypass Recorded</span>
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-right">
+                              <div className="inline-flex items-center gap-1.5">
+                                {!isIpBanned && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleLockoutIp(attempt.ip_address)}
+                                    className="px-2 py-1 rounded bg-rose-950/40 hover:bg-rose-900/60 border border-rose-500/30 text-rose-300 text-[10px] font-semibold transition-all flex items-center gap-1"
+                                    title="Manually Lock Out IP"
+                                  >
+                                    <Ban className="w-2.5 h-2.5" />
+                                    <span>Lock IP</span>
+                                  </button>
+                                )}
+                                {attempt.hwid && !isHwidBanned && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleLockoutHwid(attempt.hwid!)}
+                                    className="px-2 py-1 rounded bg-purple-950/40 hover:bg-purple-900/60 border border-purple-500/30 text-purple-300 text-[10px] font-semibold transition-all flex items-center gap-1"
+                                    title="Manually Lock Out HWID"
+                                  >
+                                    <Ban className="w-2.5 h-2.5" />
+                                    <span>Lock HWID</span>
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}

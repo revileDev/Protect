@@ -12,11 +12,28 @@ export async function POST(req: NextRequest) {
     const userAgent = req.headers.get("user-agent") || "";
     const body = await req.json();
     const { action } = body;
+    const hwid = (body.hwid || body.claim_id || "").trim();
 
     // 1. IP Ban check
     if (await dbService.isIpBanned(ip)) {
       return NextResponse.json(
-        { success: false, error: "Access Denied: Your IP is banned from claiming keys." },
+        {
+          success: false,
+          error: "Access Denied: Your IP is locked out from claiming keys due to bypass attempts.",
+          locked_out: true,
+        },
+        { status: 403 }
+      );
+    }
+
+    // 2. HWID Ban check
+    if (hwid && (await dbService.isHwidBanned(hwid))) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Access Denied: Your device (HWID) is locked out from claiming keys due to bypass attempts.",
+          locked_out: true,
+        },
         { status: 403 }
       );
     }
@@ -90,7 +107,7 @@ export async function POST(req: NextRequest) {
 
     // ACTION: VERIFY STEP (Enforces temporal dwell time and Proof-of-Work)
     if (action === "verify_step") {
-      const { activeStepToken, stepToken, powSolution, powNonce } = body;
+      const { activeStepToken, stepToken, powSolution, powNonce, stepIndex, script_id } = body;
       const targetToken = activeStepToken || stepToken;
 
       if (!targetToken || typeof targetToken !== "string") {
@@ -108,12 +125,44 @@ export async function POST(req: NextRequest) {
       );
 
       if (!result.success) {
+        // Record bypass attempt if intentional bypass or tampering detected
+        let lockoutInfo = { lockedOut: false, attemptCount: 0 };
+        if (result.bypassDetected) {
+          lockoutInfo = await dbService.recordBypassAttempt(
+            ip,
+            hwid || null,
+            script_id || null,
+            result.error || "Task dwell time or PoW challenge anomaly",
+            typeof stepIndex === "number" ? stepIndex : undefined
+          );
+        }
+
+        if (lockoutInfo.lockedOut) {
+          return NextResponse.json(
+            {
+              success: false,
+              bypassDetected: true,
+              locked_out: true,
+              attemptCount: lockoutInfo.attemptCount,
+              error:
+                "Access Denied: You have been permanently locked out (3/3 bypass attempts). Your IP and HWID are blocked.",
+            },
+            { status: 403 }
+          );
+        }
+
+        const warningMsg =
+          lockoutInfo.attemptCount > 0
+            ? `${result.error || "Verification failed."} (Warning: Attempt ${lockoutInfo.attemptCount}/3 — 3 attempts results in permanent lockout)`
+            : result.error || "Verification failed.";
+
         return NextResponse.json(
           {
             success: false,
-            error: result.error,
+            error: warningMsg,
             bypassDetected: result.bypassDetected,
             remainingSeconds: result.remainingSeconds,
+            attemptCount: lockoutInfo.attemptCount,
           },
           { status: result.bypassDetected ? 403 : 400 }
         );

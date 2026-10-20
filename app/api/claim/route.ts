@@ -103,11 +103,20 @@ export async function POST(req: NextRequest) {
     }
 
     const settings = await dbService.getSettings();
+    const hwid = (body.hwid || body.claim_id || "").trim();
 
     // 1. IP Ban check
     if (await dbService.isIpBanned(ip)) {
       return NextResponse.json(
-        { error: "Access Denied: Your IP is banned from claiming keys." },
+        { error: "Access Denied: Your IP is locked out from claiming keys due to bypass attempts." },
+        { status: 403 }
+      );
+    }
+
+    // 1b. HWID Ban check
+    if (hwid && (await dbService.isHwidBanned(hwid))) {
+      return NextResponse.json(
+        { error: "Access Denied: Your device (HWID) is locked out from claiming keys due to bypass attempts." },
         { status: 403 }
       );
     }
@@ -145,10 +154,29 @@ export async function POST(req: NextRequest) {
       // Enforce strict Anti-Bypass checkpoint verification token
       const { session_id, claim_token } = body;
       if (!session_id || !claim_token) {
+        const lockout = await dbService.recordBypassAttempt(
+          ip,
+          hwid || null,
+          targetScriptId,
+          "Direct claim attempt without completing checkpoints"
+        );
+
+        if (lockout.lockedOut) {
+          return NextResponse.json(
+            {
+              error: "Access Denied: You have been permanently locked out (3/3 bypass attempts). Your IP and HWID are blocked.",
+              bypass_blocked: true,
+              locked_out: true,
+            },
+            { status: 403 }
+          );
+        }
+
         return NextResponse.json(
           {
-            error: "Access Denied: Valid checkpoint verification token is required. Bypassing checkpoints is not permitted.",
+            error: `Access Denied: Valid checkpoint verification token is required. Bypassing checkpoints is not permitted. (Warning: Attempt ${lockout.attemptCount}/3 - 3 attempts triggers permanent lockout)`,
             bypass_blocked: true,
+            attemptCount: lockout.attemptCount,
           },
           { status: 403 }
         );
@@ -162,10 +190,29 @@ export async function POST(req: NextRequest) {
       );
 
       if (!claimValidation.valid) {
+        const lockout = await dbService.recordBypassAttempt(
+          ip,
+          hwid || null,
+          targetScriptId,
+          claimValidation.error || "Invalid checkpoint authorization token"
+        );
+
+        if (lockout.lockedOut) {
+          return NextResponse.json(
+            {
+              error: "Access Denied: You have been permanently locked out (3/3 bypass attempts). Your IP and HWID are blocked.",
+              bypass_blocked: true,
+              locked_out: true,
+            },
+            { status: 403 }
+          );
+        }
+
         return NextResponse.json(
           {
-            error: claimValidation.error || "Checkpoint authorization failed. Please complete all checkpoints legitimately.",
+            error: `${claimValidation.error || "Checkpoint authorization failed."} (Warning: Attempt ${lockout.attemptCount}/3 - 3 attempts triggers permanent lockout)`,
             bypass_blocked: true,
+            attemptCount: lockout.attemptCount,
           },
           { status: 403 }
         );

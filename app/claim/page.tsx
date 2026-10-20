@@ -247,6 +247,7 @@ export default function ClaimKeyPage() {
   const [alreadyClaimed, setAlreadyClaimed] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isLockedOut, setIsLockedOut] = useState(false);
 
   const [claimMethod, setClaimMethod] = useState<"checkpoints" | "discord_oauth">("checkpoints");
   const [discordInvite, setDiscordInvite] = useState("https://discord.gg/AeCYnnQmq5");
@@ -300,17 +301,24 @@ export default function ClaimKeyPage() {
   };
 
   // Initialize anti-bypass checkpoint session with server clock
-  const initCheckpointSession = async (slug: string) => {
+  const initCheckpointSession = async (slug: string, hwidParam?: string) => {
     try {
+      const activeHwid = hwidParam || claimId;
       const res = await fetch("/api/checkpoints/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "start",
           script_slug: slug,
+          hwid: activeHwid,
         }),
       });
       const data = await res.json();
+      if (data.locked_out) {
+        setIsLockedOut(true);
+        setError(data.error || "Access Denied: Your IP or device (HWID) is locked out from claiming keys.");
+        return;
+      }
       if (data.success) {
         setSessionId(data.sessionId);
         setPowChallenge(data.powChallenge);
@@ -399,7 +407,7 @@ export default function ClaimKeyPage() {
       .catch(() => {});
 
     // Initialize anti-bypass session
-    initCheckpointSession(slug);
+    initCheckpointSession(slug, cid);
   }, []);
 
   // Timer Countdown Handler
@@ -492,12 +500,20 @@ export default function ClaimKeyPage() {
           activeStepToken: currentStepToken,
           powSolution,
           powNonce: powChallenge?.nonce || "",
+          hwid: claimId,
+          stepIndex: activeCpIndex,
+          script_id: targetScript?.id,
         }),
       });
 
       const data = await res.json();
 
       if (!res.ok || !data.success) {
+        if (data.locked_out) {
+          setIsLockedOut(true);
+          setError(data.error || "Access Denied: You have been locked out due to multiple bypass attempts.");
+          return;
+        }
         if (data.remainingSeconds) {
           setError(
             data.error ||
@@ -564,6 +580,7 @@ export default function ClaimKeyPage() {
         body: JSON.stringify({
           script_slug: scriptSlug,
           claim_id: claimId,
+          hwid: claimId,
           session_id: sessionId,
           claim_token: claimToken,
           discord_user:
@@ -574,6 +591,11 @@ export default function ClaimKeyPage() {
       });
 
       const data = await res.json();
+
+      if (data.locked_out) {
+        setIsLockedOut(true);
+        throw new Error(data.error || "Access Denied: You have been locked out due to multiple bypass attempts.");
+      }
 
       if (res.status === 403 && data.error?.includes("VPN")) {
         setVpnDetected(true);
@@ -625,72 +647,103 @@ export default function ClaimKeyPage() {
     <div className="min-h-screen flex flex-col bg-obsidian-950 text-zinc-100 selection:bg-white selection:text-black">
       <Navbar />
 
-      <main className="flex-1 flex flex-col items-center justify-center p-4 py-12 relative overflow-hidden">
+      <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 lg:p-8 flex items-center justify-center relative">
         {/* Glow backdrop matching site style */}
         <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 bg-zinc-700/10 rounded-full blur-[128px] pointer-events-none" />
 
-        <div className="w-full max-w-lg z-10 space-y-4">
-          {/* Top Creator Profile Card */}
-          <div className="p-4 rounded-2xl bg-obsidian-900 border border-obsidian-800 shadow-xl space-y-3">
-            <div className="flex items-center gap-3">
-              <img
-                src={profile.avatar_url || "/placeholder-avatar.png"}
-                alt={profile.display_name}
-                className="w-12 h-12 rounded-xl border border-obsidian-750 object-cover bg-obsidian-850 shrink-0"
-              />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-sm font-bold text-white truncate">{profile.display_name}</h2>
-                  <span className="flex items-center gap-1 text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    Official System
-                  </span>
-                </div>
-                <p className="text-xs text-zinc-400 truncate mt-0.5">{profile.bio}</p>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full items-start z-10">
+          {/* LEFT COLUMN: CREATOR PROFILE CARD */}
+          <div className="lg:col-span-5 bg-obsidian-900 border border-obsidian-800 rounded-2xl p-6 sm:p-7 shadow-2xl relative overflow-hidden flex flex-col items-center text-center">
+            {/* Background ambient lighting */}
+            <div className="absolute -top-16 -left-16 w-48 h-48 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute -bottom-16 -right-16 w-48 h-48 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
+
+            {/* Avatar with Guns.lol glowing ring & pulse */}
+            <div className="relative mb-3.5 group">
+              <div className="w-20 h-20 rounded-full p-1 bg-gradient-to-tr from-purple-500 via-blue-500 to-emerald-400 shadow-xl shadow-purple-500/20">
+                <img
+                  src={profile.avatar_url || "https://api.dicebear.com/7.x/bottts/svg?seed=Revile21"}
+                  alt="Creator Avatar"
+                  className="w-full h-full rounded-full object-cover bg-black"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src =
+                      "https://api.dicebear.com/7.x/bottts/svg?seed=Revile21";
+                  }}
+                />
               </div>
+              <span className="absolute bottom-1 right-1 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-obsidian-900 animate-pulse" />
+            </div>
+
+            {/* Display Name */}
+            <div className="flex items-center gap-2">
+              <h2 className="text-base sm:text-lg font-bold text-white tracking-wide">
+                {profile.display_name || "Revile"}
+              </h2>
+              <span className="flex items-center gap-1 text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Official
+              </span>
             </div>
 
             {/* Emblems */}
             {profile.emblems && profile.emblems.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 pt-1 border-t border-obsidian-800">
+              <div className="flex flex-wrap items-center justify-center gap-1.5 my-3">
                 {profile.emblems.map((emb) => (
-                  <span
+                  <div
                     key={emb.id}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold border bg-obsidian-850"
-                    style={{ borderColor: `${emb.color}30`, color: emb.color }}
+                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wide uppercase border bg-obsidian-850"
+                    style={{
+                      borderColor: `${emb.color || "#3b82f6"}40`,
+                      color: emb.color || "#3b82f6",
+                    }}
                   >
                     {renderEmblemIcon(emb.icon)}
                     <span>{emb.label}</span>
-                  </span>
+                  </div>
                 ))}
               </div>
             )}
 
-            {/* Socials */}
-            {profile.socials && Object.values(profile.socials).some(Boolean) && (
-              <div className="flex flex-wrap gap-2 pt-2 border-t border-obsidian-800 text-[11px]">
-                {SOCIAL_PLATFORMS.map((plat) => {
-                  const url = (profile.socials as any)?.[plat.key];
-                  if (!url) return null;
-                  return (
-                    <a
-                      key={plat.key}
-                      href={url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-2.5 py-1 rounded-lg bg-obsidian-850 border border-obsidian-750 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors flex items-center gap-1 font-mono text-[11px]"
-                    >
-                      <span>{plat.name}</span>
-                      <ExternalLink className="w-2.5 h-2.5 opacity-60" />
-                    </a>
-                  );
-                })}
+            {/* Bio */}
+            <p className="text-xs text-zinc-400 max-w-sm leading-relaxed mb-4">
+              {profile.bio || "Lead Developer & Script Engineer."}
+            </p>
+
+            {/* Branded Social Buttons (All Supported Platforms with SVG icons) */}
+            <div className="w-full flex flex-wrap items-center justify-center gap-2 pt-3 border-t border-obsidian-800">
+              {SOCIAL_PLATFORMS.map((platform) => {
+                const isEnabled = profile.social_toggles?.[platform.key] !== false;
+                const link = (profile.socials as Record<string, string | undefined>)[platform.key];
+                if (!isEnabled || !link) return null;
+
+                return (
+                  <a
+                    key={platform.key}
+                    href={link}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3 py-1.5 rounded-xl bg-obsidian-850 hover:bg-obsidian-800 border border-obsidian-750 text-zinc-200 hover:text-white transition-all text-xs font-semibold flex items-center gap-1.5 shadow-sm"
+                    style={{ borderLeftColor: platform.color, borderLeftWidth: "3px" }}
+                  >
+                    <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24" style={{ color: platform.color }}>
+                      <path d={platform.path} />
+                    </svg>
+                    <span>{platform.name}</span>
+                  </a>
+                );
+              })}
+            </div>
+
+            {claimId && (
+              <div className="mt-4 pt-3 border-t border-obsidian-800 w-full text-[10px] text-zinc-500 font-mono truncate">
+                HWID: {claimId.slice(0, 16)}...
               </div>
             )}
           </div>
 
-          {/* Main Key Claim Container */}
-          <div className="p-6 rounded-2xl bg-obsidian-900 border border-obsidian-800 shadow-2xl relative">
+          {/* RIGHT COLUMN: MAIN KEY CLAIM CONTAINER */}
+          <div className="lg:col-span-7 p-6 rounded-2xl bg-obsidian-900 border border-obsidian-800 shadow-2xl relative">
             <div className="flex items-center justify-between pb-4 mb-4 border-b border-obsidian-800">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-white">
@@ -710,6 +763,23 @@ export default function ClaimKeyPage() {
                 <span>Anti-Bypass Shield</span>
               </span>
             </div>
+
+            {/* Lockout Banner */}
+            {isLockedOut && (
+              <div className="mb-4 p-4 rounded-xl bg-rose-950/50 border border-rose-500/40 text-rose-200 text-xs font-mono space-y-2">
+                <div className="flex items-center gap-2 font-bold text-rose-300">
+                  <Skull className="w-4 h-4 text-rose-400" />
+                  <span>Access Permanently Locked Out</span>
+                </div>
+                <p className="text-zinc-300 text-[11px] leading-relaxed">
+                  Your network IP and device HWID have been locked out due to repeated checkpoint bypass violations (3/3 attempts). You can no longer claim license keys.
+                </p>
+                <div className="pt-2 border-t border-rose-900/50 flex items-center justify-between text-[11px]">
+                  <span className="text-zinc-400">If you believe this is an error, appeal in Discord:</span>
+                  <a href={discordInvite} target="_blank" rel="noreferrer" className="text-rose-300 hover:text-white underline font-semibold">Join Discord</a>
+                </div>
+              </div>
+            )}
 
             {/* VPN Detected Banner */}
             {vpnDetected && (
