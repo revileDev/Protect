@@ -377,7 +377,11 @@ function SearchWidget:Init(gamesDb, notificationModule, authPromptModule, teleme
             infoLabel.Size = UDim2.new(1, -210, 0, 34)
             infoLabel.Position = UDim2.new(0, 12, 0, 30)
             infoLabel.BackgroundTransparency = 1
-            infoLabel.Text = string.format("Place ID: %s\nScript: %s", tostring(gameInfo.PlaceId), gameInfo.Title or "Default Script")
+            if gameInfo.Scripts and #gameInfo.Scripts > 1 then
+                infoLabel.Text = string.format("Place ID: %s\nScripts: %d Available (Click to choose)", tostring(gameInfo.PlaceId), #gameInfo.Scripts)
+            else
+                infoLabel.Text = string.format("Place ID: %s\nScript: %s", tostring(gameInfo.PlaceId), gameInfo.Title or "Default Script")
+            end
             infoLabel.TextColor3 = Color3.fromRGB(140, 145, 165)
             infoLabel.Font = Enum.Font.Gotham
             infoLabel.TextSize = 11
@@ -440,36 +444,16 @@ function SearchWidget:Init(gamesDb, notificationModule, authPromptModule, teleme
 
                 execBtn.MouseButton1Click:Connect(function()
                     setModalOpen(false)
-                    -- If already authenticated via Auth website, run script directly
-                    if _G.AtomwareAuthed == true or _G.AtomwareKeyVerified == true then
-                        local loadFunc, compileErr = loadstring(gameInfo.Loadstring)
-                        if loadFunc then
-                            local ok, runErr = pcall(loadFunc)
-                            if ok then
-                                if notificationModule then
-                                    notificationModule:Show("AtomWare Active", "Loaded " .. gameInfo.Name .. " script successfully!", 3, "Success")
-                                end
-                            else
-                                if notificationModule then
-                                    notificationModule:Show("Execution Error", tostring(runErr), 5, "Error")
-                                end
-                            end
-                        else
-                            if notificationModule then
-                                notificationModule:Show("Compile Error", tostring(compileErr), 5, "Error")
-                            end
-                        end
-                        return
-                    end
 
-                    if authPromptModule then
-                        authPromptModule:Prompt(gameInfo.Name, gameInfo.PlaceId, notificationModule, telemetryModule, function()
-                            local loadFunc, compileErr = loadstring(gameInfo.Loadstring)
+                    local function launchScript(chosenScript)
+                        local target = chosenScript or gameInfo
+                        local function doRun()
+                            local loadFunc, compileErr = loadstring(target.Loadstring)
                             if loadFunc then
                                 local ok, runErr = pcall(loadFunc)
                                 if ok then
                                     if notificationModule then
-                                        notificationModule:Show("AtomWare Active", "Loaded " .. gameInfo.Name .. " script successfully!", 3, "Success")
+                                        notificationModule:Show("AtomWare Active", "Loaded " .. gameInfo.Name .. " (" .. (target.Title or "Script") .. ") successfully!", 3, "Success")
                                     end
                                 else
                                     if notificationModule then
@@ -481,7 +465,22 @@ function SearchWidget:Init(gamesDb, notificationModule, authPromptModule, teleme
                                     notificationModule:Show("Compile Error", tostring(compileErr), 5, "Error")
                                 end
                             end
-                        end)
+                        end
+
+                        if _G.AtomwareAuthed == true or _G.AtomwareKeyVerified == true then
+                            doRun()
+                        else
+                            if authPromptModule then
+                                authPromptModule:Prompt(gameInfo.Name, gameInfo.PlaceId, notificationModule, telemetryModule, doRun)
+                            end
+                        end
+                    end
+
+                    if gameInfo.Scripts and #gameInfo.Scripts > 1 and type(authPromptModule.PromptScriptSelection) == "function" then
+                        authPromptModule:PromptScriptSelection(gameInfo, launchScript)
+                    else
+                        local single = (gameInfo.Scripts and gameInfo.Scripts[1]) or gameInfo
+                        launchScript(single)
                     end
                 end)
             else

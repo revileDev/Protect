@@ -5,6 +5,7 @@ Parses game txt files from:
 - Primary / Newest: C:\Users\Revil\Documents\New folder\New folder
 - Base: C:\Users\Revil\Documents\New folder
 and compiles them into an optimized Lua database: hub/modules/games_database.lua
+Supports multiple scripts per game!
 """
 
 import os
@@ -52,41 +53,60 @@ def parse_game_file(fpath):
 def main():
     games_map = {}
 
-    # 1. Load base folder if exists
-    if os.path.exists(DIR_BASE):
-        base_files = glob.glob(os.path.join(DIR_BASE, "*.txt"))
-        print(f"Reading base directory: {len(base_files)} files in {DIR_BASE}")
-        for f in base_files:
-            g = parse_game_file(f)
-            if g:
-                games_map[g["place_id"]] = g
-
-    # 2. Load new folder (takes precedence, updates existing games & adds new ones)
+    # 1. Load NEW folder first (these are the newest, so they become Script #1)
     if os.path.exists(DIR_NEW):
         new_files = glob.glob(os.path.join(DIR_NEW, "*.txt"))
         print(f"Reading new directory: {len(new_files)} files in {DIR_NEW}")
-        updated_count = 0
-        added_count = 0
         for f in new_files:
             g = parse_game_file(f)
             if g:
-                if g["place_id"] in games_map:
-                    updated_count += 1
+                pid = g["place_id"]
+                if pid not in games_map:
+                    games_map[pid] = {
+                        "place_id": pid,
+                        "name": g["name"],
+                        "scripts": [{"title": g["title"], "loadstring": g["loadstring"]}]
+                    }
                 else:
-                    added_count += 1
-                games_map[g["place_id"]] = g
-        print(f"-> From New folder: {updated_count} existing games updated, {added_count} new games added.")
+                    if not any(s["loadstring"] == g["loadstring"] for s in games_map[pid]["scripts"]):
+                        games_map[pid]["scripts"].append({"title": g["title"], "loadstring": g["loadstring"]})
+
+    # 2. Load BASE folder (adds alternative scripts if different, or new games)
+    if os.path.exists(DIR_BASE):
+        base_files = glob.glob(os.path.join(DIR_BASE, "*.txt"))
+        print(f"Reading base directory: {len(base_files)} files in {DIR_BASE}")
+        multi_added = 0
+        new_games_added = 0
+        for f in base_files:
+            g = parse_game_file(f)
+            if g:
+                pid = g["place_id"]
+                if pid not in games_map:
+                    games_map[pid] = {
+                        "place_id": pid,
+                        "name": g["name"],
+                        "scripts": [{"title": g["title"], "loadstring": g["loadstring"]}]
+                    }
+                    new_games_added += 1
+                else:
+                    if not any(s["loadstring"] == g["loadstring"] for s in games_map[pid]["scripts"]):
+                        games_map[pid]["scripts"].append({"title": g["title"], "loadstring": g["loadstring"]})
+                        multi_added += 1
+        print(f"-> Preserved {multi_added} alternative scripts for existing games.")
+        print(f"-> Added {new_games_added} additional unique games from base folder.")
 
     games = list(games_map.values())
-    # Sort games alphabetically by name
     games.sort(key=lambda x: x["name"].lower())
+
+    multi_count = sum(1 for g in games if len(g["scripts"]) > 1)
     print(f"Total compiled games: {len(games)} unique Roblox games.")
+    print(f"Games with multiple scripts: {multi_count}")
 
     # Generate Lua Code
     lines = [
         "--[[",
         "    AtomWare Universal Script Hub - Games Database",
-        f"    Compiled: {len(games)} Supported Roblox Games",
+        f"    Compiled: {len(games)} Supported Roblox Games ({multi_count} with multiple scripts)",
         "    Generated automatically by compile_hub_data.py",
         "--]]",
         "",
@@ -95,14 +115,32 @@ def main():
         "GamesDatabase.List = {}",
         "",
         "local function addGame(placeId, name, title, loadstring)",
-        "    local entry = {",
-        "        PlaceId = placeId,",
-        "        Name = name,",
-        "        Title = title,",
-        "        Loadstring = loadstring",
-        "    }",
-        "    GamesDatabase.ByPlaceId[placeId] = entry",
-        "    table.insert(GamesDatabase.List, entry)",
+        "    local entry = GamesDatabase.ByPlaceId[placeId]",
+        "    if not entry then",
+        "        entry = {",
+        "            PlaceId = placeId,",
+        "            Name = name,",
+        "            Title = title,",
+        "            Loadstring = loadstring,",
+        "            Scripts = {",
+        "                { Title = title, Loadstring = loadstring }",
+        "            }",
+        "        }",
+        "        GamesDatabase.ByPlaceId[placeId] = entry",
+        "        table.insert(GamesDatabase.List, entry)",
+        "    else",
+        "        -- Append alternative script if distinct",
+        "        local isDuplicate = false",
+        "        for _, s in ipairs(entry.Scripts) do",
+        "            if s.Loadstring == loadstring then",
+        "                isDuplicate = true",
+        "                break",
+        "            end",
+        "        end",
+        "        if not isDuplicate then",
+        "            table.insert(entry.Scripts, { Title = title, Loadstring = loadstring })",
+        "        end",
+        "    end",
         "end",
         "",
     ]
@@ -110,10 +148,10 @@ def main():
     for g in games:
         pid = g["place_id"]
         name_esc = escape_lua_string(g["name"])
-        title_esc = escape_lua_string(g["title"])
-        load_esc = escape_lua_string(g["loadstring"])
-
-        lines.append(f'addGame({pid}, "{name_esc}", "{title_esc}", "{load_esc}")')
+        for s in g["scripts"]:
+            title_esc = escape_lua_string(s["title"])
+            load_esc = escape_lua_string(s["loadstring"])
+            lines.append(f'addGame({pid}, "{name_esc}", "{title_esc}", "{load_esc}")')
 
     # Add helper search and query methods
     lines.extend([

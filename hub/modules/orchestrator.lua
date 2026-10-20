@@ -42,30 +42,44 @@ local function runAtomwareHub(GamesDatabase, Notification, Telemetry, AuthPrompt
     if matchedGame then
         Notification:Show("Game Detected", "Supported game found: " .. matchedGame.Name, 4, "Info")
 
-        local function executeGameScript()
-            Notification:Show("Executing Script", "Launching " .. matchedGame.Name .. " (" .. (matchedGame.Title or "Default") .. ")...", 3, "Success")
+        local function executeScript(selectedScript)
+            local scriptToRun = selectedScript or matchedGame
+            local function doLaunch()
+                Notification:Show("Executing Script", "Launching " .. matchedGame.Name .. " (" .. (scriptToRun.Title or "Default") .. ")...", 3, "Success")
 
-            -- Safely execute the game loadstring
-            task.spawn(function()
-                local loadFunc, compileErr = loadstring(matchedGame.Loadstring)
-                if not loadFunc then
-                    Notification:Show("Compile Error", "Failed to compile: " .. tostring(compileErr), 5, "Error")
-                    return
-                end
+                -- Safely execute the game loadstring
+                task.spawn(function()
+                    local loadFunc, compileErr = loadstring(scriptToRun.Loadstring)
+                    if not loadFunc then
+                        Notification:Show("Compile Error", "Failed to compile: " .. tostring(compileErr), 5, "Error")
+                        return
+                    end
 
-                local ok, runErr = pcall(loadFunc)
-                if not ok then
-                    Notification:Show("Runtime Error", "Error executing: " .. tostring(runErr), 5, "Error")
-                end
-            end)
+                    local ok, runErr = pcall(loadFunc)
+                    if not ok then
+                        Notification:Show("Runtime Error", "Error executing: " .. tostring(runErr), 5, "Error")
+                    end
+                end)
+            end
+
+            -- If already verified through AtomProtect website loader, run directly
+            if _G.AtomwareAuthed == true or _G.AtomwareKeyVerified == true then
+                doLaunch()
+            else
+                -- Otherwise prompt key modal
+                AuthPrompt:Prompt(matchedGame.Name, matchedGame.PlaceId, Notification, Telemetry, doLaunch)
+            end
         end
 
-        -- If already verified through AtomProtect website loader, run directly
-        if _G.AtomwareAuthed == true or _G.AtomwareKeyVerified == true then
-            executeGameScript()
+        -- If multiple scripts exist for this game, prompt user to choose
+        if matchedGame.Scripts and #matchedGame.Scripts > 1 and type(AuthPrompt.PromptScriptSelection) == "function" then
+            Notification:Show("Multiple Scripts", "Found " .. tostring(#matchedGame.Scripts) .. " scripts for " .. matchedGame.Name .. "! Please select one.", 4, "Info")
+            AuthPrompt:PromptScriptSelection(matchedGame, function(chosen)
+                executeScript(chosen)
+            end)
         else
-            -- Otherwise prompt key modal
-            AuthPrompt:Prompt(matchedGame.Name, matchedGame.PlaceId, Notification, Telemetry, executeGameScript)
+            local single = (matchedGame.Scripts and matchedGame.Scripts[1]) or matchedGame
+            executeScript(single)
         end
     else
         -- Game is not in the 407+ supported list

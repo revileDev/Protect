@@ -529,4 +529,337 @@ function AuthPrompt:Prompt(gameName, placeId, notificationModule, telemetryModul
     TweenService:Create(btnGetKey, TweenInfo.new(0.3), { BackgroundTransparency = 0 }):Play()
 end
 
+--------------------------------------------------------------------------
+-- MULTI-SCRIPT SELECTION MODAL
+-- Prompts the player to choose which script to run when a game has 2+ scripts
+--------------------------------------------------------------------------
+function AuthPrompt:PromptScriptSelection(gameData, onSelected)
+    if not gameData or type(gameData) ~= "table" then return end
+    local scripts = gameData.Scripts or {}
+    if #scripts <= 1 then
+        if type(onSelected) == "function" then
+            onSelected(scripts[1] or gameData)
+        end
+        return
+    end
+
+    local parent = getGuiParent()
+    local old = parent:FindFirstChild("Atomware_ScriptSelector")
+    if old then
+        old:Destroy()
+    end
+
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "Atomware_ScriptSelector"
+    screenGui.ResetOnSpawn = false
+    screenGui.DisplayOrder = 2050
+    screenGui.IgnoreGuiInset = true
+    screenGui.Parent = parent
+
+    -- Pure floating modal card (no backdrop dim or gradients)
+    local card = Instance.new("Frame")
+    card.Name = "SelectorModal"
+    card.BackgroundColor3 = Color3.fromRGB(18, 16, 26)
+    card.AnchorPoint = Vector2.new(0.5, 0.5)
+    card.Position = UDim2.new(0.5, 0, 0.5, 0)
+
+    local cardCount = #scripts
+    local listHeight = math.min(cardCount * 66, 264)
+    local totalHeight = 44 + 48 + listHeight + 16
+    card.Size = UDim2.new(0, 420, 0, totalHeight)
+    card.BorderSizePixel = 0
+    card.ClipsDescendants = false
+    card.Parent = screenGui
+
+    local cardCorner = Instance.new("UICorner")
+    cardCorner.CornerRadius = UDim.new(0, 14)
+    cardCorner.Parent = card
+
+    local cardStroke = Instance.new("UIStroke")
+    cardStroke.Name = "CardStroke"
+    cardStroke.Color = Color3.fromRGB(44, 38, 66)
+    cardStroke.Thickness = 1
+    cardStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    cardStroke.Parent = card
+
+    -- Header (Top Bar: Dot + ATOM PROTECT | Script Selector ... Close X)
+    local header = Instance.new("Frame")
+    header.Name = "Header"
+    header.BackgroundTransparency = 1
+    header.Position = UDim2.new(0, 0, 0, 0)
+    header.Size = UDim2.new(1, 0, 0, 44)
+    header.Parent = card
+
+    -- Status dot
+    local dot = Instance.new("Frame")
+    dot.BackgroundColor3 = Color3.fromRGB(168, 85, 247)
+    dot.Position = UDim2.new(0, 16, 0.5, -5)
+    dot.Size = UDim2.new(0, 10, 0, 10)
+    dot.BorderSizePixel = 0
+    dot.Parent = header
+
+    local dotCorner = Instance.new("UICorner")
+    dotCorner.CornerRadius = UDim.new(1, 0)
+    dotCorner.Parent = dot
+
+    -- Header Title
+    local titleProtect = Instance.new("TextLabel")
+    titleProtect.BackgroundTransparency = 1
+    titleProtect.Position = UDim2.new(0, 34, 0, 0)
+    titleProtect.Size = UDim2.new(0, 120, 1, 0)
+    titleProtect.Font = Enum.Font.GothamBold
+    titleProtect.Text = "ATOM PROTECT"
+    titleProtect.TextColor3 = Color3.fromRGB(255, 255, 255)
+    titleProtect.TextSize = 13
+    titleProtect.TextXAlignment = Enum.TextXAlignment.Left
+    titleProtect.Parent = header
+
+    local titleSub = Instance.new("TextLabel")
+    titleSub.BackgroundTransparency = 1
+    titleSub.Position = UDim2.new(0, 154, 0, 0)
+    titleSub.Size = UDim2.new(0, 140, 1, 0)
+    titleSub.Font = Enum.Font.Gotham
+    titleSub.Text = "|  Script Selector"
+    titleSub.TextColor3 = Color3.fromRGB(156, 150, 175)
+    titleSub.TextSize = 13
+    titleSub.TextXAlignment = Enum.TextXAlignment.Left
+    titleSub.Parent = header
+
+    -- Close Button
+    local btnClose = Instance.new("TextButton")
+    btnClose.BackgroundTransparency = 1
+    btnClose.Position = UDim2.new(1, -38, 0, 6)
+    btnClose.Size = UDim2.new(0, 32, 0, 32)
+    btnClose.Font = Enum.Font.GothamBold
+    btnClose.Text = "✕"
+    btnClose.TextColor3 = Color3.fromRGB(244, 95, 95)
+    btnClose.TextSize = 15
+    btnClose.AutoButtonColor = false
+    btnClose.Parent = header
+
+    btnClose.MouseEnter:Connect(function()
+        TweenService:Create(btnClose, TweenInfo.new(0.15), { TextColor3 = Color3.fromRGB(255, 130, 130) }):Play()
+    end)
+    btnClose.MouseLeave:Connect(function()
+        TweenService:Create(btnClose, TweenInfo.new(0.15), { TextColor3 = Color3.fromRGB(244, 95, 95) }):Play()
+    end)
+    btnClose.MouseButton1Click:Connect(function()
+        TweenService:Create(card, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
+            Position = card.Position + UDim2.new(0, 0, 0, 15),
+            BackgroundTransparency = 1
+        }):Play()
+        task.delay(0.2, function()
+            if screenGui and screenGui.Parent then
+                screenGui:Destroy()
+            end
+        end)
+    end)
+
+    -- Divider
+    local divider = Instance.new("Frame")
+    divider.BackgroundColor3 = Color3.fromRGB(36, 32, 52)
+    divider.BorderSizePixel = 0
+    divider.Position = UDim2.new(0, 0, 0, 44)
+    divider.Size = UDim2.new(1, 0, 0, 1)
+    divider.Parent = card
+
+    -- Game Name Title & Prompt Description
+    local gameTitle = Instance.new("TextLabel")
+    gameTitle.BackgroundTransparency = 1
+    gameTitle.Position = UDim2.new(0, 18, 0, 50)
+    gameTitle.Size = UDim2.new(1, -36, 0, 20)
+    gameTitle.Font = Enum.Font.GothamBold
+    gameTitle.Text = "🎮 " .. tostring(gameData.Name or "Detected Game")
+    gameTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+    gameTitle.TextSize = 13
+    gameTitle.TextXAlignment = Enum.TextXAlignment.Left
+    gameTitle.TextTruncate = Enum.TextTruncate.AtEnd
+    gameTitle.Parent = card
+
+    local subDesc = Instance.new("TextLabel")
+    subDesc.BackgroundTransparency = 1
+    subDesc.Position = UDim2.new(0, 18, 0, 70)
+    subDesc.Size = UDim2.new(1, -36, 0, 16)
+    subDesc.Font = Enum.Font.Gotham
+    subDesc.Text = "Multiple scripts found. Select which script you want to run:"
+    subDesc.TextColor3 = Color3.fromRGB(140, 135, 160)
+    subDesc.TextSize = 11
+    subDesc.TextXAlignment = Enum.TextXAlignment.Left
+    subDesc.Parent = card
+
+    -- List Container (ScrollFrame if > 3 scripts)
+    local listContainer = Instance.new("ScrollingFrame")
+    listContainer.Name = "OptionsList"
+    listContainer.BackgroundTransparency = 1
+    listContainer.BorderSizePixel = 0
+    listContainer.Position = UDim2.new(0, 16, 0, 92)
+    listContainer.Size = UDim2.new(1, -32, 0, listHeight)
+    listContainer.CanvasSize = UDim2.new(0, 0, 0, cardCount * 66)
+    listContainer.ScrollBarThickness = 3
+    listContainer.ScrollBarImageColor3 = Color3.fromRGB(60, 55, 85)
+    listContainer.Parent = card
+
+    local listLayout = Instance.new("UIListLayout")
+    listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    listLayout.Padding = UDim.new(0, 8)
+    listLayout.Parent = listContainer
+
+    -- Populate each script card
+    for idx, s in ipairs(scripts) do
+        local optCard = Instance.new("Frame")
+        optCard.Name = "Option_" .. tostring(idx)
+        optCard.BackgroundColor3 = Color3.fromRGB(24, 21, 36)
+        optCard.Size = UDim2.new(1, 0, 0, 58)
+        optCard.BorderSizePixel = 0
+        optCard.LayoutOrder = idx
+        optCard.Parent = listContainer
+
+        local optCorner = Instance.new("UICorner")
+        optCorner.CornerRadius = UDim.new(0, 8)
+        optCorner.Parent = optCard
+
+        local optStroke = Instance.new("UIStroke")
+        optStroke.Color = Color3.fromRGB(44, 38, 64)
+        optStroke.Thickness = 1
+        optStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        optStroke.Parent = optCard
+
+        -- Badge: SCRIPT #1 / SCRIPT #2
+        local badge = Instance.new("Frame")
+        badge.BackgroundColor3 = Color3.fromRGB(36, 30, 56)
+        badge.Position = UDim2.new(0, 10, 0, 10)
+        badge.Size = UDim2.new(0, 68, 0, 18)
+        badge.BorderSizePixel = 0
+        badge.Parent = optCard
+
+        local badgeCorner = Instance.new("UICorner")
+        badgeCorner.CornerRadius = UDim.new(0, 4)
+        badgeCorner.Parent = badge
+
+        local badgeText = Instance.new("TextLabel")
+        badgeText.BackgroundTransparency = 1
+        badgeText.Size = UDim2.new(1, 0, 1, 0)
+        badgeText.Font = Enum.Font.GothamBold
+        badgeText.Text = "SCRIPT #" .. tostring(idx)
+        badgeText.TextColor3 = Color3.fromRGB(168, 85, 247)
+        badgeText.TextSize = 9
+        badgeText.Parent = badge
+
+        -- Title text
+        local titleText = Instance.new("TextLabel")
+        titleText.BackgroundTransparency = 1
+        titleText.Position = UDim2.new(0, 84, 0, 10)
+        titleText.Size = UDim2.new(1, -174, 0, 18)
+        titleText.Font = Enum.Font.GothamBold
+        titleText.Text = tostring(s.Title or ("Script " .. idx))
+        titleText.TextColor3 = Color3.fromRGB(255, 255, 255)
+        titleText.TextSize = 12
+        titleText.TextXAlignment = Enum.TextXAlignment.Left
+        titleText.TextTruncate = Enum.TextTruncate.AtEnd
+        titleText.Parent = optCard
+
+        -- Loadstring preview label
+        local descLabel = Instance.new("TextLabel")
+        descLabel.BackgroundTransparency = 1
+        descLabel.Position = UDim2.new(0, 10, 0, 32)
+        descLabel.Size = UDim2.new(1, -100, 0, 16)
+        descLabel.Font = Enum.Font.Gotham
+        descLabel.Text = (idx == 1 and "⭐ Latest Scraped Release" or "⚡ Alternative Community Version")
+        descLabel.TextColor3 = Color3.fromRGB(135, 130, 155)
+        descLabel.TextSize = 10
+        descLabel.TextXAlignment = Enum.TextXAlignment.Left
+        descLabel.Parent = optCard
+
+        -- Launch Button
+        local btnLaunch = Instance.new("TextButton")
+        btnLaunch.Name = "BtnLaunch"
+        btnLaunch.BackgroundColor3 = Color3.fromRGB(168, 85, 247)
+        btnLaunch.BorderSizePixel = 0
+        btnLaunch.Position = UDim2.new(1, -86, 0.5, -15)
+        btnLaunch.Size = UDim2.new(0, 76, 0, 30)
+        btnLaunch.Font = Enum.Font.GothamBold
+        btnLaunch.Text = "▶ RUN"
+        btnLaunch.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btnLaunch.TextSize = 11
+        btnLaunch.AutoButtonColor = false
+        btnLaunch.Parent = optCard
+
+        local launchCorner = Instance.new("UICorner")
+        launchCorner.CornerRadius = UDim.new(0, 6)
+        launchCorner.Parent = btnLaunch
+
+        btnLaunch.MouseEnter:Connect(function()
+            TweenService:Create(btnLaunch, TweenInfo.new(0.15), { BackgroundColor3 = Color3.fromRGB(185, 105, 255) }):Play()
+            TweenService:Create(optStroke, TweenInfo.new(0.15), { Color = Color3.fromRGB(168, 85, 247) }):Play()
+        end)
+        btnLaunch.MouseLeave:Connect(function()
+            TweenService:Create(btnLaunch, TweenInfo.new(0.15), { BackgroundColor3 = Color3.fromRGB(168, 85, 247) }):Play()
+            TweenService:Create(optStroke, TweenInfo.new(0.15), { Color = Color3.fromRGB(44, 38, 64) }):Play()
+        end)
+
+        btnLaunch.MouseButton1Click:Connect(function()
+            btnLaunch.Text = "✓ SELECTED"
+            btnLaunch.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
+
+            TweenService:Create(card, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
+                Position = card.Position - UDim2.new(0, 0, 0, 10),
+                BackgroundTransparency = 1
+            }):Play()
+
+            task.delay(0.2, function()
+                if screenGui and screenGui.Parent then
+                    screenGui:Destroy()
+                end
+                if type(onSelected) == "function" then
+                    onSelected(s)
+                end
+            end)
+        end)
+    end
+
+    -- Draggable Behavior
+    local dragging = false
+    local dragInput, dragStart, startPos
+
+    header.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = card.Position
+
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    header.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            card.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+
+    -- Entrance animation
+    card.Position = UDim2.new(0.5, 0, 0.48, 0)
+    card.BackgroundTransparency = 1
+    TweenService:Create(card, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+        Position = UDim2.new(0.5, 0, 0.5, 0),
+        BackgroundTransparency = 0
+    }):Play()
+end
+
 return AuthPrompt

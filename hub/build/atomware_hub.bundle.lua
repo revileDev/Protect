@@ -4,7 +4,7 @@
 ======================================================================
   * Key: THEBESTFIXED
   * Discord: https://discord.gg/AeCYnnQmq5
-  * Compiled At: 2026-10-20 17:54:25 UTC
+  * Compiled At: 2026-10-20 18:05:15 UTC
   * Features:
     - Auto Game Detection (407+ Place IDs)
     - Key Auth Prompt Modal with Discord Clipboard Integration
@@ -21,7 +21,7 @@ do
     local GamesDatabase = (function()
         --[[
             AtomWare Universal Script Hub - Games Database
-            Compiled: 716 Supported Roblox Games
+            Compiled: 716 Supported Roblox Games (104 with multiple scripts)
             Generated automatically by compile_hub_data.py
         --]]
 
@@ -30,17 +30,36 @@ do
         GamesDatabase.List = {}
 
         local function addGame(placeId, name, title, loadstring)
-            local entry = {
-                PlaceId = placeId,
-                Name = name,
-                Title = title,
-                Loadstring = loadstring
-            }
-            GamesDatabase.ByPlaceId[placeId] = entry
-            table.insert(GamesDatabase.List, entry)
+            local entry = GamesDatabase.ByPlaceId[placeId]
+            if not entry then
+                entry = {
+                    PlaceId = placeId,
+                    Name = name,
+                    Title = title,
+                    Loadstring = loadstring,
+                    Scripts = {
+                        { Title = title, Loadstring = loadstring }
+                    }
+                }
+                GamesDatabase.ByPlaceId[placeId] = entry
+                table.insert(GamesDatabase.List, entry)
+            else
+                -- Append alternative script if distinct
+                local isDuplicate = false
+                for _, s in ipairs(entry.Scripts) do
+                    if s.Loadstring == loadstring then
+                        isDuplicate = true
+                        break
+                    end
+                end
+                if not isDuplicate then
+                    table.insert(entry.Scripts, { Title = title, Loadstring = loadstring })
+                end
+            end
         end
 
         addGame(14608970270, "(ANNIVERSARY) Outcome Memories v0.2", "Sukuna reskin for Fleetway", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Outcome-Memories-v0.2-Sukuna-reskin-for-Fleetway-225231\"))()")
+        addGame(14608970270, "(ANNIVERSARY) Outcome Memories v0.2", "Sonic Old Camera restored", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/(ANNIVERSARY)-Outcome-Memories-v0.2-Sonic-Old-Camera-restored-229487\"))()")
         addGame(71603767514732, "(CS2) The Battle Bricks: Waves of Waves", "Script battle brick wave of wave", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/The-Battle-Bricks:-Waves-of-Waves-3M-VISITS-Script-battle-brick-wave-of-wave-224640\"))()")
         addGame(79226944850033, "(FIXES)Realistic Home Defense [ALPHA]", "ragebot (silent aim + autoshoot)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/FIXESRealistic-Home-Defense-ALPHA-ragebot-silent-aim-autoshoot-232558\"))()")
         addGame(71704434889758, "(UPDATE) Drive A Kukirin!", "OS/OLENSOURCE AUTO TP PUMPKIN", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPDATE-Drive-A-Kukirin-OSOLENSOURCE-AUTO-TP-PUMPKIN-232154\"))()")
@@ -69,6 +88,7 @@ do
         addGame(101678541463365, "13 Unanchored parts", "Cobalt", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/13-Unanchored-parts-Cobalt-223443\"))()")
         addGame(125496078313264, "2 PLAYER Evolution Tycoon 🛸", "hella vibecoded", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/2-PLAYER-Evolution-Tycoon-hella-vibecoded-223366\"))()")
         addGame(79546208627805, "99 Nights in the Forest 🔦", "OP SCRIPT GOD MODE AND MORE", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/99-Nights-in-the-Forest-OP-SCRIPT-GOD-MODE-AND-MORE-244688\"))()")
+        addGame(79546208627805, "99 Nights in the Forest 🔦", "NO KEY | God Mode | Auto Stronghold | Kill Player", "loadstring(game:HttpGet(\"https://rscripts.net/raw/no-key-or-god-mode-or-auto-stronghold-or-kill-player_1791449798449_lCLoelZBCC.txt\"))()")
         addGame(127403135954624, "[ Godzilla Ultima ] Kaiju Alpha", "Best OP Kill Aura Auto Attack Teleport Vote Kick Anti AFK", "loadstring(game:HttpGet(\"https://rscripts.net/raw/best-op-kill-aura-auto-attack-teleport-vote-kick-anti-afk_1790318726560_Qcrn5TNKTc.txt\"))()")
         addGame(18816315817, "[ Mafia ] ST : Blockade Battlefront", "ST:BB script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Mafia-ST-:-Blockade-Battlefront-ST:BB-script-225535\"))()")
         addGame(117949143041402, "[ 🏆UPD0.5 ] Anime Mysterious", "[Keyless] bobcat", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD05-Anime-Mysterious-Keyless-bobcat-232151\"))()")
@@ -78,12 +98,14 @@ do
         addGame(88220840615146, "[1M VISITS!] Sonic.exe The Disaster 1.0 Recreation", "TD V1 RECREATION GUI", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/1M-VISITS!-Sonic.exe-The-Disaster-1.0-Recreation-TD-V1-RECREATION-GUI-223171\"))()")
         addGame(114283239905753, "[2 DAYS] Crazy Skeleton RNG", "best auto farm sans GUI includes potions farming", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/2-DAYS-Crazy-Skeleton-RNG-best-auto-farm-sans-GUI-includes-potions-farming-227145\"))()")
         addGame(7772810845, "[2X POINTS] The Presentation Experience", "Requsting someone to make a script for", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/The-Presentation-Experience-Requst-someone-to-make-a-script-for-223557\"))()")
+        addGame(7772810845, "[2X POINTS] The Presentation Experience", "[AUTO HOMEWORK] TPE", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/2X-POINTS-The-Presentation-Experience-AUTO-HOMEWORK-TPE-231217\"))()")
         addGame(14414833351, "[2X🍀] The Cul De Sac RPG", "Give All Items", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/2X-The-Cul-De-Sac-RPG-Give-All-Items-224937\"))()")
         addGame(113217312262185, "[2X💰] SCP retroBreach", "Silent Aim Open Source", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/2X-SCP-retroBreach-Silent-Aim-Open-Source-230166\"))()")
         addGame(7655745946, "[2x💸] Dunking Simulator", "KEYLESS | Get all items, inf money and more | Besto", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/2x-Dunking-Simulator-KEYLESS-or-Get-all-items-inf-money-and-more-or-Besto-231177\"))()")
         addGame(133585162751824, "[6 PLAYERS!] Monopoly", "Double roll cards on every turn", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/6-PLAYERS!-Monopoly-Double-roll-cards-on-every-turn-224474\"))()")
         addGame(107838858975205, "[9 DAYS] DOORS HARDCORE 👁️", "Ai slop (1) Doors auto open", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/9-DAYS-DOORS-HARDCORE-Ai-slop-(1)-Doors-auto-open-230761\"))()")
         addGame(113371877732022, "[After life] Hole🕳️", "SCRIPT", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/After-life-Hole-SCRIPT-232603\"))()")
+        addGame(113371877732022, "[After life] Hole🕳️", "script for game:", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Hole-script-231859\"))()")
         addGame(125675334337622, "[backdoored] game", "Backdoored", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/backdoored-game-Backdoored-223312\"))()")
         addGame(86217903692414, "[BETA] Attack on Titan Tycoon", "Attack on ttian tycoon script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/BETA-Attack-on-Titan-Tycoon-Attack-on-ttian-tycoon-script-222853\"))()")
         addGame(13559584718, "[BETA] Lone Survival", "- Silent Aim, Esp And More!", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/BETA-Lone-Survival-Silent-Aim-Esp-And-More!-224658\"))()")
@@ -117,16 +139,15 @@ do
         addGame(76287223194656, "[HEAVEN] Crop Incremental🌾", "Auto collect item from crop", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/HEAVEN-Crop-Incremental-Auto-collect-item-from-crop-224965\"))()")
         addGame(96433718215051, "[HIGHLIGHTS] 🌊FE2 2023", "lazy autofarm", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/HIGHLIGHTS-FE2-2023-lazy-autofarm-223062\"))()")
         addGame(8540168650, "[HUGE UPDATE] Stand Upright: Rebooted", "SU:R | TWLtime | Updated + Keyless autospin and more...", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/HUGE-UPDATE-Stand-Upright-Rebooted-SUR-or-TWLtime-or-Updated-Keyless-autospin-and-more-232580\"))()")
+        addGame(8540168650, "[HUGE UPDATE] Stand Upright: Rebooted", "Item Farm Keyless", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/HUGE-UPDATE-Stand-Upright:-Rebooted-Item-Farm-Keyless-231394\"))()")
         addGame(72712036210947, "[INVITES] Fix It Up!", "Fix It Up | Auto Farm, Auto Repair, Car ESP | Mobile Support", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/INVITES-Fix-It-Up!-Fix-It-Up-or-Auto-Farm-Auto-Repair-Car-ESP-or-Mobile-Support-229154\"))()")
         addGame(4639625707, "[KF-41] War Tycoon", "Facility", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/KF-41-War-Tycoon-Facility-232076\"))()")
         addGame(6447798030, "[LULLABY] Funky Friday", "Infernum Autoplayer", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Funky-Friday-Infernum-Autoplayer-224632\"))()")
         addGame(6804602922, "[MAP!] Boxing Beta! 🥊", "Lucid.xyz", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/MAP-Boxing-Beta-Lucidxyz-232031\"))()")
         addGame(8651781069, "[MOBILE] Voxlblade", "ExtraSensory Perception (ESP)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/MOBILE-Voxlblade-ExtraSensory-Perception-(ESP)-224389\"))()")
-        addGame(101770480176177, "[MONGOLS] Command An Army", "[KEYLESS]Auto Daily Reward, Auto Claim Quests, Anti-AFK", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/MONGOLS-Command-An-Army-KEYLESSAuto-Daily-Reward-Auto-Claim-Quests-Anti-AFK-231721\"))()")
         addGame(95721658376580, "[MTC] Multicrew Tank Combat", "M.T.C", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/MTC-Multicrew-Tank-Combat-M.T.C-225826\"))()")
         addGame(8562822414, "[NEW AREA 🌙] Eternal Towers of Hell", "Project EToH Script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Eternal-Towers-of-Hell-Project-EToH-Script-224676\"))()")
         addGame(18281776841, "[NEW CARS] 🌴 Highway Showdown", "| V2 | No Key | Car Search | Vehicle GUI", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/NEW-CARS-Highway-Showdown-AUTO-FARM-SELECT-ANY-CAR-FREE-KEYLESS-228957\"))()")
-        addGame(126987974021910, "[NEW ITEMS!] Illegal Soccer", "SILENT AIM | ANTI RAGDOLL | AUTO SHOOT | INF STAMINA & MORE", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/RANKED!-Illegal-Soccer-SILENT-AIM-or-ANTI-RAGDOLL-or-AUTO-SHOOT-or-INF-STAMINA-and-MORE-229403\"))()")
         addGame(16901389020, "[NEW SUIT] Web Rush", "Auto Crime Op Script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/NEW-SUIT-Web-Rush-Auto-Crime-Op-Script-227138\"))()")
         addGame(82554996468034, "[NEW WORLD] +1 Pickaxe Swing Escape", "I only tested the top 5 options", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/+1-Pickaxe-Swing-Escape-I-only-tested-the-top-5-options-227111\"))()")
         addGame(13253735473, "[NEW 🗺️] Trident Survival", "OpiumWare", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/NEW-Trident-Survival-OpiumWare-225168\"))()")
@@ -140,7 +161,9 @@ do
         addGame(118041109999946, "[PLAYTEST] CNSD : Reborn", "Free product (instructions on the description)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/PLAYTEST-CNSD-:-Reborn-Free-product-(instructions-on-the-description)-230459\"))()")
         addGame(122287678911982, "[PUBLIC TEST!] Vampire life", "Instant kill auto farm", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/PUBLIC-TEST!-Vampire-life-Instant-kill-auto-farm-230339\"))()")
         addGame(109397169461300, "[RANKED] SNIPER DUELS", "okay script [open source]", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/RANKED-SNIPER-DUELS-okay-script-open-source-232657\"))()")
+        addGame(109397169461300, "[RANKED] SNIPER DUELS", "Vyrox KEYLESS", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/SNIPER-DUELS-Vyrox-KEYLESS-230945\"))()")
         addGame(131558436575033, "[REALISTIC] SevenM Hood Testing", "FREE AND KEYLESS 7M SCRIPT", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/REALISTIC-SevenM-Hood-Testing-FREE-AND-KEYLESS-7M-SCRIPT-225541\"))()")
+        addGame(131558436575033, "[REALISTIC] SevenM Hood Testing", "AIMBOT+ESP", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/REALISTIC-SevenM-Hood-Testing-AIMBOT+ESP-229191\"))()")
         addGame(18474291382, "[REC] Playground Basketball🏀", "EVILWARE | CHEAPEST | BEST SCRIPT | MULTI FEATURE", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/REC-Playground-Basketball-EVILWARE-or-CHEAPEST-or-BEST-SCRIPT-or-MULTI-FEATURE-225318\"))()")
         addGame(124032631078772, "[RELEASE] Poly Loot⚔️", "Candy Corn Auto Farm :)", "loadstring(game:HttpGet(\"https://rscripts.net/raw/candy-corn-auto-farm_1791916868599_FSoAb3Ptlb.txt\"))()")
         addGame(139780970631001, "[RELEASE] Prehistoric Farm", "[ KEYLESS ] Prehistoric Farm", "loadstring(game:HttpGet(\"https://rscripts.net/raw/keyless-prehistoric-farm_1791370623252_h5jZv8TFYD.txt\"))()")
@@ -155,28 +178,35 @@ do
         addGame(133277436323400, "[SAPPER] Bots & Muskets", "Bots and Muskets Menu", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/SAPPER-Bots-and-Muskets-Bots-and-Muskets-Menu-223824\"))()")
         addGame(136404558442020, "[SEASON 3] Kayak and Surf  🌊", "Infinite Coins", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/SEASON-3-Kayak-and-Surf-Infinite-Coins-227043\"))()")
         addGame(15269951959, "[SHINJI] Legends Battlegrounds", "SCRIPT COMBAT V1.0", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Legends-Battlegrounds-SCRIPT-COMBAT-V1.0-224603\"))()")
+        addGame(15269951959, "[SHINJI] Legends Battlegrounds", "inf m1", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/SHINJI-Legends-Battlegrounds-inf-m1-232227\"))()")
         addGame(94152549783289, "[SKM!] The Urban Line: FreeDrive", "INFINITE MONEY & XP [OP]", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/SKM!-The-Urban-Line:-FreeDrive-INFINITE-MONEY-and-XP-OP-228851\"))()")
         addGame(9391468976, "[SKY ASSASSIN] Jujutsu Shenanigans", "razorbillv2 Open Source", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/REGISTER-Jujutsu-Shenanigans-razorbillv2-Open-Source-224588\"))()")
+        addGame(9391468976, "[SKY ASSASSIN] Jujutsu Shenanigans", "Nexus keyless script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/SKY-ASSASSIN-Jujutsu-Shenanigans-Nexus-keyless-script-232015\"))()")
         addGame(91203203156283, "[SOUL] Spin a Fem! 🎲", "Simple auto script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/SOUL-Spin-a-Fem!-Simple-auto-script-225282\"))()")
         addGame(120249927456668, "[SPECTATING] DeltaRhythm V1.3.2", "script request dm me on discord im willing to pay 400 rbx", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/SPECTATING-DeltaRhythm-V1.3.2-script-request-dm-me-on-discord-im-willing-to-pay-400-rbx-222906\"))()")
         addGame(129305872972839, "[SPOOKY MONTH] Forsaken Combat Fighting", "Focus v2 (READ DESC)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/SPOOKY-MONTH-Forsaken-Combat-Fighting-Focus-v2-READ-DESC-231978\"))()")
         addGame(87204735676240, "[STICKERS!] Kontra", "Server Crash", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/STICKERS-Kontra-Server-Crash-232315\"))()")
+        addGame(87204735676240, "[STICKERS!] Kontra", "Silent aim | Wallbang | ESP", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/STICKERS-Kontra-Silent-aim-or-Wallbang-or-ESP-232468\"))()")
+        addGame(87204735676240, "[STICKERS!] Kontra", "zaml - silent aim, nospread, esp", "loadstring(game:HttpGet(\"https://rscripts.net/raw/zaml-silent-aim-nospread-esp_1792154673873_ctmkgub0eB.txt\"))()")
         addGame(80681221431821, "[STRESS TEST 3!] Practical Basketball", "Auto Green Auto Guard Max Skills Speed ETC", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/STRESS-TEST-3!-Practical-Basketball-Auto-Green-Auto-Guard-Max-Skills-Speed-ETC-223172\"))()")
-        addGame(1828, "[TITLE UNAVAILABLE]", "120 fps", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/TITLE-UNAVAILABLE-120-fps-229097\"))()")
         addGame(72016039587124, "[TITLE UNAVAILABLE]", "Auto Roll Auto Drop Auto Rebirth Auto Upgrades and More", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/TITLE-UNAVAILABLE-Auto-Roll-Auto-Drop-Auto-Rebirth-Auto-Upgrades-and-More-227071\"))()")
+        addGame(1828, "[TITLE UNAVAILABLE]", "120 fps", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/TITLE-UNAVAILABLE-120-fps-229097\"))()")
         addGame(76448770950379, "[TNI POLRI] Garuda Simulator", "Script auto xp [TNI PORLI]", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/TNI-POLRI-Garuda-Simulator-Script-auto-xp-TNI-PORLI-225331\"))()")
         addGame(10907022539, "[ToP] DBZ Path to Power", "Path to power", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/ToP-DBZ-Path-to-Power-Path-to-power-225175\"))()")
         addGame(133609054222738, "[TRADING] Snipers Vs Runners! 💥", "Best Script for Sniper vs Runner", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/TRADING-Snipers-Vs-Runners!-Best-Script-for-Sniper-vs-Runner-223158\"))()")
         addGame(127719392433046, "[TRIDENT] Mortalia [BETA]", "keyless killaura", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/TRIDENT-Mortalia-BETA-keyless-killaura-232128\"))()")
         addGame(17431446039, "[TSID] Simulator Truk Indonesia", "AUTO FARM New Truk, Auto Buy Truck", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/TSID-Simulator-Truk-Indonesia-AUTO-FARM-230783\"))()")
         addGame(3231515867, "[TÜRK] Turkish Army War Simulator 💂", "TA TRK ASKER OYUNU SCRPT 1.5", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/TURK-Turkish-Army-War-Simulator-TA-TRK-ASKER-OYUNU-SCRPT-1.5-225648\"))()")
+        addGame(3231515867, "[TÜRK] Turkish Army War Simulator 💂", "TA 1.9 Script Cheat", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/TURK-Turkish-Army-War-Simulator-TA-1.9-Script-Cheat-230586\"))()")
         addGame(123974602339071, "[UP] Just a baseplate.", "FE Catware's Dance Pack", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UP-Just-a-baseplate.-FE-Catware's-Dance-Pack-225650\"))()")
+        addGame(123974602339071, "[UP] Just a baseplate.", "Uhhhhhh reanimate big rig by me (read des)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UP-Just-a-baseplate-Uhhhhhh-reanimate-big-rig-by-me-232243\"))()")
         addGame(122878824589743, "[UPD 2!🥊] scrap on a baseplate", "inf money and ruby[ patched]", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD-2!-scrap-on-a-baseplate-inf-money-and-ruby-225473\"))()")
         addGame(78453398695059, "[UPD 2.1 🎃] THRESHOLD", "script  2.1,", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD-21-THRESHOLD-script-21-232321\"))()")
         addGame(76911729991355, "[UPD 3🌙] Noob Incremental", "World4 Auto trial very fast farm  auto upgrade", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD-3-Noob-Incremental-World4-Auto-trial-very-fast-farm-auto-upgrade-223661\"))()")
         addGame(129216769649527, "[UPD 4 🔥] Beat the Anime Boss!", "Auto Farm, Unit Ranking & Infinity Castle | Free, No Key", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/TRADE-Beat-the-Anime-Boss!-Auto-Farm-Unit-Ranking-and-Infinity-Castle-or-Free-No-Key-229161\"))()")
         addGame(125215626986308, "[UPD 9🗺️] Escape Huss Valley 🏃‍♂️", "Autofarm", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/BOSS-UPD-Escape-Huss-Valley-Autofarm-224345\"))()")
         addGame(18687417158, "[UPD 🤖] Forsaken", "ULTIMATE ESP + OP AUTO FARM + KILL ALL + AUTO SAFE", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Forsaken-ULTIMATE-ESP-+-OP-AUTO-FARM-+-KILL-ALL-+-AUTO-SAFE-224328\"))()")
+        addGame(18687417158, "[UPD 🤖] Forsaken", "Best keyless auto backstab", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD-Forsaken-Best-keyless-auto-backstab-232368\"))()")
         addGame(11158043705, "[UPD!] Baddies 💅", "Hyper", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Baddies-Hyper-223402\"))()")
         addGame(102541290326733, "[UPD3.7] Clean the Golf Yard", "AUTOFARM OP", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD3.7-Clean-the-Golf-Yard-OP-AUTOFARM-223233\"))()")
         addGame(103883942725157, "[UPD] +1 Drain Water Per Click", "Auto Train n 3x Hatch and more", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/+1-Drain-Water-Per-Click-Auto-Train-n-3x-Hatch-and-more-224928\"))()")
@@ -187,6 +217,7 @@ do
         addGame(88323040672117, "[UPD] Divaz 💄", "NovaAdmin", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD-Divaz-NovaAdmin-223183\"))()")
         addGame(8002617744, "[UPD] Exposed!", "nightfall BREAK GAME", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD-Exposed!-nightfall-BREAK-GAME-222832\"))()")
         addGame(70435795041539, "[UPD] Junk Mechanics", "Auto Farm, Auto Sell, Auto Repair, Auto Buy, ESP.", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Junk-Mechanics-Auto-Farm-Auto-Sell-Auto-Repair-Auto-Buy-ESP.-224309\"))()")
+        addGame(70435795041539, "[UPD] Junk Mechanics", "[keyless] full auto farm", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD-Junk-Mechanics-keyless-full-auto-farm-231995\"))()")
         addGame(107717448640907, "[UPD] Nights of Eternity 🍕", "Esp/Inf Stamina/Generator Auto", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD-Nights-of-Eternity-EspInf-StaminaGenerator-Auto-232208\"))()")
         addGame(90945110834775, "[UPD] POINT BLOX", "Aimbot Smooth Aim God Mode Keyless Point Blox", "loadstring(game:HttpGet(\"https://rscripts.net/raw/aimbot-smooth-aim-god-mode-keyless-point-blox_1790602276177_5hQvyfP6uD.txt\"))()")
         addGame(110527353762049, "[UPD] Roblox Stock Exchange 2", "[NO KEY] RSE2 | Auto Crypto Scalper & Fast Cash Farm", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD-Roblox-Stock-Exchange-2-NO-KEY-RSE2-or-Auto-Crypto-Scalper-and-Fast-Cash-Farm-232599\"))()")
@@ -194,11 +225,15 @@ do
         addGame(120927681876637, "[UPD] Soulrift", "Be unkillable (use during a boss cutscene)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD-Soulrift-Be-unkillable-(use-during-a-boss-cutscene)-225605\"))()")
         addGame(13151311229, "[UPD] speed demon boss fight (real)", "Auto parry,hide name,lock boss,orbit boss", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/speed-demon-boss-fight-(real)-Auto-parryhide-namelock-bossorbit-boss-225494\"))()")
         addGame(73956553001240, "[UPD] Volleyball Legends", "Infinity script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD-Volleyball-Legends-Infinity-script-223066\"))()")
+        addGame(73956553001240, "[UPD] Volleyball Legends", "FREE ROLL BACK GET ANY STYLE YOU WANT", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD-Volleyball-Legends-FREE-ROLL-BACK-GET-ANY-STYLE-YOU-WANT-232153\"))()")
+        addGame(118805555015549, "[UPD]+1 Loot To Forge", "INSTANT KILL | GOD MODE | AUTO FARMS | AUTO ORES | AUTO ALL", "loadstring(game:HttpGet(\"https://rscripts.net/raw/instant-kill-or-god-mode-or-auto-farms-or-auto-ores-or-auto-all_1790350160263_kJqeeNXh80.txt\"))()")
+        addGame(118805555015549, "[UPD]+1 Loot To Forge", "Inf season coins Open source by Kathe :3 Read description", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/1-Loot-To-Forge-Inf-season-coins-ore-Open-source-3-232471\"))()")
         addGame(139536504610209, "[UPD]🛠️Build and Kill Verity", "auto start waves for afk", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPDBuild-and-Kill-Verity-auto-start-waves-for-afk-232063\"))()")
         addGame(74968636725538, "[UPDATE 2!] Kick an Uma", "fckCM", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPDATE-2!-Kick-an-Uma-*CM-230402\"))()")
         addGame(10260193230, "[UPDATE 4] Meme Sea", "Script  minh kha hup", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPDATE-4-Meme-Sea-Script-minh-kha-hup-231731\"))()")
         addGame(3233893879, "[UPDATE!] Bad Business | FPS", "Kittycore Beta KEYLESS Ragebot Player Fly AC Bypass", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPDATE!-Bad-Business-or-FPS-Kittycore-Beta-KEYLESS-Ragebot-Player-Fly-AC-Bypass-222999\"))()")
         addGame(301549746, "[UPDATE!] Counter Blox", "Silent Aim, Wallbang & ESP", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPDATE-Counter-Blox-Silent-Aim-Wallbang-and-ESP-232133\"))()")
+        addGame(301549746, "[UPDATE!] Counter Blox", "Zenith", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPDATE-Counter-Blox-Zenith-232357\"))()")
         addGame(11474405411, "[UPDATE!] Cruise Line Tycoon", "Auto Build", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPDATE!-Cruise-Line-Tycoon-Auto-Build-223503\"))()")
         addGame(8400412059, "[UPDATE!] Madness: Project Nevada Remastered", "No Recoil and Head Hitbox and more", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPDATE!-Madness:-Project-Nevada-Remastered-No-Recoil-and-Head-Hitbox-and-more-224097\"))()")
         addGame(2913303231, "[UPDATE!] Obby Creator", "Opscripts SS skateboard and inf health", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Obby-Creator-Opscripts-SS-skateboard-and-inf-health-223063\"))()")
@@ -210,6 +245,7 @@ do
         addGame(109329896664198, "[UPDATE] Shigaku", "open source auto-gym script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPDATE-Shigaku-open-source-auto-gym-script-231187\"))()")
         addGame(101880234193261, "[UPDATE] Turbo Soccer : Beta 1.0", "TURP", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPDATE-Turbo-Soccer-:-Beta-1.0-TURP-231762\"))()")
         addGame(6403373529, "[UPDATE👁️] Slap Battles👏", "Slap royale (random)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPDATE-Slap-Battles-Slap-royale-(random)-224259\"))()")
+        addGame(6403373529, "[UPDATE👁️] Slap Battles👏", "Sapple farm (upgraded)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPDATE-Slap-Battles-Sapple-farm-upgraded-232381\"))()")
         addGame(128784467030899, "[UPD🎃] Merge a Nuke!", "Auto-Merge,Auto-Block base,Auto-Farm,ESP", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Merge-a-Nuke!-Auto-MergeAuto-Block-baseAuto-FarmESP-225110\"))()")
         addGame(112966546347918, "[UPD💣] Drift Tag", "Tag Drift stannyscripts", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD-Drift-Tag-Tag-Drift-stannyscripts-227240\"))()")
         addGame(734159876, "[UPD🥳] SharkBite Classic 🦈", "Sharkbite ESP Keyless", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD-SharkBite-Classic-Sharkbite-ESP-Keyless-225297\"))()")
@@ -229,7 +265,9 @@ do
         addGame(74889851913797, "[X2] +1 Power Per Click", "NatsuHx Auto Farm Win And Auto Attack New Update", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/W2+2X-+1-Power-Per-Click-NatsuHx-Auto-Farm-Win-And-Auto-Attack-New-Update-222829\"))()")
         addGame(71242901165556, "[YARA YARA] Phonk Clicker 🎶", "Music Changer (Forcer)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/YARA-YARA-Phonk-Clicker-Music-Changer-(Forcer)-229436\"))()")
         addGame(114234929420007, "[ZOMBIES!] BloxStrike", "Slient Opensrc", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPDATE!-BloxStrike-Slient-Opensrc-225674\"))()")
+        addGame(114234929420007, "[ZOMBIES!] BloxStrike", "[KEYLESS] UNLOCK ALL", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/NEW-MAP-BloxStrike-KEYLESS-UNLOCK-ALL-232027\"))()")
         addGame(72920620366355, "[ZOMBIES] Operation One", "no recoil PC", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/SEASON-3-Operation-One-no-recoil-PC-223142\"))()")
+        addGame(72920620366355, "[ZOMBIES] Operation One", "N0IR op1 script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/SEASON-3-Operation-One-N0IR-op1-script-229061\"))()")
         addGame(74884529899446, "[⏰UPDATE] Throw Arena 💨", "inf money works", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPDATE-Throw-Arena-inf-money-works-225343\"))()")
         addGame(109509628648368, "[⚔️] Merge Vs Mobs", "AUTOMERGE | AUTOS* | AUTOCHESTS | AUTOTOWERS", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Merge-Vs-Mobs-AUTOMERGE-or-AUTOS*-or-AUTOCHESTS-or-AUTOTOWERS-225225\"))()")
         addGame(4588604953, "[⚙️] Criminality", "Rage bot, invisibility, and much more.", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Criminality-pidors.cc-or-Rage-bot-invisibility-and-much-more.-225338\"))()")
@@ -238,6 +276,7 @@ do
         addGame(132767904294856, "[⚽] Blue Lock Farm", "[ KEYLESS ] Blue Lock Farm SCRIPT", "loadstring(game:HttpGet(\"https://rscripts.net/raw/keyless-blue-lock-farm-script_1790445561371_lL7YGWcpdD.txt\"))()")
         addGame(84757653274750, "[⛩️] +1 Katana Evolution", "Inf Wins nd more", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/+1-Katana-Evolution-Inf-Wins-nd-more-229182\"))()")
         addGame(125927821145949, "[⛰️] Mine a Mountain", "Keyless Open Source Crystal Finder", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Mine-a-Mountain-Keyless-Open-Source-Crystal-Finder-225608\"))()")
+        addGame(125927821145949, "[⛰️] Mine a Mountain", "MaM - Auto Collect Ghosts & Pumpkins", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Mine-a-Mountain-MaM-Auto-Collect-Ghosts-and-Pumpkins-232146\"))()")
         addGame(72845937010155, "[✋] Gear Slap Tower", "Cool Gui V1 (OP)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Gear-Slap-Tower-Cool-Gui-V1-(OP)-229736\"))()")
         addGame(89100823864844, "[✨ UPD] Anime Girl RNG", "Auto Collect Auto Obby Auto Craft Webhooks and More", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD-Anime-Girl-RNG-Auto-Collect-Auto-Obby-Auto-Craft-Webhooks-and-More-223573\"))()")
         addGame(6549794549, "[✨2X EXP + EXCLUSIVE TRAIL] RH2 The Journey (BETA)", "RH2 Script | Free & Keyless | Auto Green, Auto Guard", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/SEASON-5-RH2-The-Journey-(BETA)-RH2-Script-or-Free-and-Keyless-or-Auto-Green-Auto-Guard-225775\"))()")
@@ -256,31 +295,44 @@ do
         addGame(113956654824187, "[🍬] Swim For Eggs!", "[ KEYLESS ] Swim For Eggs Script", "loadstring(game:HttpGet(\"https://rscripts.net/raw/keyless-swim-for-eggs-script_1790627743321_j6eWIMktoL.txt\"))()")
         addGame(116497287371701, "[🍲] Karinderya!", "[Keyless] bobcat", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Karinderya!-Keyless-bobcat-230418\"))()")
         addGame(136020512003847, "[🎃 EVENT] San Diego Roleplay", "best auto farm", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/San-Diego-Border-Roleplay-best-auto-farm-225566\"))()")
+        addGame(136020512003847, "[🎃 EVENT] San Diego Roleplay", "LuckymensLostAcc", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/GANGS-San-Diego-Roleplay-LuckymensLostAcc-231382\"))()")
         addGame(128836536655551, "[🎃] Alkedion PVP", "best gui with everything needed", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Alkedion-PVP-bets-gui-with-everything-needed-223043\"))()")
+        addGame(128836536655551, "[🎃] Alkedion PVP", "Best Silent Aim Instant Hit", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Alkedion-PVP-Best-Silent-Aim-Instant-Hit-230893\"))()")
         addGame(113290951185459, "[🎃] Anime Dice", "Keyless |  | Auto roll | auto reb | and more!", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD-5-Anime-Dice-Keyless-or-or-Auto-roll-or-auto-reb-or-and-more!-229947\"))()")
+        addGame(113290951185459, "[🎃] Anime Dice", "KEYLESS | AUTO FARM | AUTO COLLECT,AUTO BUY ,AUTO UPGRADE...", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD-8-Anime-Dice-KEYLESS-or-AUTO-FARM-or-AUTO-COLLECTAUTO-BUY-AUTO-UPGRADE-232002\"))()")
         addGame(132352755769957, "[🎃] Asylum Life 🔊", "Mixul", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD-Asylum-Life-Mixul-224246\"))()")
+        addGame(132352755769957, "[🎃] Asylum Life 🔊", "ROBLOX  OP SCRIPT GUI (KEYLESS & FREE)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD-Asylum-Life-ROBLOX-OP-SCRIPT-GUI-(KEYLESS-and-FREE)-231039\"))()")
         addGame(91034536684382, "[🎃] Destroy a Vault", "[KEYLESS]Auto Vault, Auto Level, Auto Gold, Auto Buy", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Destroy-a-Vault-KEYLESSAuto-Vault-Auto-Level-Auto-Gold-Auto-Buy-232260\"))()")
         addGame(83038462357724, "[🎃] Dig & Clean 🧼", "[OP] Dig And Clean | Auto Clean", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Dig-and-Clean-OP-Dig-And-Clean-or-Auto-Clean-230753\"))()")
         addGame(119355263204054, "[🎃] Keyboard Wars", "Auto Word Farm", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Keyboard-Wars-Auto-Word-Farm-232162\"))()")
         addGame(122840796290491, "[🎃] Kukirin Life [Testing]", "AUTO FARM PUMPKINS +ESP  + DELIVERY FARM", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Kukirin-Life-Testing-AUTO-FARM-PUMPKINS-ESP-DELIVERY-FARM-232543\"))()")
+        addGame(122840796290491, "[🎃] Kukirin Life [Testing]", "Autofarm pizza", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Kukirin-Life-Testing-Autofarm-pizza-232075\"))()")
         addGame(120851538706364, "[🎃] Murder Duels", "script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Murder-Duels-script-224452\"))()")
+        addGame(120851538706364, "[🎃] Murder Duels", "[KEYLESS] Silent Aim and Enemies ESP", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Murder-Duels-KEYLESS-Silent-Aim-and-Enemies-ESP-228958\"))()")
         addGame(2961583129, "[🎃] Pass the Bomb!", "Auto Pass, Auto Avoid, Etc", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Pass-the-Bomb!-Auto-Pass-Auto-Steal-Etc-231615\"))()")
         addGame(16331682055, "[🎃] Poke Haven 🔊 18+", "PokeJam Suite V7", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Poke-Haven-18-PokeJam-Suite-V7-232157\"))()")
         addGame(17625359962, "[🎃] RIVALS", "level changer (local)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/RIVALS-level-changer-(local)-225794\"))()")
+        addGame(17625359962, "[🎃] RIVALS", "[OPENSOURCE] Unnamed | Silent Aim, Triggerbot, ESP, etc", "loadstring(game:HttpGet(\"https://rscripts.net/raw/opensource-unnamed-or-silent-aim-triggerbot-esp-etc_1791816900897_HuswLNg4GD.txt\"))()")
+        addGame(17625359962, "[🎃] RIVALS", "Cosmetics changer (open source)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/RIVALS-Cosmetics-changer-(open-source)-231172\"))()")
         addGame(10697845123, "[🎃] silly sword game", "OP Silly Cheat Menu", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/silly-sword-game-OP-Silly-Cheat-Menu-232530\"))()")
+        addGame(10697845123, "[🎃] silly sword game", "Silly cheat menu deobfuscated, open sourced and removed key", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/silly-sword-game-Silly-cheat-menu-deobfuscated-open-sourced-and-removed-key-231491\"))()")
         addGame(16447934574, "[🎃] Soccer: Touch Football", "Ultimate Visual Practic keyless", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Soccer:-Touch-Football-Ultimate-Visual-Practic-keyless-222907\"))()")
+        addGame(16447934574, "[🎃] Soccer: Touch Football", "isane kzxl reach can reach low ms ppl", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Soccer:-Touch-Football-isane-kzxl-reach-can-reach-low-ms-ppl-231758\"))()")
         addGame(131113151337381, "[🎃] Steal a Mimiche", "Script for  by tik tok:gde_ja_rbx", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Steal-a-Mimiche-Script-for-231833\"))()")
         addGame(71600459831333, "[🎃] Street Life Remastered", "KEYLESS] OP SILENT AIM ESP AUTO BUY AUTO FARM MORE...", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Street-Life-Remastered-KEYLESS-OP-SILENT-AIM-ESP-AUTO-BUY-AUTO-FARM-MORE-232267\"))()")
         addGame(139020444733179, "[🎃] Survive Deep in the Woods", "Auto farm | Speed | Noclip | Fullbright | Fly", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Survive-Deep-in-the-Woods-Auto-farm-or-Speed-or-Noclip-or-Fullbright-or-Fly-232222\"))()")
         addGame(125503525638054, "[🎃] The Veil", "Free Script | SPOOKY HALLOWEEN EDITION", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/The-Veil-Free-Script-or-SPOOKY-HALLOWEEN-EDITION-232258\"))()")
-        addGame(118805555015549, "[🎃]+1 Loot To Forge", "Inf season coins Open source by Kathe :3 Read description", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/1-Loot-To-Forge-Inf-season-coins-ore-Open-source-3-232471\"))()")
         addGame(14259168147, "[🎃]🏀Basketball Legends🏀", "Unicheat Project:", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPDBasketball-Legends-Unicheat-Project:-230618\"))()")
         addGame(122446657157717, "[🎃Battlepass] Sniper Arena", "Silent Aim, Aimbot, Auto Fire & ESP", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/NEW-SNIPER-Sniper-Arena-Silent-Aim-Aimbot-Auto-Fire-and-ESP-224069\"))()")
+        addGame(122446657157717, "[🎃Battlepass] Sniper Arena", "Aimbot + Esp + Misc", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/NEW-SNIPER-Sniper-Arena-Aimbot-+-Esp-+-Misc-231418\"))()")
         addGame(135856908115931, "[🎃DUELS] Murderers VS Sheriffs", "Nova | Kill All, Silent Aim, Infinite Knife, Auto Shoot, ESP", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/DUELS-Murderers-VS-Sheriffs-Nova-or-Kill-All-Silent-Aim-Infinite-Knife-Auto-Shoot-ESP-231832\"))()")
         addGame(124216119978534, "[🎃EVENT] Ride A Pet", "Minhkha hup ride a egg", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Ride-A-Pet-Minhkha-hup-ride-a-egg-229411\"))()")
         addGame(9872472334, "[🎃HLWN] Evade", "[open source] simple ESP script summer event update", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Evade-open-source-simple-ESP-script-summer-event-update-224626\"))()")
+        addGame(9872472334, "[🎃HLWN] Evade", "joevan shader - lite", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/HLWN-Evade-joevan-shader-lite-232498\"))()")
         addGame(79018172095137, "[🎉CLANS] Click A Cookie!", "Auto click and more keyless", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/TRADING-Click-A-Cookie!-Auto-click-and-more-keyless-231710\"))()")
+        addGame(79018172095137, "[🎉CLANS] Click A Cookie!", "CookieKrumb", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/CLANS-Click-A-Cookie-Cookie-232373\"))()")
         addGame(14772802900, "[🎥REPLAY] Jailbird", "Silent Aim Skeleton ESP keyless", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/REPLAY-Jailbird-Silent-Aim-Skeleton-ESP-keyless-224777\"))()")
+        addGame(14772802900, "[🎥REPLAY] Jailbird", "Silent aim - ESP - Guns mod [KEYLESS]", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/REPLAY-Jailbird-Silent-aim-ESP-Guns-mod-KEYLESS-228948\"))()")
         addGame(131683977882464, "[🎧] GUESS THE SONG! 0.5s", "Auto guess song | Show correct answer [NO KEY]", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/GUESS-THE-SONG!-0.5s-Auto-guess-song-or-Show-correct-answer-NO-KEY-231523\"))()")
         addGame(71274660353135, "[🎨] Hide In Paintings", "Peakx |", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Hide-In-Paintings-Peak-x-or-230400\"))()")
         addGame(97572766830918, "[🎨] Hide In Pixels", "Source esp", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Hide-In-Pixels--232447\"))()")
@@ -289,6 +341,7 @@ do
         addGame(98317803942996, "[🏋️‍♂️] Workout Simulator 2", "Auto farm", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Workout-Simulator-2-Auto-farm-227027\"))()")
         addGame(107727386530697, "[🏖️] Noob Mayhem!", "Auto kill nearby noobs", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Noob-Mayhem!-Auto-kill-nearby-noobs-223028\"))()")
         addGame(111600158364583, "[🏖️x2] One Shot", "silent aim and gun mod open source", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/One-Shot-silent-aim-and-gun-mod-open-source-223701\"))()")
+        addGame(111600158364583, "[🏖️x2] One Shot", "Best Kill Aura and more (KEYLESS)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/x2-One-Shot-Best-Kill-Aura-and-more-(KEYLESS)-229603\"))()")
         addGame(128931272139211, "[🏗️] Claw Fishing", "Speed Script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Claw-Fishing-Speed-Script-230155\"))()")
         addGame(84384375580351, "[🏝️SUMMER🏝️] Scary Baboon Ultimate", "Scary Baboon Mod Menu", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/SUMMER-Scary-Baboon-Ultimate-Scary-Baboon-Mod-Menu-222873\"))()")
         addGame(82524183928567, "[🐐] Build A Soccer Squad!", "Free gamepass (read description)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Build-A-Soccer-Squad!-Free-gamepass-(read-description)-230850\"))()")
@@ -301,6 +354,7 @@ do
         addGame(113099333239841, "[🔥2.1 ] RE:Heads, Please!", "autoroll", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/2.1-RE:Heads-Please!-autoroll-223657\"))()")
         addGame(84515722934860, "[🔥] Anime Expeditions", "Auto Claim Auto Summon Auto Craft Teleporting and morez", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Anime-Expeditions-RELEASE-Auto-Claim-Auto-Summon-Auto-Craft-Teleporting-and-morez-244686\"))()")
         addGame(17516596118, "[🔥NEW MYTHIC] Hypershot", "HYPER AIMBOT", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Hypershot-HYPER-AIMBOT-224158\"))()")
+        addGame(17516596118, "[🔥NEW MYTHIC] Hypershot", "ESP, Aimbot, Silent Aim & Triggerbot | Free, No Key", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/NEW-MYTHIC-Hypershot-ESP-Aimbot-Silent-Aim-and-Triggerbot-or-Free-No-Key-228899\"))()")
         addGame(126042865144779, "[🔥NEW SNIPER] Sniper Arena", "Silent Aim", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/NEW-SNIPER-Sniper-Arena-Silent-Aim-231674\"))()")
         addGame(13083893317, "[🔥NEW] Life Sentence", "Lasion (keyless, free)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/NEW-Life-Sentence-Lasion-(keyless-free)-224099\"))()")
         addGame(100096058035179, "[🔥RELEASE + MOBILE] KEN", "\"NEW\"  AUTORESTOCK (PC ONLY)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/RELEASE-+-MOBILE-KEN-AUTORESTOCK-223127\"))()")
@@ -308,7 +362,9 @@ do
         addGame(120901926752670, "[🔥X60] 💪 No Limit Lifting Simulator 2", "NLLS2 Automated", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/X60-No-Limit-Lifting-Simulator-2-NLLS2-Automated-227205\"))()")
         addGame(6550894018, "[🔭TURRETS] Destruction Game", "Destruction", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/TURRETS-Destruction-Game-Destruction-227037\"))()")
         addGame(2534724415, "[🗺️] Emergency Response: Liberty County", "Vehicle Fly | Open Source", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Emergency-Response:-Liberty-County-Vehicle-Fly-or-Open-Source-225638\"))()")
+        addGame(2534724415, "[🗺️] Emergency Response: Liberty County", "JewHack.org (BACK)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Emergency-Response:-Liberty-County-JewHac.org-(KEYLESS)-229347\"))()")
         addGame(1730877806, "[😀HALLOWEEN PT 2] Grand Piece Online", "GPO Auto Cupid Farm", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/CONTROLLER-Grand-Piece-Online-GPO-Auto-Cupid-Farm-223409\"))()")
+        addGame(1730877806, "[😀HALLOWEEN PT 2] Grand Piece Online", "FREE KEYLESS CANDY DUPE AUTO FARM & AFKABLE OVERNIGHT UNDTEC", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/HALLOWEEN-PT-1-Grand-Piece-Online-FREE-KEYLESS-CANDY-DUPE-AUTO-FARM-and-AFKABLE-OVERNIGHT-UNDTEC-231219\"))()")
         addGame(98800969324557, "[🚂 UPD] Storage Hunters: Open World", "KEYLESS Auto Farm Auto Collect Auto Bid Auto Accept", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD-Storage-Hunters:-Open-World-KEYLESS-Auto-Farm-Auto-Collect-Auto-Bid-Auto-Accept-224546\"))()")
         addGame(82983707799188, "[🚨LIMITED] WEAPON DUELS [Murderers vs Sheriffs]", "[LIMITED]  [Murderers vs Sheriffs]", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/LIMITED-WEAPON-DUELS-Murderers-vs-Sheriffs-LIMITED-Murderers-vs-Sheriffs-232416\"))()")
         addGame(134719268825886, "[🚨NEW] Clicker Simulator! ⚡", "All in One Script (KEYLESS)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/NEW-Clicker-Simulator!-All-in-One-Script-(KEYLESS)-229200\"))()")
@@ -331,13 +387,16 @@ do
         addGame(10290376430, "An Infinite Highway", "ANY GEARS!!!", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/An-Infinite-Highway-ANY-GEARS-231987\"))()")
         addGame(8274729203, "Angry_Teacher001's Place", "FE", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Angry_Teacher001's-Place-FE-224880\"))()")
         addGame(109928390521457, "Anime Breaker [🏰TOWER]", "[CRAFT] | Auto Farm, Auto Walls, Auto Spins.", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Anime-Breaker-GRIMOIRES-CRAFT-or-Auto-Farm-Auto-Walls-Auto-Spins.-231215\"))()")
-        addGame(114574503491412, "Anime Zero [SOLAR RADIANCE ☀️]", "Auto Farm, Unit Switch, Aim Assist, Auto Raid/Trial, & More!", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD-3-Anime-Zero-Auto-Farm-Unit-Switch-Aim-Assist-Auto-RaidTrial-and-More-232120\"))()")
+        addGame(114574503491412, "Anime Zero [CHAMBER] 🔒", "[ KEYLESS ]  Anime Zero Script", "loadstring(game:HttpGet(\"https://rscripts.net/raw/keyless-anime-zero-script_1790815897407_ceRY5RcrwL.txt\"))()")
+        addGame(114574503491412, "Anime Zero [CHAMBER] 🔒", "Auto Farm, Unit Switch, Aim Assist, Auto Raid/Trial, & More!", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD-3-Anime-Zero-Auto-Farm-Unit-Switch-Aim-Assist-Auto-RaidTrial-and-More-232120\"))()")
         addGame(6788434697, "AniPhobia", "Project Requiem", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/AniPhobia-Project-Requiem-232638\"))()")
+        addGame(6788434697, "AniPhobia", "open source \"okay\" script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/AniPhobia-open-source-\"okay\"-script-229886\"))()")
         addGame(84091462741027, "Anomaly Lockdown [UPDATE!]", "very simple inf stamina", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Anomaly-Lockdown-BACK-very-simple-inf-stamina-224347\"))()")
         addGame(116666795477778, "Antpocalypse", "Ants | SomeCheats", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Antpocalypse-or-SomeCheats-231300\"))()")
         addGame(108144748716019, "Any Roblox Game!", "vehicle fly + vehicle boost + vehicle noclip", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Any-Roblox-Game!-vehicle-fly-+-vehicle-boost-228970\"))()")
         addGame(3272915504, "Arcane Odyssey 🌊", "arcane oddssey free somethings work (updated)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Arcane-Odyssey-arcane-oddssey-free-somethings-work-(updated)-223973\"))()")
         addGame(286090429, "Arsenal", "Manji PSilent Aim", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Arsenal-Manji-PSilent-Aim-224637\"))()")
+        addGame(286090429, "Arsenal", "Silent Aim  Updated", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Arsenal-Silent-Aim-Updated-229802\"))()")
         addGame(83471552202911, "ASMR Keyboard Tower 🎧", "7yd7 Free Gamepass In:", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/ASMR-Keyboard-Tower-7yd7-Free-Gamepass-In-!-225168\"))()")
         addGame(9273658706, "Backrooms", "OP SCRIPT KEYLESS | Besto", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Backrooms-OP-SCRIPT-KEYLESS-or-Besto-229781\"))()")
         addGame(14792165933, "Baldi Frenzy [ALPHA]", "Unlock 4th accessory slot", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Baldi-Frenzy-ALPHA-Unlock-4th-accessory-slot-225315\"))()")
@@ -347,7 +406,8 @@ do
         addGame(14713532223, "Beat The Robloxian!", "good ai version of destroy thy npcs", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Beat-The-Robloxian!-good-ai-version-of-destroy-thy-npcs-231049\"))()")
         addGame(8426789885, "Beat Up Dummies Simulator", "Instant get Innovative Warrior badge", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Beat-Up-Dummies-Simulator-Instant-get-Innovative-Warrior-badge-227042\"))()")
         addGame(113909829646571, "Become a Deep Sea Explorer", "Scripts", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Become-a-Deep-Sea-Explorer-Scripts-230600\"))()")
-        addGame(6872265039, "BedWars 🗡️ [Evelynn Contract]", "Bedwars script OP keyless voidware vape v4", "loadstring(game:HttpGet(\"https://rscripts.net/raw/bedwars-script-op-keyless-voidware-vape-v4_1790255247241_F9NHUTQ7rL.txt\"))()")
+        addGame(6872265039, "BedWars [UPDATE]", "NewVape Fixed", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/BedWars-RERELEASE-NewVape-Fixed-231790\"))()")
+        addGame(6872265039, "BedWars [UPDATE]", "Bedwars script OP keyless voidware vape v4", "loadstring(game:HttpGet(\"https://rscripts.net/raw/bedwars-script-op-keyless-voidware-vape-v4_1790255247241_F9NHUTQ7rL.txt\"))()")
         addGame(1537690962, "Bee Swarm Simulator", "Beehop", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Bee-Swarm-Simulator-Beehop-232554\"))()")
         addGame(14449145868, "Bewitched", "BW Script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Bewitched-Script-230055\"))()")
         addGame(5315046213, "bhop", "Strafe hud", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/bhop-Strafe-hud-229752\"))()")
@@ -360,18 +420,23 @@ do
         addGame(9528010, "Blood and Iron", "best bi script new", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Blood-and-Iron-best-bi-script-new-223499\"))()")
         addGame(139252529145498, "Blood Debt [COMPLIANCE]", "role esp", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Blood-Debt-COMPLIANCE-esp-224932\"))()")
         addGame(13955927965, "Blood Zone 🎃", "bloodzone", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Blood-Zone-bloodzone-224968\"))()")
+        addGame(13955927965, "Blood Zone 🎃", "Silent Aim Open Source", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Blood-Zone-Silent-Aim-Open-Source-231407\"))()")
         addGame(2753915549, "Blox Fruits", "Zero Point Auto Level, Kill Aura, XENO SUPPORT", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Blox-Fruits-Zero-Point-Auto-Level-Kill-Aura-Mob-Magnet-and-More-BETA-232179\"))()")
         addGame(118675786171302, "Blox League", "Ball Tracer Trajectory", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Blox-League-Ball-Tracer-Trajectory-230703\"))()")
         addGame(114326934417838, "Break and Steal an Egg", "Best Script Autofarm, Auto Break, Auto Steal, Keyless & More", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Break-and-Steal-an-Egg-Best-Script-Autofarm-Auto-Break-Auto-Steal-Keyless-and-More-232332\"))()")
         addGame(99449877692519, "bridger: WESTERN (CMOON)", "KEYLESS II Best AutoFarm and Silent Aim", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/bridger:-WESTERN-(CMOON)-KEYLESS-II-Best-AutoFarm-and-Silent-Aim-225783\"))()")
         addGame(2551991523, "Broken Bones IV", "Infinite Money", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Broken-Bones-IV-Infinite-Money-225146\"))()")
+        addGame(2551991523, "Broken Bones IV", "ReJoin Farm!", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Broken-Bones-IV-ReJoin-Farm!-229036\"))()")
         addGame(4924922222, "Brookhaven 🏡RP", "Clxssy spammer [sharingan theme]", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Brookhaven-RP-Cl*y-spammer-sharingan-theme-225701\"))()")
+        addGame(4924922222, "Brookhaven 🏡RP", "MUST BYPASSER BY N0T_Z0RO100", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Brookhaven-RP-MUST-V4-BYPASSER-BY-N0TZ0RO100-232472\"))()")
         addGame(80267208845734, "Budget Battlegrounds", "Project Yang Kill Farm", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Budget-Battlegrounds-Project-Yang-Kill-Farm-230835\"))()")
         addGame(100971017807798, "bug fixes", "Jonlib Script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/bug-fixes-Jonlib-Script-229173\"))()")
         addGame(537413528, "Build A Boat For Treasure", "HX Boat", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Build-A-Boat-For-Treasure-HX-Boat-225538\"))()")
+        addGame(537413528, "Build A Boat For Treasure", "KEYLESS | Auto Gold Farm | Walk on Water | Walk Speed | More", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Build-A-Boat-For-Treasure-KEYLESS-or-Auto-Gold-Farm-or-Walk-on-Water-or-Walk-Speed-or-More-231634\"))()")
         addGame(139959709575082, "Build a Dinosaur", "script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Build-a-Dinosaur-hub-made-by-AI-223516\"))()")
         addGame(84637477108843, "Build an AI [💻 HACK]", "Script By Osm", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Build-an-AI-HACK-Script-By-Osm-225675\"))()")
         addGame(78490532994307, "Build An Ant Empire", "BuildAnAntEmpire-NO KEY", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Build-An-Ant-Empire-BuildAnAntEmpire-231479\"))()")
+        addGame(78490532994307, "Build An Ant Empire", "[keyless] auto buy, auto upgrade, auto event", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Build-An-Ant-Empire-keyless-auto-buy-auto-upgrade-auto-event-232200\"))()")
         addGame(105011592530400, "Build and Kill Zombies", "Auto Drive, Auto Roll, Auto Build and Skills | No Key", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Build-and-Kill-Zombies-Auto-Drive-Auto-Roll-Auto-Build-and-Skills-or-No-Key-230577\"))()")
         addGame(9527099245, "Build Logic!", "Build logic green screen", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Build-Logic!-Build-logic-green-screen-225121\"))()")
         addGame(123720558354386, "Build the Pyramid!", "(opensrc)  Auto farm with no walking, multi-place, more", "loadstring(game:HttpGet(\"https://rscripts.net/raw/opensrc-auto-farm-with-no-walking-multi-place-more_1790985145991_wJOesDcCUl.txt\"))()")
@@ -381,29 +446,36 @@ do
         addGame(73771248610396, "Cali Streets 💥", "Script V2", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Cali-Streets-Best-Script-Alot-Of-Features-and-Updates-Frequently!-225346\"))()")
         addGame(104973076655377, "Capybaras VS Plants", "KEYLESS Auto Hatch Eggs Auto Buy Egg Auto Collect Cash", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Capybaras-VS-Plants-KEYLESS-Auto-Hatch-Eggs-Auto-Buy-Egg-Auto-Collect-Cash-224097\"))()")
         addGame(1554960397, "Car Dealership Tycoon  [🎃]", "Hexagon", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Car-Dealership-Tycoon-Hexagon-232410\"))()")
+        addGame(1554960397, "Car Dealership Tycoon  [🎃]", "Brzzz_HooK | Auto Farm | Halloween 2026", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Car-Dealership-Tycoon-BrzzzHooK-or-Auto-Farm-or-Halloween-2026-232494\"))()")
         addGame(6045325556, "Car Driving Simulator", "Unlock All Cars", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Car-Driving-Simulator-Unlock-All-Cars-223437\"))()")
         addGame(10660791703, "cart ride around nothing", "ATUALIZADO Cafezitos V3 - Menu Completo FUNCIONANDO 100%", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/cart-ride-around-nothing-Cafezitos-V2-Menu-Completo-224909\"))()")
         addGame(130906410042392, "Cat Battles 🐾", "[keyless] OP SCRIPT", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Cat-Battles-keyless-OP-SCRIPT-232474\"))()")
         addGame(118535152903705, "CAT DEFENSE [Alpha]", "scripty yeyeye", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/CAT-DEFENSE-Alpha-scripty-yeyeye-231748\"))()")
         addGame(138342176561665, "Cat in the Hat Escape", "Unlock all cat skins 4 free", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Cat-in-the-Hat-Escape-Unlock-all-skins-4-free-229380\"))()")
         addGame(7041939546, "Catalog Avatar Creator", "Avatar Copier join discord for more discord.gg/freescript", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Catalog-Avatar-Creator-Avatar-Copier-join-discord-for-more-discordggfreescript-232537\"))()")
+        addGame(7041939546, "Catalog Avatar Creator", "Copy Catalog Asset ID", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Catalog-Avatar-Creator-Copy-Catalog-Asset-ID-232493\"))()")
         addGame(103820982596314, "Catch A Fade 2", "infinite stamina (open source)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Catch-A-Fade-2-infinite-stamina-227254\"))()")
         addGame(6686932749, "Ceratosaurus | Prehistoria!", "Pr-historia melhor script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Ceratosaurus-or-Prehistoria!-Pr-historia-melhor-script-231226\"))()")
         addGame(10204250851, "CHAIN", "Kepler 2.0", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/CHAIN-Kepler-script-224141\"))()")
         addGame(10941514720, "Chaos Jenga", "Sp1ng Script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Chaos-Jenga-Sp1ng-Script-231977\"))()")
+        addGame(10941514720, "Chaos Jenga", "Auto Farm, Ram & Ghost Floor", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Chaos-Jenga-auto-farm-232216\"))()")
         addGame(15437737400, "CHAOS Remastered", "keyless killaura unpatched", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/CHAOS-Remastered-Sawed-off-Shotgun!-keyless-killaura-no-gui-works-with-any-weapon-223929\"))()")
         addGame(109680150977787, "Chaotic Battlegrounds", "Mod Menu", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Chaotic-Battlegrounds-Mod-Menu-230374\"))()")
         addGame(77321050433958, "Cheap HD Admin Tower [1 ROBUX]", "AUTO KICK EVERYONE OP SCRIPT", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Cheap-HD-Admin-Tower-1-ROBUX-AUTO-KICK-EVERYONE-OP-SCRIPT-223742\"))()")
         addGame(137233438285284, "Chicken Farm 🐣", "| Auto Farm, Rebirth & Rewards", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Chicken-Farm-or-Auto-Farm-Rebirth-and-Rewards-225726\"))()")
+        addGame(137233438285284, "Chicken Farm 🐣", "| OP | Keyless auto farm, auto upgrade e.t.c", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Chicken-Farm-or-OP-or-Keyless-auto-farm-auto-upgrade-e.t.c-230328\"))()")
         addGame(11573144182, "Choose Longest Emoji", "Auto answer and see longest emoji", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Choose-Longest-Emoji-Auto-answer-and-see-longest-emoji-223251\"))()")
         addGame(103363457515322, "Chop A Forest", "[ KEYLESS ] Chop a Forest Script", "loadstring(game:HttpGet(\"https://rscripts.net/raw/keyless-chop-a-forest-script_1792096937191_a8jlakBv9k.txt\"))()")
         addGame(130793019, "Classic Sonic Simulator V13.2", "CSS UnLocker", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Classic-Sonic-Simulator-V132-CSS-UnLocker-232355\"))()")
         addGame(105767799784652, "Clean the WORLD! [PRESTIGE!]", "Infinite Money,Gums", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Clean-the-WORLD!-PRESTIGE!-Infinite-MoneyGums-225817\"))()")
         addGame(85738654635245, "Climb For Animals Eggs🥚", "[KEYLESS] OP AUTO FARM AUTO UPGRADE AUTO HATCH AUTO PLACE", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Climb-For-Animals-Eggs-KEYLESS-OP-AUTO-FARM-AUTO-UPGRADE-AUTO-HATCH-AUTO-PLACE-232159\"))()")
         addGame(93934100402512, "Clover Time [BETA RELEASE]", "[ KEYLESS ] Clover Time Script", "loadstring(game:HttpGet(\"https://rscripts.net/raw/keyless-clover-time-script_1790925585004_VK9zNny4rt.txt\"))()")
-        addGame(13687899540, "Cold War [VIETNAM]", "ESP, Aimbot & Silent Aim | Vehicle ESP | Free, No Key", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Cold-War-VIETNAM-ESP-Aimbot-and-Silent-Aim-or-Vehicle-ESP-or-Free-No-Key-231540\"))()")
+        addGame(13687899540, "Cold War", "Allison.rip Cold War - Silent Aim - Esp - Car Killer -Keyles", "loadstring(game:HttpGet(\"https://rscripts.net/raw/allisonrip-cold-war-silent-aim-esp-car-killer-keyles_1792270704596_X2R2q0HpnF.txt\"))()")
+        addGame(13687899540, "Cold War", "ESP, Aimbot & Silent Aim | Vehicle ESP | Free, No Key", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Cold-War-VIETNAM-ESP-Aimbot-and-Silent-Aim-or-Vehicle-ESP-or-Free-No-Key-231540\"))()")
         addGame(91004304309345, "Collect All Eggs", "Best Autofarm", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Collect-All-Eggs-Best-Autofarm-230429\"))()")
         addGame(12781347095, "Color Hide and Seek", "Auto win RANOYSD", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Color-Hide-and-Seek-Auto-win-RANOYSD-231048\"))()")
+        addGame(101770480176177, "Command An Army", "[⚔️ BEST KEYLESS] Command An Army - AUTO FARM & KILL AURA &", "loadstring(game:HttpGet(\"https://rscripts.net/raw/best-keyless-command-an-army-auto-farm-and-kill-aura-and_1790962704683_lawUe2VK4p.txt\"))()")
+        addGame(101770480176177, "Command An Army", "[KEYLESS]Auto Daily Reward, Auto Claim Quests, Anti-AFK", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/MONGOLS-Command-An-Army-KEYLESSAuto-Daily-Reward-Auto-Claim-Quests-Anti-AFK-231721\"))()")
         addGame(73171381685005, "Convergence[PRE ALPHA]", "scrip", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/ConvergencePRE-ALPHA-scrip-224761\"))()")
         addGame(5593925613, "Countryball World 🌎", "Morph cbw script OP (free morphs)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Countryball-World-Morph-cbw-script-OP-free-morphs-232548\"))()")
         addGame(103490024394750, "CQB Hell", "NPC Head HItbox(Work IN Xeno too)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/CQB-Hell-Head-HItbox(Work-IN-Xeno-too)-224181\"))()")
@@ -411,6 +483,7 @@ do
         addGame(16893875714, "Crossroads Without Cooldown", "crash server (with 4 tool)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Crossroads-Without-Cooldown-crash-server-(with-4-tool)-228886\"))()")
         addGame(17820973696, "Cute Hair Obby for Boys [UGC HAIR]", "Inf spins nd more", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Cute-Hair-Obby-for-Boys-UGC-HAIR-Inf-spins-nd-more-225395\"))()")
         addGame(116495829188952, "Dead Rails", "RINGTA SCRIPT  KEYLESS", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Dead-Rails-RINGTA-SCRIPT-KEYLESS-224269\"))()")
+        addGame(116495829188952, "Dead Rails", "[NO KEY] *NEW 2026* BEST  Script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Dead-Rails-NO-KEY-NEW-2026-BEST-Script-232173\"))()")
         addGame(84556640895285, "Deagle Arena", "ESP, Aimbot, Triggerbot & Silent Aim | Bot Detector", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/EVENT-Deagle-Arena-ESP-Aimbot-Triggerbot-and-Silent-Aim-or-Bot-Detector-225414\"))()")
         addGame(9655781693, "Deathvslifepredic's Place", "open source fireall scp", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Deathvslifepredic's-Place-open-source-fireall-scp-225125\"))()")
         addGame(13438553315, "Decaying Winter", "Teddy's V0.1 | Open-source", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Decaying-Winter-Teddy's-V1-230593\"))()")
@@ -424,14 +497,18 @@ do
         addGame(121831322352666, "Dig For Eggs", "Best Auto Dig, Auto Farm Secret Eggs + KEYLESS", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Dig-For-Eggs-Best-Auto-Dig-Auto-Farm-Secret-Eggs-+-KEYLESS-230507\"))()")
         addGame(13924946576, "dingus", "NPC ESP [Matcha External]", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/dingus-Matcha-NPC-ESP-231145\"))()")
         addGame(94009908234110, "dogs🎃", "| SomeCheats", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/dogs-or-SomeCheats-232140\"))()")
+        addGame(94009908234110, "dogs🎃", "le rouge  script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/dogs-le-rouge-script-232031\"))()")
         addGame(121165298854655, "DON'T LET HIM IN [NEW MONSTER]", "Alo's Script -  (Keyless)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/DONT-LET-HIM-IN-NEW-MONSTER-Made-by-alos-232172\"))()")
         addGame(127332613700317, "DON'T LOOK BACK [PRE-ALPHA]", "player monster item ESP", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPDATE-DON'T-LOOK-BACK-PRE-ALPHA-player-monster-item-ESP-223662\"))()")
         addGame(6516141723, "DOORS 🚨", "Script Of J | keyless", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/DOORS-Script-Of-J-or-keyless-225637\"))()")
+        addGame(6516141723, "DOORS 🚨", "New Best Doors Script", "loadstring(game:HttpGet(\"https://rscripts.net/raw/new-best-doors-script_1789986234734_bq0n2FUj6t.txt\"))()")
+        addGame(6516141723, "DOORS 🚨", "FEROX", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/DOORS-FEROX-231278\"))()")
         addGame(17144377656, "DOORS: Rooms+", "Doors rooms plus menu", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/DOORS:-Rooms+-Doors-rooms-plus-menu-223012\"))()")
         addGame(298400657, "Dragon Ball Final: Reborn [NEW HUMAN FORM & MORE!]", "The Strongest Gui (SEMI - PATCHED)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Dragon-Ball-Final:-Reborn-NEW-HUMAN-FORM-and-MORE!-The-Strongest-Gui-(EXTREMELY-OP)-225615\"))()")
         addGame(2499981932, "Dragon Blox GT", "Auto train (PC Only)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Dragon-Blox-GT-Auto-train-(PC-Only)-230957\"))()")
         addGame(72988931267790, "Draw A Sleigh & Slide Downhill", "Inf Money And Boost", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Draw-A-Sleigh-and-Slide-Downhill-Inf-Money-And-Boost-224472\"))()")
         addGame(3351674303, "Driving Empire [✨RAM DEBUT✨ ]", "DELIVERY AUTOFARM 6MIL PER HOUR UPDATED", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/OFFROAD-Driving-Empire-Car-RacingRP-DELIVERY-AUTOFARM-6MIL-PER-HOUR-222855\"))()")
+        addGame(3351674303, "Driving Empire [✨RAM DEBUT✨ ]", "YANZ Best OP", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Driving-Empire-RIVIAN-DEBUT-YANZ-Best-OP-230590\"))()")
         addGame(75927771299860, "Driving Test 🚗", "Stage skipper", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Driving-Test-Stage-skipper-223581\"))()")
         addGame(130782443587508, "Dronefront [BALLISTIC]", "Recon", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Dronefront-Recon-225181\"))()")
         addGame(97038396539280, "DronePoint [FPV OVERHAUL + FIREFIGHTER BIG UPDATE]", "DP Crasher", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/DronePoint-FPV-OVERHAUL-+-FIREFIGHTER-BIG-UPDATE-DP-Crasher-225444\"))()")
@@ -439,6 +516,7 @@ do
         addGame(110216932344756, "Eat Keyboard To Grow", "Auto farm", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Eat-Keyboard-To-Grow-Auto-farm-227160\"))()")
         addGame(16480898254, "Eat the World", "NO KEY AUTO FARM MAGNET MONEYS AUTO REWARDS OPEN SOURCE", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Eat-the-World-NO-KEY-AUTO-FARM-MAGNET-MONEYS-AUTO-REWARDS-OPEN-SOURCE-231916\"))()")
         addGame(7711635737, "Emergency Hamburg", "Beanzz Best free script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Emergency-Hamburg-Beanzz-Best-free-script-224712\"))()")
+        addGame(7711635737, "Emergency Hamburg", "SorinScripts - Jobfarm Script for", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Emergency-Hamburg-SorinScripts-Jobfarm-Script-for-231581\"))()")
         addGame(3678761576, "ENTRENCHED WW1 🥀", "Aimbot ESP Smooth Aim Auto Aim Keyless Entrenched", "loadstring(game:HttpGet(\"https://rscripts.net/raw/aimbot-esp-smooth-aim-auto-aim-keyless-entrenched_1790614219146_2rN3M0dPf8.txt\"))()")
         addGame(139741617406598, "Escape Tsunami For Cars", "NEED SCRIPT FOR THIS GAME", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Escape-Tsunami-For-Cars-NEED-SCRIPT-FOR-THIS-GAME-225295\"))()")
         addGame(119579217517090, "Escape Waves For Lucky Blocks", "Best script by tik tok:Gde_ja_rbx", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Escape-Waves-For-Lucky-Blocks-Best-script-by-tik-tok:Gde_ja_rbx-231393\"))()")
@@ -449,13 +527,18 @@ do
         addGame(137095720966003, "Film Animals [1-6 Player]", "Not Really OP Script But Good Enough (Keyless)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Film-Animals-1-6-Player-Not-Really-OP-Script-But-Good-Enough-Keyless-232024\"))()")
         addGame(99925503388128, "Fishing Master", "[ KEYLESS ] Fishing Master Script", "loadstring(game:HttpGet(\"https://rscripts.net/raw/keyless-fishing-master-script_1790752393133_NgKwTMKNFf.txt\"))()")
         addGame(893973440, "Flee the Facility", "ORYN KEYLESS", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Flee-the-Facility-ORYN-KEYLESS-228355\"))()")
+        addGame(893973440, "Flee the Facility", "script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Flee-the-Facility-script-232177\"))()")
         addGame(18667984660, "Flex Your FPS And Ping!", "(FPS + RES + MEMORY - Spoofer)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Flex-Your-FPS-And-Ping!-(FPS-+-RES-+-MEMORY-Spoofer)-225267\"))()")
+        addGame(18667984660, "Flex Your FPS And Ping!", "fps cap script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Flex-Your-FPS-And-Ping!-fps-cap-script-231247\"))()")
         addGame(18695865484, "Flex Your Ping And FPS!", "FPS Spoofer", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Flex-Your-Ping-And-FPS-FPS-Spoofer-232012\"))()")
         addGame(6961824067, "Fling Things and People", "BEST  Script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Fling-Things-and-People-BEST-Script-225588\"))()")
+        addGame(6961824067, "Fling Things and People", "Resonance V2.9", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Fling-Things-and-People-Resonance-V29-232404\"))()")
         addGame(738339342, "Flood Escape 2 🌊", "[KEYLESS] Auto FE2", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Flood-Escape-2-KEYLESS-Auto-FE2-230140\"))()")
         addGame(99969762053741, "FLOW (v0.5)", "SCRIPT REQUEST", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/FLOW-(v0.5)-SCRIPT-REQUEST-222872\"))()")
         addGame(99001115434148, "Fluxo PVP [MATCHMAKING]", "script update to v0.2 silent aim esp open source", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Fluxo-PVP-LIMITED-EVENT-open-source-silent-aim-esp-ambient-:))-225392\"))()")
+        addGame(99001115434148, "Fluxo PVP [MATCHMAKING]", "Aimbot Open Source", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Fluxo-PVP-MATCHMAKING-AimbotOpen-Source-229155\"))()")
         addGame(82866880824588, "Football Fusion 3", "Opsei's Catching Magnets", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Football-Fusion-3-Opsei's-Catching-Magnets-224171\"))()")
+        addGame(82866880824588, "Football Fusion 3", "[KEYLESS + BALL MAGNET + AUTO QB ]", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Football-Fusion-3-KEYLESS-+-BALL-MAGNET-+-AUTO-QB-230267\"))()")
         addGame(117020342702668, "Foresters 🌳 [RELEASE]", "[KEYLESS]  - Auto Everything", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Foresters-RELEASE-KEYLESS-Auto-Everything-232299\"))()")
         addGame(91220286841086, "Forgotten Stories (WIP)", "Script Request", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Forgotten-Stories-(WIP)-Script-Request-224914\"))()")
         addGame(70386316385228, "FORTBLOX ⭐", "AIM + ESP", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/FORTBLOX-AIM-+-ESP-230973\"))()")
@@ -475,13 +558,16 @@ do
         addGame(97506470800237, "Guess the Anime Color", "Autofarm money keyless best", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Guess-the-Anime-Color-Autofarm-money-keyless-best-231915\"))()")
         addGame(73621314943835, "Guess the character color", "Auto guess correct color and more", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Guess-the-character-color-Auto-guess-correct-color-and-more-223576\"))()")
         addGame(106683702021527, "Guess the Slapper", "Guesstheslappertrollgui", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Guess-the-Slapper-Guesstheslappertrollgui-223213\"))()")
+        addGame(106683702021527, "Guess the Slapper", "Sp1ng Script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Guess-the-Slapper-Sp1ng-Script-232016\"))()")
         addGame(109294084812367, "GUI Creator [  not available ]", "Gui To Lua Roblox Studio", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/GUI-Creator-beta-Gui-To-Lua-Roblox-Studio-225792\"))()")
+        addGame(109294084812367, "GUI Creator [  not available ]", "convert Require (not script just ui)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/GUI-Creator-not-available-convert-Require-(not-script-just-ui)-228871\"))()")
         addGame(118055952211055, "Hack A Business", "[No Key!] Auto Farm,Server Esp,Bat Aura and More !", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Hack-A-Business-No-Key!-Auto-FarmServer-EspBat-Aura-and-More-!-224456\"))()")
         addGame(71174614435246, "Halo Archives {🔆}", "Halo Archives | Auto Collect + Walkspeed | KEYLESS", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Halo-Archives-Halo-Archives-or-Auto-Collect-Walkspeed-or-KEYLESS-232653\"))()")
         addGame(128715403389835, "Hamster Village🐹", "Best script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Hamster-Village-HamsterVillage-231157\"))()")
         addGame(6918802270, "Haze Seas", "KEYLESS INFINITE MONEY", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Haze-Seas-x2-MASTERY-Weekend-KEYLESS-INFINITE-MONEY-224170\"))()")
         addGame(108180124695820, "Highway Drifting: Hajwala", "auto farm cash", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Highway-Drifting:-Hajwala-auto-farm-cash-229558\"))()")
         addGame(77463332823746, "Hood Rivals", "Aimbot Esp Speed", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Hood-Rivals-Aimbot-Esp-Speed-224777\"))()")
+        addGame(77463332823746, "Hood Rivals", "Silent Aim Opensource", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Hood-Rivals-Silent-Aim-Opensource-228843\"))()")
         addGame(18482966119, "Horizon Blue: 1919", "| Horizon Blue 1919 | Silent Aim, ESP and MORE!", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Horizon-Blue:-1919-or-RaveHub!-Silent-Aim-ESP-and-MORE!-224136\"))()")
         addGame(5189834468, "Horror Tycoon", "SCRIPT REQUEST", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Horror-Tycoon-SCRIPT-REQUEST-224742\"))()")
         addGame(99523974184597, "HotDog Canyon 🌭  (Obby king)👑", "Spawn Blackhole", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/HotDog-Canyon-(Obby-king)-Spawn-Blackhole-231629\"))()")
@@ -493,12 +579,16 @@ do
         addGame(136680208905701, "Idle Ball Bounce 🟠", "Auto Money Auto Merge * Auto Buy * Keyless", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Idle-Ball-Bounce-Auto-Money-Auto-Merge-*-Auto-Buy-*-Keyless-224757\"))()")
         addGame(73897506680154, "Idle Mafia Game", "AUTOMATION, MARKET SNIPER, AUTO LIST, ETC KEYLESS", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Idle-Mafia-Game-script-keyless-new-230614\"))()")
         addGame(10031562156, "iiurgihfydhdy's Place", "backrooms company script FATALITY by derkolya", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/iiurgihfydhdy's-Place-backrooms-company-script-FATALITY-by-derkolya-223009\"))()")
+        addGame(126987974021910, "Illegal Soccer", "BEST KEYLESS ⚽ Illegal Soccer [AUTO PLAY + AUTO SHOOT 🔥]", "loadstring(game:HttpGet(\"https://rscripts.net/raw/best-keyless-illegal-soccer-auto-play-auto-shoot_1790905497218_5PhK7lfvq0.txt\"))()")
+        addGame(126987974021910, "Illegal Soccer", "SILENT AIM | ANTI RAGDOLL | AUTO SHOOT | INF STAMINA & MORE", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/RANKED!-Illegal-Soccer-SILENT-AIM-or-ANTI-RAGDOLL-or-AUTO-SHOOT-or-INF-STAMINA-and-MORE-229403\"))()")
         addGame(16993432698, "Impossible Squid Game Glass Bridge 2", "Esp bridge, god mode", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Impossible-Squid-Game-Glass-Bridge-2-Esp-bridge-god-mode-231203\"))()")
         addGame(9192423027, "Industrialist", "copy and paste", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Industrialist-copy-and-paste-222964\"))()")
+        addGame(9192423027, "Industrialist", "OP AI Helper Bot (Keyless/OpenSource)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Industrialist-OP-AI-Helper-Bot-(KeylessOpenSource)-229071\"))()")
         addGame(18940624531, "Infinite Journey", "OP Menu auto farm and more", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Infinite-Journey-OP-A-lot-of-damage!!-224239\"))()")
         addGame(120159974074508, "Ink game: Mingle practice QTE System RESET", "Auto QTE", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Ink-game:-Mingle-practice-QTE-System-RESET-Auto-QTE-223460\"))()")
         addGame(88241416576753, "INTRUDERS 👁", "Highlight the Monster", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/INTRUDERS-Highlight-the-Monster-231757\"))()")
         addGame(12805830692, "IQ Obby", "ALL IQS TOOLS WORKS NO KEY SUPPORTED ALL EXECUTERS", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/IQ-Obby-ALL-IQS-TOOLS-WORKS-NO-KEY-SUPPORTED-ALL-EXECUTERS-227083\"))()")
+        addGame(12805830692, "IQ Obby", "Scripy", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/IQ-Obby-Scripy-230032\"))()")
         addGame(11782774748, "IQ Test 🧠", "200 iq", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/IQ-Test-200-iq-224339\"))()")
         addGame(606849621, "Jailbreak", "Codecoat", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Jailbreak-Codecoat-230496\"))()")
         addGame(79214018458217, "Jokesaken 🤣", "Remove Anti-Dex/Anti-Decompile", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Jokesaken-Remove-Anti-Dex-225775\"))()")
@@ -513,9 +603,12 @@ do
         addGame(104856666707760, "Killstreak Battle Royale", "M4rkLose (KILLSTREAK)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/KILLSTREAK!-KILLSTREAK-v6-225353\"))()")
         addGame(18827535618, "Kingdom of The Termites", "Termite Gui Grab leaf, auto eat feed", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Kingdom-of-The-Termites-autofarm-and-leaf-grab-224664\"))()")
         addGame(138315746921381, "KJ game (Remake) [FREE SHINJI]", "Goto script blox and reas description after execute", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/KJ-game-Remake-FREE-SHINJI-AN-moveset-execute-after-serverhop-imhatefrends-232275\"))()")
+        addGame(138315746921381, "KJ game (Remake) [FREE SHINJI]", "Reset colldowns imhate_frends user yall", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/KJ-game-(Remake)-FREE-SHINJI-Reset-colldowns-231732\"))()")
         addGame(112731528776884, "KNIFE DUELS", "FREE RAGEBOT AIMBOT AND ESP", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/CARGO-KNIFE-DUELS-FREE-RAGEBOT-AIMBOT-AND-ESP-223279\"))()")
+        addGame(112731528776884, "KNIFE DUELS", "Keyless Mobile Support FemHook By panda22", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/KNIFE-DUELS-Keyless-Mobile-Support-FemHook-By-panda22-230031\"))()")
         addGame(4375619868, "Kohaú Hibachi Restaurant 🍣", "Anti Mod Kicker for Kohau", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Kohau-Hibachi-Restaurant-Anti-Mod-Kicker-for-Kohau-223417\"))()")
         addGame(14747334292, "Kohls Admin House X", "Kohls Admin House Troll v2", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Kohls-Admin-House-X-Kohls-Admin-House-Troll-v2-223529\"))()")
+        addGame(14747334292, "Kohls Admin House X", "KohlsNoob", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Kohls-Admin-House-X-KohlsNoob-229251\"))()")
         addGame(85967844112283, "Last Stop [Beta]", "Auto Farm Ocean Token", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Last-Stop-Beta-Auto-Farm-Ocean-Token-229347\"))()")
         addGame(10464611560, "ldtrong03112007's Place", "Find The Verity's Script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/ldtrong03112007's-Place-Find-The-Verity's-Script-225647\"))()")
         addGame(3101667897, "Legends Of Speed ⚡", "VOID STAR v2.6.1  L.O.S", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Legends-Of-Speed-VOID-STAR-v2.5.0-S.O.L-229110\"))()")
@@ -524,6 +617,7 @@ do
         addGame(109530157755211, "Lift a Cube", "LaCube | Auto Train&Cube", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Lift-a-Cube-LaCube-or-Auto-TrainandCube-229877\"))()")
         addGame(89186684667928, "limbus game", "free *les FE", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/limbus-game-free-*les-FE-223588\"))()")
         addGame(6737970321, "Livetopia 🏡 RP", "REALxSURAJ SPAMMER", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Livetopia-RP-REALxSURAJ-SPAMMER-227000\"))()")
+        addGame(6737970321, "Livetopia 🏡 RP", "RX SPAMMER S19", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Livetopia-RP-RX-SPAMMER-S19-229044\"))()")
         addGame(8571687919, "LOCOfficial!", "LocoOfficial Uno Script FIRST SCRIPT WORK OPENSOURCE", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/LOCOfficial!-LocoOfficial-Uno-Script-FIRST-SCRIPT-WORK-OPENSOURCE-223357\"))()")
         addGame(135512068353850, "Lowball 💰", "Script request", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Lowball-Script-request-227148\"))()")
         addGame(79148536770575, "Ludo Arena! 🎲 [2-4 Players]", "AUTO PLAY", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Ludo-Arena-2-4-Players-LUDO-AUTO-PLAY-232024\"))()")
@@ -537,6 +631,7 @@ do
         addGame(77682960030101, "MineBAT! [NEW UPDATE]", "Skylight Project", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/MineBAT!-Skylight-Project-224830\"))()")
         addGame(8112577171, "Misi's Playground", "MSPlayground | Admin Panel FE", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Misi's-Playground-MSPlayground-or-Admin-Panel-FE-228892\"))()")
         addGame(93017634738276, "MMV", "Matrixscope visual", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/MMV-Matrixscope-visual-222830\"))()")
+        addGame(93017634738276, "MMV", "forge", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/MMV-forge-231009\"))()")
         addGame(70417016586227, "Monster Runners [Alpha]", "*py escape farm script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Monster-Runners-Alpha-*py-escape-farm-script-223862\"))()")
         addGame(74188431054457, "Mukbang Game [Testing] 🍩🥟🍵!", "inf bite(work for fried chicken)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Mukbang-Game-Testing-!-inf-bite(work-for-fried-chicken)-225302\"))()")
         addGame(108276994232805, "Multiversal Battlegrounds", "free ea", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Multiversal-Battlegrounds-free-ea-224508\"))()")
@@ -544,13 +639,16 @@ do
         addGame(108809841388051, "Musical Tiles '26 🎶", "Auto Player", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Musical-Tiles-'26-Auto-Player-223315\"))()")
         addGame(12355337193, "MVSD | Murderers VS Sheriffs Duels", "Vexal Scripts MVSD Keyless V3 NEW UPDATED", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Murderers-VS-Sheriffs-DUELS-Vexal-Scripts-MVSD-Keyless-V3-NEW-UPDATED-224938\"))()")
         addGame(189707, "Natural Disaster Survival", "Super ring v1 ((No stealing)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Natural-Disaster-Survival-Super-ring-v1-225660\"))()")
+        addGame(189707, "Natural Disaster Survival", "Reyzn X | New Version super OP", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Natural-Disaster-Survival-HzReyzn-Hub-or-Last-Update-229523\"))()")
         addGame(10118559731, "nico's nextbots 🌸", "ULTIMATE AUTOFARM, SPEED, ETC. GUI", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/nicos-nextbots-ULTIMATE-AUTOFARM-SPEED-ETC-GUI-232529\"))()")
+        addGame(10118559731, "nico's nextbots 🌸", "Nicos Menu V2", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/nico's-nextbots-Nicos-Menu-V2-230904\"))()")
         addGame(21532277, "Notoriety: A PAYDAY® Experience", "KEYLESS Allison-Notoriety Silent Aim, Item Spawner, NPC ESP", "loadstring(game:HttpGet(\"https://rscripts.net/raw/keyless-allison-notoriety-silent-aim-item-spawner-npc-esp_1792270778188_8Ilir7pevr.txt\"))()")
         addGame(129279692364812, "Nullscape [DOOM IN BLOOM]", "Overpowered autofarm", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Nullscape-DOOM-IN-BLOOM-Overpowered-autofarm-222868\"))()")
         addGame(14753017334, "obby for free owner admin", "Lazy Script V4 | Better Ver", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/obby-for-free-owner-admin-Lazy-Script-V2-or-Rayfield-228994\"))()")
         addGame(140322231839637, "ONE TAP PISTOLS [UPDATE]", "BEST  Script OPEN SOURCE", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/ONE-TAP-PISTOLS-UPDATE-BEST-Script-OPEN-SOURCE-231122\"))()")
         addGame(12408603754, "Onikami", "Commision request. (ill pay for this script)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Onikami-Commision-request.-(ill-pay-for-this-script)-225441\"))()")
         addGame(18382602608, "Our Execution [V7.8a.0: Medical Aid & More]", "Hitbox Expander", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Our-Execution-Hitbox-Expander-223090\"))()")
+        addGame(18382602608, "Our Execution [V7.8a.0: Medical Aid & More]", "Menu Gui", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Our-Execution-V7.8a.0:-Medical-Aid-and-More-Menu-Gui-230837\"))()")
         addGame(122700472919801, "PANTSIR", "Auto", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/PANTSIR-Auto-230008\"))()")
         addGame(128718867767713, "Parkour Pandemic [UPDATE 2!]", "script (not made by me)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Parkour-Pandemic-UPDATE-2!-script-(not-made-by-me)-231316\"))()")
         addGame(116701845804918, "Peel THE Potato", "[ KEYLESS ] Peel THE Potato Script", "loadstring(game:HttpGet(\"https://rscripts.net/raw/keyless-peel-the-potato-script_1791344601561_HBr4qffX1r.txt\"))()")
@@ -559,19 +657,23 @@ do
         addGame(86559789336379, "Phonk Admin Tower 🎵 [8 ROBUX]", "SFLY TP WIN", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Phonk-Admin-Tower-8-ROBUX-SFLY-TP-WIN-228995\"))()")
         addGame(101999883467300, "Piano Rhythm Tiles", "[KEYLESS] NICE FEATURES", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Piano-Rhythm-Tiles-KEYLESS-NICE-FEATURES-232142\"))()")
         addGame(4623386862, "Piggy [MR. STITCHY]", "Control bots", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Piggy-Control-bots-228538\"))()")
+        addGame(4623386862, "Piggy [MR. STITCHY]", "Simple Control  (OpenSourse)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Piggy-SEASON-9-FRIGHT-NIGHT-Simple-Control-(OpenSourse)-231199\"))()")
         addGame(18172550962, "Pixel Blade [Early Access]", "[ KEYLESS ] Pixel Blade Script", "loadstring(game:HttpGet(\"https://rscripts.net/raw/keyless-pixel-blade-script_1791562365744_gMUqbOiynJ.txt\"))()")
         addGame(138110382920220, "Pixel Conquest", "PIXEL CONQUEST SCRIPT OP AUTO", "loadstring(game:HttpGet(\"https://rscripts.net/raw/pixel-conquest-script-op-auto_1791694107354_5jBN6SBJr5.txt\"))()")
         addGame(126256942507957, "Pixel Lineage [HALLOWEEN]", "[ KEYLESS ] Pixel Lineage Script", "loadstring(game:HttpGet(\"https://rscripts.net/raw/keyless-pixel-lineage-script_1791609363890_uk58S8QmYt.txt\"))()")
         addGame(123414640536127, "Power Lifters 💪", "svimtysScripts2", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Power-Lifters-svimtysScripts2-224989\"))()")
         addGame(81549698024226, "Power Your City", "Power your c1ty", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Power-Your-City-script-by-melvinnotgood661-222821\"))()")
         addGame(12411473842, "Pressure", "God Mode / Auto Loot / ESP / Full Bright / No Eyefestation", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPDATE-Pressure-God-Mode-Auto-Loot-ESP-Full-Bright-No-Eyefestation-224409\"))()")
+        addGame(12411473842, "Pressure", "stuff", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Pressure-stuff-230718\"))()")
         addGame(3804735158, "Princess Tycoon", "NO KEY Kill aura, esp, auto crate, tp tycoon and many more", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Princess-Tycoon-Kill-aura-esp-auto-crate-tp-tycoon-and-many-more-232522\"))()")
         addGame(110879289368804, "Prison Fight", "request for script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Prison-Fight-script-for-request-227093\"))()")
         addGame(155615604, "Prison Life", "Cheatxz,  Script (Keyless, OP)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Prison-Life-Cheatxz-Script-(Keyless-OP)-224705\"))()")
+        addGame(155615604, "Prison Life", "NightFall", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Prison-Life-NightFall-232019\"))()")
         addGame(107377364123237, "Prison RP 🚨", "I created an invincibility script in the  map", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Prison-RP-I-created-an-invincibility-script-in-the-map-223275\"))()")
         addGame(9093954913, "Project slayer 2 👺", "[Major Fix] AutoFarm, Auto Boss, Keyless , Undetected & More", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Project-slayer-2-Best-Script-AutoFarm-Auto-Boss-Keyless-and-More-228870\"))()")
         addGame(12929185209, "PUBG 2.0", "KILL ALL", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/PUBG-2.0-KILL-ALL-223191\"))()")
         addGame(121903154323395, "PURSUITCORE", "ESP for zombies users and terminators", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/PURSUITCORE-KILLER-SUMMER-ESP-for-zombies-users-and-terminators-222988\"))()")
+        addGame(121903154323395, "PURSUITCORE", "Custom Ability: Speed Boost!", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/PURSUITCORE-Custom-Ability-Speed-Boost-232167\"))()")
         addGame(17783560582, "Pyro Playground 💥 [UPDATE]", "Pyro Panel For", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Pyro-Playground-UPDATE-Pyro-Panel-For-228971\"))()")
         addGame(15561786880, "QUICKDRAW: LEGACY", "Crosshair I AnnoScripts", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/QUICKDRAW:-LEGACY-Crosshair-I-AnnoScripts-223449\"))()")
         addGame(6165420832, "Ragdoll Engine", "obunga jumpscare", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Ragdoll-Engine-obunga-jumpscare-228854\"))()")
@@ -595,13 +697,17 @@ do
         addGame(15363062864, "ROOMS: REVISITED 📦", "ROOMS REVISITED SCRIPT", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/ROOMS:-REVISITED-script-(Read-the-description!!)-231524\"))()")
         addGame(94702395375549, "Run For Brainrots!", "Notification for everyone", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Run-For-Brainrots!-Notification-for-everyone-223483\"))()")
         addGame(118418618261207, "RUNAWAYS [beta]", "Script [Opensrc]", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/RUNAWAYS-beta-Script-Opensrc-224213\"))()")
+        addGame(118418618261207, "RUNAWAYS [beta]", "super op basic  script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/RUNAWAYS-beta-super-op-basic-script-229317\"))()")
         addGame(12625784503, "Saber Showdown", "Swing speed", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Saber-Showdown-Swing-speed-223309\"))()")
         addGame(136533898820733, "scary baboon rp black goo goo's arival", "Object destroyer (FREE VIP AND OWNER STUFF)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/scary-baboon-rp-black-goo-goo's-arival-Object-destroyer-(FREE-VIP-AND-OWNER-STUFF)-225725\"))()")
         addGame(7253149844, "SCP Games and SCP Monsters", "SCP Games Script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/SCP-Games-and-SCP-Monsters-SCP-Games-Script-232535\"))()")
+        addGame(7253149844, "SCP Games and SCP Monsters", "Control The Scps/Npcs", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/SCP-Games-and-SCP-Monsters-Control-The-ScpsNpcs-231835\"))()")
         addGame(116715594996035, "SCP: Anomaly Breach 2 [Fanmabe]", "V2SCP Anomaly Breach", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/SCP:-Anomaly-Breach-2-Fanmabe-V2SCP-Anomaly-Breach-223774\"))()")
         addGame(103506116893376, "SCP: Anomaly Site", "SCP Anomaly Site", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/SCP:-Anomaly-Site-SCP-Anomaly-Site-223802\"))()")
         addGame(5041144419, "SCP: Roleplay", "SG Silent Aim V2", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/SCP:-Roleplay-SG-Silent-Aim-V2-223010\"))()")
+        addGame(5041144419, "SCP: Roleplay", "OVERDOSE.GG - NO KEY", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/SCP:-Roleplay-OVERDOSE.GG-NO-KEY-230188\"))()")
         addGame(76427445314955, "Scream City 2 🎃", "Vice Autofarm Script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/POLICE-Vice-City-2-Vice-Autofarm-Script-223499\"))()")
+        addGame(76427445314955, "Scream City 2 🎃", "DH  (FREE SCRIPT)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Vice-City-2-DH-(FREE-SCRIPT)-230422\"))()")
         addGame(97927337336367, "SCROOMS 🍄", "[ KEYLESS ] SCROOMS Script", "loadstring(game:HttpGet(\"https://rscripts.net/raw/keyless-scrooms-script_1791654716697_KjfbtT5vh1.txt\"))()")
         addGame(16039690331, "Secret Killer", "Asesino Secreto GUI", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Secret-Killer-Asesino-Secreto-GUI-231031\"))()")
         addGame(124958519777692, "Security vs Smugglers", "Auto ESP Smugglers Police and others Win smuggler", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Security-vs-Smugglers-Auto-ESP-Smugglers-Police-and-others-Win-smuggler-227177\"))()")
@@ -629,6 +735,7 @@ do
         addGame(126344057129519, "Steal and Ride", "[ KEYLESS ] Steal and Ride Script", "loadstring(game:HttpGet(\"https://rscripts.net/raw/keyless-steal-and-ride-script_1791613963943_9e5qdsZt9I.txt\"))()")
         addGame(82081400078378, "Steal ASMR!", "NEW AUTO STEAL METHOD", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Steal-ASMR-NEW-AUTO-STEAL-METHOD-231939\"))()")
         addGame(119925538689885, "Steal Or Die [UPDATE!]", "Power Panel from teerace", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Steal-Or-Die-UPDATE-Power-Panel-for-232607\"))()")
+        addGame(119925538689885, "Steal Or Die [UPDATE!]", "Best  Script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Steal-Or-Die-UPDATE-best-script-232221\"))()")
         addGame(104808235862933, "step carefully", "AUTO COMPLETE ALL LEVELS", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/step-carefully-AUTO-COMPLETE-ALL-LEVELS-223493\"))()")
         addGame(696347899, "Stepford County Railway 🚉", "Auto Farm, Autopilot, Bypass SPAD, and more", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Stepford-County-Railway-Autopilot-231300\"))()")
         addGame(136372246050123, "STICK BATTLES 🍢", "Kill aura-auto coins-ant afk=FARM COINS E PLAYER AFK", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/STICK-BATTLES-Combate-de-varas-230327\"))()")
@@ -642,17 +749,22 @@ do
         addGame(124713472113772, "test jsd", "get secret world cl* candy maker character", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/test-jsd-get-secret-world-cl*-candy-maker-character-225790\"))()")
         addGame(121455614269435, "TGI - FPS Shot Exchange", "ANON HUSH Aimbot", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/TGI-FPS-Shot-Exchange-ANON-HUSH-Aimbot-229042\"))()")
         addGame(10834586502, "The Battle Bricks", "CGJ projectiles Better N better Mod", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/The-Battle-Bricks-CGJ-projectiles-Better-N-better-Mod-224341\"))()")
+        addGame(10834586502, "The Battle Bricks", "Game-Kid {Carnival Disaster}", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/The-Battle-Bricks-Game-KidStage-Carnival-Disaster-231005\"))()")
         addGame(11137575513, "The Chosen One", "eleven's script pack", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/The-Chosen-One-eleven's-script-pack-225387\"))()")
+        addGame(11137575513, "The Chosen One", "Tachyon Ware OPENSOURCED (AI MADE)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/The-Chosen-One-Tachyon-Ware-OPENSOURCED-(AI-MADE)-231287\"))()")
         addGame(13664698400, "The Classic Soccer", "NEUER TCS V1", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/The-Classic-Soccer-NEUER-TCS-V1-231019\"))()")
         addGame(87638937916386, "The Fields [UPDATE]", "Item Giver and NPC Hitbox Expander", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/The-Fields-UPDATE-Item-Giver-and-NPC-Hitbox-Expander-223204\"))()")
         addGame(123516846332753, "The Glass Bridge", "ESP Gl*", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/The-Glass-Bridge-ESP-Gl*-229283\"))()")
         addGame(74205509034203, "The Hunt: Roblox 20", "ZenithUtility | Roblox 20th Event", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/The-Hunt:-Roblox-20-ZenithUtility-or-Roblox-20th-Event-229026\"))()")
         addGame(102871156420149, "The Lost Front", "Aimbot Esp And More Op Script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/The-Lost-Front-Aimbot-Esp-And-More-Op-Script-222992\"))()")
+        addGame(102871156420149, "The Lost Front", "FemHook", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/The-Lost-Front-FemHook-228860\"))()")
+        addGame(102871156420149, "The Lost Front", "The Lost Front Rework", "loadstring(game:HttpGet(\"https://rscripts.net/raw/the-lost-front-rework_1792446278001_drfS6Vdydv.txt\"))()")
         addGame(6243699076, "The Mimic", "Toolbox for Roblox (BOOK 2 CHAPTER 4) [Keyless]", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/The-Mimic-Toolbox-for-Roblox-Keyless-228860\"))()")
         addGame(14776455817, "The Most P2W OBBY", "missing", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/The-Most-P2W-OBBY-OP-Infinite-Jumps-and-Steps-224447\"))()")
         addGame(2413927524, "The Rake REMASTERED", "Fake \"Infinite Stamina\"", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/The-Rake-REMASTERED-Rake-\"Infinite-Stamina\"-231822\"))()")
         addGame(124780436553035, "The Staircase [Alpha v1.14]", "SCP Immunity, Auto Descend, ESP, Fullbright, & More", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/The-Staircase-Alpha-v1.14-SCP-Immunity-Auto-Descend-ESP-Fullbright-and-More-230591\"))()")
         addGame(10449761463, "The Strongest Battlegrounds", "067 Crushing Pull Range Expander TSB", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/The-Strongest-Battlegrounds-067-Crushing-Pull-Range-Expander-TSB-224251\"))()")
+        addGame(10449761463, "The Strongest Battlegrounds", "Best keyless tsb script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/The-Strongest-Battlegrounds-Best-keyless-tsb-script-231002\"))()")
         addGame(8473958692, "The Trials [PHASE 0]", "PHASE 1", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/The-Trials-PHASE-0-PHASE-1-225066\"))()")
         addGame(17805166690, "The Undead Coming (2026)", "Server Crash [Please read the description]", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/The-Undead-Coming-2026-Server-Crash-Script-232077\"))()")
         addGame(128039018996175, "The Walking Dead Online", "EXTERNAL.VIP BEST *FREE TWD 3 SCRIPT* NOCLIP SILENT AIM", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/The-Walking-Dead-Online-EXTERNALVIP-BEST-FREE-TWD-3-SCRIPT-NOCLIP-SILENT-AIM-232134\"))()")
@@ -665,18 +777,23 @@ do
         addGame(4889315193, "Total Roblox Drama", "Azu Wave (better than dramaware)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Total-Roblox-Drama-Azu-Wave-(better-than-dramaware)-224273\"))()")
         addGame(75755764395750, "TOTAL WAR [FACTIONS]", "(Esp/Killall/Fly/silentaim)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/TOTAL-WAR-FACTIONS-(EspKillallFlysilentaim)-223948\"))()")
         addGame(1962086868, "Tower of Hell", "god mode (opensrc)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Tower-of-Hell-god-mode-(opensrc)-224953\"))()")
+        addGame(1962086868, "Tower of Hell", "infinite jump", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Tower-of-Hell-infinite-jump-231383\"))()")
         addGame(5783581, "TPS: Ultimate Soccer ⚽", "Tps ultimate LARPS.LAT LEGACY OLD REACH", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/TPS:-Ultimate-Soccer-Tps-ultimate-LARPS.LAT-LEGACY-OLD-REACH-224759\"))()")
         addGame(9524634157, "TRAVERSAL", "UPDATED", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/TRAVERSAL-(OP-SCRIPT-UPDATED-2026)-225079\"))()")
         addGame(12141819334, "Trench Combat 💥", "script overstate1337 combat", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Trench-Combat-script-overstate1337-combat-230608\"))()")
         addGame(6654918151, "Trench War", "OP Trolloko Admin Panel added NEW Game KEYLESS", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Trench-War-OP-Trolloko-Admin-Panel-added-NEW-Game-KEYLESS-223767\"))()")
+        addGame(6654918151, "Trench War", "LuisBR4", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Trench-War-LuisBR4-229065\"))()")
         addGame(72169370437173, "Tribes 3v3 [RANKED!]", "Proj Aim, Auto shoot, ESP", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Tribes-3v3-RANKED-Proj-Aim-Auto-shoot-ESP-232442\"))()")
+        addGame(72169370437173, "Tribes 3v3 [RANKED!]", "Safe-SlientAim open-source", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Tribes-3v3-RANKED-Safe-SlientAim-open-source-232472\"))()")
         addGame(103037106396302, "TROLL Hug Tower", "Op Script AUTOGRABBER AUTOTHROW AND MANY MORE FEATURES", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/TROLL-Hug-Tower-Op-Script-AUTOGRABBER-AUTOTHROW-AND-MANY-MORE-FEATURES-225296\"))()")
+        addGame(103037106396302, "TROLL Hug Tower", "BEST  SCRIPT KEYLESS", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/TROLL-Hug-Tower-BEST-SCRIPT-KEYLESS-229079\"))()")
         addGame(83312952548612, "Troll is a pinning tower 2", "Op troll is a pinning 2 script keyless", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Troll-is-a-pinning-tower-2-Op-troll-is-a-pinning-2-script-keyless-225145\"))()")
         addGame(12377995562, "Trollge Incident Fights Reborn", "Combat Bot TIFR (Open Source)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Trollge-Incident-Fights-Reborn-Combat-Bot-TIFR-(Open-Source)-230463\"))()")
         addGame(120189115846709, "TTK Testing [SERVERBROWSER]", "[ring]  - KEYLESS, Killall, Fly, ESP, Silent Aim", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/TTK-Testing-MAP-VOTING-ring-KEYLESS-Killall-Fly-ESP-Silent-Aim-223990\"))()")
         addGame(17122706530, "Tuantu's lobotomization branches", "Lobotomization Project", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Tuantu's-lobotomization-branches-Lobotomization-Project-231598\"))()")
         addGame(89306741986670, "Turkish Soldier Game", "TAF", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Turkish-Soldier-Game-TAF-232617\"))()")
         addGame(6161235818, "Twisted [BETA]", "Money >:D", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Twisted-BETA-Money-greaterD-232515\"))()")
+        addGame(6161235818, "Twisted [BETA]", "CataClysm", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Twisted-BETA-CataClysm-228952\"))()")
         addGame(128107871641118, "Type To Kill", "OP KEYLESS", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Type-To-Kill-OP-KEYLESS-230447\"))()")
         addGame(134720269349402, "UAV STRIKE [NEW BUILDINGS]", "Drone esp and kill aura", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UAV-STRIKE-NEW-BUILDINGS-Drone-esp-and-kill-aura-222941\"))()")
         addGame(8146731988, "Ultra Power Tycoon", "UPT No key script 2026", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Ultra-Power-Tycoon-UPT-No-key-script-2026-231279\"))()")
@@ -685,9 +802,11 @@ do
         addGame(73962871684030, "UNPUBLISHED [PRE-ALPHA]", "BEST SCRIPT OUT FREE KEYLESS SOURCE CODE", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UNPUBLISHED-PRE-ALPHA-BEST-SCRIPT-OUT-FREE-KEYLESS-SOURCE-CODE-229818\"))()")
         addGame(117239597876170, "UPGRADER - Upgrade your skins!", "Ai Auto farm AskCode script v4", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPGRADER-Upgrade-your-skins!-AskCode-script-v4-225523\"))()")
         addGame(15784744207, "Valley Prison", "Lasion (keyless & free)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Valley-Prison-Lasion-(keyless-and-free)-224453\"))()")
+        addGame(15784744207, "Valley Prison", "Gun spawner (Free & keyless)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Valley-Prison-Gun-spawner-(Free-and-keyless)-231207\"))()")
         addGame(104526416639079, "Verity's Game", "Verity Giver v2 Op", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Verity's-Game-Verity-Giver-v2-Op-228881\"))()")
         addGame(5593470048, "Visual Pianos 🎹", "Piano Semi-auto play", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Visual-Pianos-Piano-Semi-auto-play-225257\"))()")
         addGame(127117970922739, "voice chat hangout", "Op Script *Kick player jumpscare all show text and more*", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/VoiceChat-Hangout-16-Op-Script-Kick-player-jumpscare-all-show-text-and-more-231999\"))()")
+        addGame(127117970922739, "voice chat hangout", "Give btools", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/voice-chat-hangout-Give-btools-232408\"))()")
         addGame(106838580527183, "Voxels", "Best Overpowered KEYLESS script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Voxels-Best-Overpowered-KEYLESS-script-224580\"))()")
         addGame(103185879508967, "Wall Hop Battles", "Autoplay", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Wall-Hop-Battles-Autoplay-225751\"))()")
         addGame(5044920251, "Wall Hop Practice", "wallhop2k", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Wall-Hop-Practice-wallhop2k-228848\"))()")
@@ -702,6 +821,8 @@ do
         addGame(13718567207, "Wonderland", "Aurora V1.5 - AutoCollect, AutoFarm, Speed, Esp", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Wonderland-or-Aurora-V1.5-AutoCollect-AutoFarm-Speed-Esp-224231\"))()")
         addGame(110139475350829, "worm cave", "FuF panel", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/worm-cave-FuF-panel-229111\"))()")
         addGame(116971639977587, "Would You Rather: Brainrot Evolution Tower 🧠", "Keyless Script by rndm", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Would-You-Rather-Brainrot-Evolution-Tower-Script-No-Key-232379\"))()")
+        addGame(2809202155, "Your Bizarre Adventure", "Phantom | Auto-farm, Auto-sell, ESP, TP keyless script", "loadstring(game:HttpGet(\"https://rscripts.net/raw/phantom-or-auto-farm-auto-sell-esp-tp-keyless-script_1790795825925_174cR5BH79.txt\"))()")
+        addGame(2809202155, "Your Bizarre Adventure", "MethionV2 I Yba Script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Your-Bizarre-Adventure-MethionV2-I-Yba-Script-232487\"))()")
         addGame(11109756592, "YouTube Simulator Z", "Auto Press and Inf SD", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/YouTube-Simulator-Z-Auto-Press-and-Inf-SD-223054\"))()")
         addGame(6741970382, "Zombie lab [Equal Avatar Scale📏]", "GodMode", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Zombie-lab-Equal-Avatar-Scale-GodMode-223384\"))()")
         addGame(82457571485380, "Zombie Rush Survival 🧟‍♂️", "Silent Aim", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Zombie-Rush-Survival-Silent-Aim-230380\"))()")
@@ -723,18 +844,22 @@ do
         addGame(79389059854988, "⛏️ My Anime Mine", "[KEYLESS]Auto Upgrade, Auto Equip, Auto Zone, Auto Pickaxe", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/UPD-6-My-Anime-Mine-KEYLESSAuto-Upgrade-Auto-Equip-Auto-Zone-Auto-Pickaxe-232534\"))()")
         addGame(13429790955, "⛱️ Murderers vs Sheriffs 2", "Sw.client", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Murderers-vs-Sheriffs-2-Sw.client-225504\"))()")
         addGame(8663318501, "✨ F3X Building Tools", "Music f3x noot noot", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/F3X-Building-Tools-Music-f3x-noot-noot-223628\"))()")
+        addGame(8663318501, "✨ F3X Building Tools", "Drawing sleeping  by Goner_66601", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/F3X-Building-Tools-Drawing-sleeping-by-Goner_66601-231522\"))()")
         addGame(5991163185, "❄️ Spray Paint!", "BACKK ! AutoDraw Images ll Mewli", "loadstring(game:HttpGet(\"https://rscripts.net/raw/backk-autodraw-images-ll-mewli_1791823699166_ZHPE4lTTae.txt\"))()")
         addGame(662417684, "❓ LUCKY BLOCKS Battlegrounds", "Best Script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/LUCKY-BLOCKS-Battlegrounds-Best-Script-224382\"))()")
+        addGame(662417684, "❓ LUCKY BLOCKS Battlegrounds", "Khamsha's duck", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/LUCKY-BLOCKS-Battlegrounds-Lucky-block-Script-Ss-229749\"))()")
         addGame(114444846884753, "🌙 Jump Rope to the Moon!", "Auto Jump, Auto Retry, Auto Pick, God Mode, & More", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Jump-Rope-to-the-Moon!-Auto-Jump-Auto-Retry-Auto-Pick-God-Mode-and-More-231586\"))()")
         addGame(13822889, "🌳 Lumber Tycoon 2", "Dupe Axe Paid", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Lumber-Tycoon-2-SCRIPT-DUPLICATE-AXE-V3-KEYLESS-227198\"))()")
+        addGame(13822889, "🌳 Lumber Tycoon 2", "auto farm, tree finder etc. | lumber tycoon 2", "loadstring(game:HttpGet(\"https://rscripts.net/raw/auto-farm-tree-finder-etc-or-lumber-tycoon-2_1791986658937_EiqeUIFl0T.txt\"))()")
         addGame(93028168925975, "🌷 My Flower Shop", "[No Key] Auto Harvest,Plant,Supply,Checkout and more !", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/My-Flower-Shop-No-Key-Auto-HarvestPlantSupplyCheckout-and-more-!-224881\"))()")
         addGame(92637789841354, "🍃 Clean all the Leaves", "Script Op", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Clean-all-the-Leaves-or-Script-230769\"))()")
         addGame(192800, "🍕Work at a Pizza Place", "Rightwhrite", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Work-at-a-Pizza-Place-Rightwhrite-222952\"))()")
+        addGame(192800, "🍕Work at a Pizza Place", "FE Face Changer", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Work-at-a-Pizza-Place-FE-Face-Changer-230196\"))()")
         addGame(16116270224, "🎃 Dandy's World [ALPHA]", "b*ies fun gui", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Dandy's-World-ALPHA-b*ies-fun-gui-225161\"))()")
         addGame(12337261447, "🎃 Studlands", "FREEDOM (Fixed&Updated)", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Studlands-FREEDOM-(FixedandUpdated)-231798\"))()")
-        addGame(2809202155, "🎃 Your Bizarre Adventure 🎃", "MethionV2 I Yba Script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Your-Bizarre-Adventure-MethionV2-I-Yba-Script-232487\"))()")
         addGame(117690288889971, "🎃Fright Fighters", "Infinite stamina", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Fright-Fighters-Infinite-stamina-232016\"))()")
         addGame(3623096087, "🎃Muscle Legends [x2 Weekend]", "4EAS", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Muscle-Legends-UPDATE-4EAS-225553\"))()")
+        addGame(3623096087, "🎃Muscle Legends [x2 Weekend]", "Proton Services", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Muscle-Legends-Proton-Services-229188\"))()")
         addGame(96280251181127, "🎃⚔️Build to Defend Loot", "Trips", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Build-to-Defend-Loot-Trips-232623\"))()")
         addGame(10595058975, "🎭 Arcane Lineage", "simple auto dodge", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Withered-Grove-Arcane-Lineage-simple-auto-dodge-225591\"))()")
         addGame(15583100726, "🏀 Basketball Stars 3", "SL", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Basketball-Stars-3-SL-224925\"))()")
@@ -747,6 +872,7 @@ do
         addGame(116837678487831, "💅 Baddie Bounces", "[ KEYLESS ] Baddie Bounces Script [ PEAK ]", "loadstring(game:HttpGet(\"https://rscripts.net/raw/keyless-baddie-bounces-script-peak_1791649046210_txa0Jt3AI8.txt\"))()")
         addGame(2248408710, "💥 Destruction Simulator", "VOID STAR v1.2.0 D.S", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Destruction-Simulator-VOID-STAR-v1.2.0-D.S-229219\"))()")
         addGame(91514145260129, "📒 Brazilian School [RP]", "ESCOLA BRASILEIRA script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Brazilian-School-RP-ESCOLA-BRASILEIRA-225231\"))()")
+        addGame(91514145260129, "📒 Brazilian School [RP]", "Escola Brasileira Free Gamepass", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Brazilian-School-RP-Escola-Brasileira-Free-Gamepass-232136\"))()")
         addGame(8737899170, "🔥 [BLOOD MOON] Pet Simulator 99! 👻", "ZWARE KEYLESS", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/PINATA-MAZE-Pet-Simulator-99!-ZWARE-KEYLESS-223791\"))()")
         addGame(73227142902215, "🔥Fantasy Arena🔥[Magma]", "Opensource and No Key", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Fantasy-ArenaMagma-Opensource-and-No-Key-222815\"))()")
         addGame(166986752, "🔨Plane Crazy🔨 [UPDATE]", "Missile Script", "loadstring(game:HttpGet(\"https://scriptblox.com/raw/Plane-Crazy-UPDATE-Missile-Script-223131\"))()")
@@ -1623,6 +1749,339 @@ do
             TweenService:Create(btnGetKey, TweenInfo.new(0.3), { BackgroundTransparency = 0 }):Play()
         end
 
+        --------------------------------------------------------------------------
+        -- MULTI-SCRIPT SELECTION MODAL
+        -- Prompts the player to choose which script to run when a game has 2+ scripts
+        --------------------------------------------------------------------------
+        function AuthPrompt:PromptScriptSelection(gameData, onSelected)
+            if not gameData or type(gameData) ~= "table" then return end
+            local scripts = gameData.Scripts or {}
+            if #scripts <= 1 then
+                if type(onSelected) == "function" then
+                    onSelected(scripts[1] or gameData)
+                end
+                return
+            end
+
+            local parent = getGuiParent()
+            local old = parent:FindFirstChild("Atomware_ScriptSelector")
+            if old then
+                old:Destroy()
+            end
+
+            local screenGui = Instance.new("ScreenGui")
+            screenGui.Name = "Atomware_ScriptSelector"
+            screenGui.ResetOnSpawn = false
+            screenGui.DisplayOrder = 2050
+            screenGui.IgnoreGuiInset = true
+            screenGui.Parent = parent
+
+            -- Pure floating modal card (no backdrop dim or gradients)
+            local card = Instance.new("Frame")
+            card.Name = "SelectorModal"
+            card.BackgroundColor3 = Color3.fromRGB(18, 16, 26)
+            card.AnchorPoint = Vector2.new(0.5, 0.5)
+            card.Position = UDim2.new(0.5, 0, 0.5, 0)
+
+            local cardCount = #scripts
+            local listHeight = math.min(cardCount * 66, 264)
+            local totalHeight = 44 + 48 + listHeight + 16
+            card.Size = UDim2.new(0, 420, 0, totalHeight)
+            card.BorderSizePixel = 0
+            card.ClipsDescendants = false
+            card.Parent = screenGui
+
+            local cardCorner = Instance.new("UICorner")
+            cardCorner.CornerRadius = UDim.new(0, 14)
+            cardCorner.Parent = card
+
+            local cardStroke = Instance.new("UIStroke")
+            cardStroke.Name = "CardStroke"
+            cardStroke.Color = Color3.fromRGB(44, 38, 66)
+            cardStroke.Thickness = 1
+            cardStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            cardStroke.Parent = card
+
+            -- Header (Top Bar: Dot + ATOM PROTECT | Script Selector ... Close X)
+            local header = Instance.new("Frame")
+            header.Name = "Header"
+            header.BackgroundTransparency = 1
+            header.Position = UDim2.new(0, 0, 0, 0)
+            header.Size = UDim2.new(1, 0, 0, 44)
+            header.Parent = card
+
+            -- Status dot
+            local dot = Instance.new("Frame")
+            dot.BackgroundColor3 = Color3.fromRGB(168, 85, 247)
+            dot.Position = UDim2.new(0, 16, 0.5, -5)
+            dot.Size = UDim2.new(0, 10, 0, 10)
+            dot.BorderSizePixel = 0
+            dot.Parent = header
+
+            local dotCorner = Instance.new("UICorner")
+            dotCorner.CornerRadius = UDim.new(1, 0)
+            dotCorner.Parent = dot
+
+            -- Header Title
+            local titleProtect = Instance.new("TextLabel")
+            titleProtect.BackgroundTransparency = 1
+            titleProtect.Position = UDim2.new(0, 34, 0, 0)
+            titleProtect.Size = UDim2.new(0, 120, 1, 0)
+            titleProtect.Font = Enum.Font.GothamBold
+            titleProtect.Text = "ATOM PROTECT"
+            titleProtect.TextColor3 = Color3.fromRGB(255, 255, 255)
+            titleProtect.TextSize = 13
+            titleProtect.TextXAlignment = Enum.TextXAlignment.Left
+            titleProtect.Parent = header
+
+            local titleSub = Instance.new("TextLabel")
+            titleSub.BackgroundTransparency = 1
+            titleSub.Position = UDim2.new(0, 154, 0, 0)
+            titleSub.Size = UDim2.new(0, 140, 1, 0)
+            titleSub.Font = Enum.Font.Gotham
+            titleSub.Text = "|  Script Selector"
+            titleSub.TextColor3 = Color3.fromRGB(156, 150, 175)
+            titleSub.TextSize = 13
+            titleSub.TextXAlignment = Enum.TextXAlignment.Left
+            titleSub.Parent = header
+
+            -- Close Button
+            local btnClose = Instance.new("TextButton")
+            btnClose.BackgroundTransparency = 1
+            btnClose.Position = UDim2.new(1, -38, 0, 6)
+            btnClose.Size = UDim2.new(0, 32, 0, 32)
+            btnClose.Font = Enum.Font.GothamBold
+            btnClose.Text = "✕"
+            btnClose.TextColor3 = Color3.fromRGB(244, 95, 95)
+            btnClose.TextSize = 15
+            btnClose.AutoButtonColor = false
+            btnClose.Parent = header
+
+            btnClose.MouseEnter:Connect(function()
+                TweenService:Create(btnClose, TweenInfo.new(0.15), { TextColor3 = Color3.fromRGB(255, 130, 130) }):Play()
+            end)
+            btnClose.MouseLeave:Connect(function()
+                TweenService:Create(btnClose, TweenInfo.new(0.15), { TextColor3 = Color3.fromRGB(244, 95, 95) }):Play()
+            end)
+            btnClose.MouseButton1Click:Connect(function()
+                TweenService:Create(card, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
+                    Position = card.Position + UDim2.new(0, 0, 0, 15),
+                    BackgroundTransparency = 1
+                }):Play()
+                task.delay(0.2, function()
+                    if screenGui and screenGui.Parent then
+                        screenGui:Destroy()
+                    end
+                end)
+            end)
+
+            -- Divider
+            local divider = Instance.new("Frame")
+            divider.BackgroundColor3 = Color3.fromRGB(36, 32, 52)
+            divider.BorderSizePixel = 0
+            divider.Position = UDim2.new(0, 0, 0, 44)
+            divider.Size = UDim2.new(1, 0, 0, 1)
+            divider.Parent = card
+
+            -- Game Name Title & Prompt Description
+            local gameTitle = Instance.new("TextLabel")
+            gameTitle.BackgroundTransparency = 1
+            gameTitle.Position = UDim2.new(0, 18, 0, 50)
+            gameTitle.Size = UDim2.new(1, -36, 0, 20)
+            gameTitle.Font = Enum.Font.GothamBold
+            gameTitle.Text = "🎮 " .. tostring(gameData.Name or "Detected Game")
+            gameTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+            gameTitle.TextSize = 13
+            gameTitle.TextXAlignment = Enum.TextXAlignment.Left
+            gameTitle.TextTruncate = Enum.TextTruncate.AtEnd
+            gameTitle.Parent = card
+
+            local subDesc = Instance.new("TextLabel")
+            subDesc.BackgroundTransparency = 1
+            subDesc.Position = UDim2.new(0, 18, 0, 70)
+            subDesc.Size = UDim2.new(1, -36, 0, 16)
+            subDesc.Font = Enum.Font.Gotham
+            subDesc.Text = "Multiple scripts found. Select which script you want to run:"
+            subDesc.TextColor3 = Color3.fromRGB(140, 135, 160)
+            subDesc.TextSize = 11
+            subDesc.TextXAlignment = Enum.TextXAlignment.Left
+            subDesc.Parent = card
+
+            -- List Container (ScrollFrame if > 3 scripts)
+            local listContainer = Instance.new("ScrollingFrame")
+            listContainer.Name = "OptionsList"
+            listContainer.BackgroundTransparency = 1
+            listContainer.BorderSizePixel = 0
+            listContainer.Position = UDim2.new(0, 16, 0, 92)
+            listContainer.Size = UDim2.new(1, -32, 0, listHeight)
+            listContainer.CanvasSize = UDim2.new(0, 0, 0, cardCount * 66)
+            listContainer.ScrollBarThickness = 3
+            listContainer.ScrollBarImageColor3 = Color3.fromRGB(60, 55, 85)
+            listContainer.Parent = card
+
+            local listLayout = Instance.new("UIListLayout")
+            listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+            listLayout.Padding = UDim.new(0, 8)
+            listLayout.Parent = listContainer
+
+            -- Populate each script card
+            for idx, s in ipairs(scripts) do
+                local optCard = Instance.new("Frame")
+                optCard.Name = "Option_" .. tostring(idx)
+                optCard.BackgroundColor3 = Color3.fromRGB(24, 21, 36)
+                optCard.Size = UDim2.new(1, 0, 0, 58)
+                optCard.BorderSizePixel = 0
+                optCard.LayoutOrder = idx
+                optCard.Parent = listContainer
+
+                local optCorner = Instance.new("UICorner")
+                optCorner.CornerRadius = UDim.new(0, 8)
+                optCorner.Parent = optCard
+
+                local optStroke = Instance.new("UIStroke")
+                optStroke.Color = Color3.fromRGB(44, 38, 64)
+                optStroke.Thickness = 1
+                optStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                optStroke.Parent = optCard
+
+                -- Badge: SCRIPT #1 / SCRIPT #2
+                local badge = Instance.new("Frame")
+                badge.BackgroundColor3 = Color3.fromRGB(36, 30, 56)
+                badge.Position = UDim2.new(0, 10, 0, 10)
+                badge.Size = UDim2.new(0, 68, 0, 18)
+                badge.BorderSizePixel = 0
+                badge.Parent = optCard
+
+                local badgeCorner = Instance.new("UICorner")
+                badgeCorner.CornerRadius = UDim.new(0, 4)
+                badgeCorner.Parent = badge
+
+                local badgeText = Instance.new("TextLabel")
+                badgeText.BackgroundTransparency = 1
+                badgeText.Size = UDim2.new(1, 0, 1, 0)
+                badgeText.Font = Enum.Font.GothamBold
+                badgeText.Text = "SCRIPT #" .. tostring(idx)
+                badgeText.TextColor3 = Color3.fromRGB(168, 85, 247)
+                badgeText.TextSize = 9
+                badgeText.Parent = badge
+
+                -- Title text
+                local titleText = Instance.new("TextLabel")
+                titleText.BackgroundTransparency = 1
+                titleText.Position = UDim2.new(0, 84, 0, 10)
+                titleText.Size = UDim2.new(1, -174, 0, 18)
+                titleText.Font = Enum.Font.GothamBold
+                titleText.Text = tostring(s.Title or ("Script " .. idx))
+                titleText.TextColor3 = Color3.fromRGB(255, 255, 255)
+                titleText.TextSize = 12
+                titleText.TextXAlignment = Enum.TextXAlignment.Left
+                titleText.TextTruncate = Enum.TextTruncate.AtEnd
+                titleText.Parent = optCard
+
+                -- Loadstring preview label
+                local descLabel = Instance.new("TextLabel")
+                descLabel.BackgroundTransparency = 1
+                descLabel.Position = UDim2.new(0, 10, 0, 32)
+                descLabel.Size = UDim2.new(1, -100, 0, 16)
+                descLabel.Font = Enum.Font.Gotham
+                descLabel.Text = (idx == 1 and "⭐ Latest Scraped Release" or "⚡ Alternative Community Version")
+                descLabel.TextColor3 = Color3.fromRGB(135, 130, 155)
+                descLabel.TextSize = 10
+                descLabel.TextXAlignment = Enum.TextXAlignment.Left
+                descLabel.Parent = optCard
+
+                -- Launch Button
+                local btnLaunch = Instance.new("TextButton")
+                btnLaunch.Name = "BtnLaunch"
+                btnLaunch.BackgroundColor3 = Color3.fromRGB(168, 85, 247)
+                btnLaunch.BorderSizePixel = 0
+                btnLaunch.Position = UDim2.new(1, -86, 0.5, -15)
+                btnLaunch.Size = UDim2.new(0, 76, 0, 30)
+                btnLaunch.Font = Enum.Font.GothamBold
+                btnLaunch.Text = "▶ RUN"
+                btnLaunch.TextColor3 = Color3.fromRGB(255, 255, 255)
+                btnLaunch.TextSize = 11
+                btnLaunch.AutoButtonColor = false
+                btnLaunch.Parent = optCard
+
+                local launchCorner = Instance.new("UICorner")
+                launchCorner.CornerRadius = UDim.new(0, 6)
+                launchCorner.Parent = btnLaunch
+
+                btnLaunch.MouseEnter:Connect(function()
+                    TweenService:Create(btnLaunch, TweenInfo.new(0.15), { BackgroundColor3 = Color3.fromRGB(185, 105, 255) }):Play()
+                    TweenService:Create(optStroke, TweenInfo.new(0.15), { Color = Color3.fromRGB(168, 85, 247) }):Play()
+                end)
+                btnLaunch.MouseLeave:Connect(function()
+                    TweenService:Create(btnLaunch, TweenInfo.new(0.15), { BackgroundColor3 = Color3.fromRGB(168, 85, 247) }):Play()
+                    TweenService:Create(optStroke, TweenInfo.new(0.15), { Color = Color3.fromRGB(44, 38, 64) }):Play()
+                end)
+
+                btnLaunch.MouseButton1Click:Connect(function()
+                    btnLaunch.Text = "✓ SELECTED"
+                    btnLaunch.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
+
+                    TweenService:Create(card, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
+                        Position = card.Position - UDim2.new(0, 0, 0, 10),
+                        BackgroundTransparency = 1
+                    }):Play()
+
+                    task.delay(0.2, function()
+                        if screenGui and screenGui.Parent then
+                            screenGui:Destroy()
+                        end
+                        if type(onSelected) == "function" then
+                            onSelected(s)
+                        end
+                    end)
+                end)
+            end
+
+            -- Draggable Behavior
+            local dragging = false
+            local dragInput, dragStart, startPos
+
+            header.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    dragging = true
+                    dragStart = input.Position
+                    startPos = card.Position
+
+                    input.Changed:Connect(function()
+                        if input.UserInputState == Enum.UserInputState.End then
+                            dragging = false
+                        end
+                    end)
+                end
+            end)
+
+            header.InputChanged:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+                    dragInput = input
+                end
+            end)
+
+            UserInputService.InputChanged:Connect(function(input)
+                if input == dragInput and dragging then
+                    local delta = input.Position - dragStart
+                    card.Position = UDim2.new(
+                        startPos.X.Scale,
+                        startPos.X.Offset + delta.X,
+                        startPos.Y.Scale,
+                        startPos.Y.Offset + delta.Y
+                    )
+                end
+            end)
+
+            -- Entrance animation
+            card.Position = UDim2.new(0.5, 0, 0.48, 0)
+            card.BackgroundTransparency = 1
+            TweenService:Create(card, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                Position = UDim2.new(0.5, 0, 0.5, 0),
+                BackgroundTransparency = 0
+            }):Play()
+        end
+
         return AuthPrompt
     end)()
 
@@ -2007,7 +2466,11 @@ do
                     infoLabel.Size = UDim2.new(1, -210, 0, 34)
                     infoLabel.Position = UDim2.new(0, 12, 0, 30)
                     infoLabel.BackgroundTransparency = 1
-                    infoLabel.Text = string.format("Place ID: %s\nScript: %s", tostring(gameInfo.PlaceId), gameInfo.Title or "Default Script")
+                    if gameInfo.Scripts and #gameInfo.Scripts > 1 then
+                        infoLabel.Text = string.format("Place ID: %s\nScripts: %d Available (Click to choose)", tostring(gameInfo.PlaceId), #gameInfo.Scripts)
+                    else
+                        infoLabel.Text = string.format("Place ID: %s\nScript: %s", tostring(gameInfo.PlaceId), gameInfo.Title or "Default Script")
+                    end
                     infoLabel.TextColor3 = Color3.fromRGB(140, 145, 165)
                     infoLabel.Font = Enum.Font.Gotham
                     infoLabel.TextSize = 11
@@ -2070,36 +2533,16 @@ do
 
                         execBtn.MouseButton1Click:Connect(function()
                             setModalOpen(false)
-                            -- If already authenticated via Auth website, run script directly
-                            if _G.AtomwareAuthed == true or _G.AtomwareKeyVerified == true then
-                                local loadFunc, compileErr = loadstring(gameInfo.Loadstring)
-                                if loadFunc then
-                                    local ok, runErr = pcall(loadFunc)
-                                    if ok then
-                                        if notificationModule then
-                                            notificationModule:Show("AtomWare Active", "Loaded " .. gameInfo.Name .. " script successfully!", 3, "Success")
-                                        end
-                                    else
-                                        if notificationModule then
-                                            notificationModule:Show("Execution Error", tostring(runErr), 5, "Error")
-                                        end
-                                    end
-                                else
-                                    if notificationModule then
-                                        notificationModule:Show("Compile Error", tostring(compileErr), 5, "Error")
-                                    end
-                                end
-                                return
-                            end
 
-                            if authPromptModule then
-                                authPromptModule:Prompt(gameInfo.Name, gameInfo.PlaceId, notificationModule, telemetryModule, function()
-                                    local loadFunc, compileErr = loadstring(gameInfo.Loadstring)
+                            local function launchScript(chosenScript)
+                                local target = chosenScript or gameInfo
+                                local function doRun()
+                                    local loadFunc, compileErr = loadstring(target.Loadstring)
                                     if loadFunc then
                                         local ok, runErr = pcall(loadFunc)
                                         if ok then
                                             if notificationModule then
-                                                notificationModule:Show("AtomWare Active", "Loaded " .. gameInfo.Name .. " script successfully!", 3, "Success")
+                                                notificationModule:Show("AtomWare Active", "Loaded " .. gameInfo.Name .. " (" .. (target.Title or "Script") .. ") successfully!", 3, "Success")
                                             end
                                         else
                                             if notificationModule then
@@ -2111,7 +2554,22 @@ do
                                             notificationModule:Show("Compile Error", tostring(compileErr), 5, "Error")
                                         end
                                     end
-                                end)
+                                end
+
+                                if _G.AtomwareAuthed == true or _G.AtomwareKeyVerified == true then
+                                    doRun()
+                                else
+                                    if authPromptModule then
+                                        authPromptModule:Prompt(gameInfo.Name, gameInfo.PlaceId, notificationModule, telemetryModule, doRun)
+                                    end
+                                end
+                            end
+
+                            if gameInfo.Scripts and #gameInfo.Scripts > 1 and type(authPromptModule.PromptScriptSelection) == "function" then
+                                authPromptModule:PromptScriptSelection(gameInfo, launchScript)
+                            else
+                                local single = (gameInfo.Scripts and gameInfo.Scripts[1]) or gameInfo
+                                launchScript(single)
                             end
                         end)
                     else
@@ -2387,30 +2845,44 @@ do
             if matchedGame then
                 Notification:Show("Game Detected", "Supported game found: " .. matchedGame.Name, 4, "Info")
 
-                local function executeGameScript()
-                    Notification:Show("Executing Script", "Launching " .. matchedGame.Name .. " (" .. (matchedGame.Title or "Default") .. ")...", 3, "Success")
+                local function executeScript(selectedScript)
+                    local scriptToRun = selectedScript or matchedGame
+                    local function doLaunch()
+                        Notification:Show("Executing Script", "Launching " .. matchedGame.Name .. " (" .. (scriptToRun.Title or "Default") .. ")...", 3, "Success")
 
-                    -- Safely execute the game loadstring
-                    task.spawn(function()
-                        local loadFunc, compileErr = loadstring(matchedGame.Loadstring)
-                        if not loadFunc then
-                            Notification:Show("Compile Error", "Failed to compile: " .. tostring(compileErr), 5, "Error")
-                            return
-                        end
+                        -- Safely execute the game loadstring
+                        task.spawn(function()
+                            local loadFunc, compileErr = loadstring(scriptToRun.Loadstring)
+                            if not loadFunc then
+                                Notification:Show("Compile Error", "Failed to compile: " .. tostring(compileErr), 5, "Error")
+                                return
+                            end
 
-                        local ok, runErr = pcall(loadFunc)
-                        if not ok then
-                            Notification:Show("Runtime Error", "Error executing: " .. tostring(runErr), 5, "Error")
-                        end
-                    end)
+                            local ok, runErr = pcall(loadFunc)
+                            if not ok then
+                                Notification:Show("Runtime Error", "Error executing: " .. tostring(runErr), 5, "Error")
+                            end
+                        end)
+                    end
+
+                    -- If already verified through AtomProtect website loader, run directly
+                    if _G.AtomwareAuthed == true or _G.AtomwareKeyVerified == true then
+                        doLaunch()
+                    else
+                        -- Otherwise prompt key modal
+                        AuthPrompt:Prompt(matchedGame.Name, matchedGame.PlaceId, Notification, Telemetry, doLaunch)
+                    end
                 end
 
-                -- If already verified through AtomProtect website loader, run directly
-                if _G.AtomwareAuthed == true or _G.AtomwareKeyVerified == true then
-                    executeGameScript()
+                -- If multiple scripts exist for this game, prompt user to choose
+                if matchedGame.Scripts and #matchedGame.Scripts > 1 and type(AuthPrompt.PromptScriptSelection) == "function" then
+                    Notification:Show("Multiple Scripts", "Found " .. tostring(#matchedGame.Scripts) .. " scripts for " .. matchedGame.Name .. "! Please select one.", 4, "Info")
+                    AuthPrompt:PromptScriptSelection(matchedGame, function(chosen)
+                        executeScript(chosen)
+                    end)
                 else
-                    -- Otherwise prompt key modal
-                    AuthPrompt:Prompt(matchedGame.Name, matchedGame.PlaceId, Notification, Telemetry, executeGameScript)
+                    local single = (matchedGame.Scripts and matchedGame.Scripts[1]) or matchedGame
+                    executeScript(single)
                 end
             else
                 -- Game is not in the 407+ supported list
