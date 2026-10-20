@@ -73,3 +73,52 @@ export function getClientIp(req: NextRequest): string {
 
   return "127.0.0.1";
 }
+
+export interface ClientGeoInfo {
+  country?: string | null;
+  city?: string | null;
+  region?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+}
+
+/**
+ * Extracts real geographic location data supplied by edge CDN infrastructure (Vercel Edge, Cloudflare)
+ */
+export function getClientGeo(req: NextRequest): ClientGeoInfo {
+  const country =
+    req.headers.get("x-vercel-ip-country") ||
+    req.headers.get("cf-ipcountry") ||
+    null;
+
+  const city =
+    req.headers.get("x-vercel-ip-city") ||
+    req.headers.get("cf-ipcity") ||
+    null;
+
+  const region =
+    req.headers.get("x-vercel-ip-country-region") ||
+    req.headers.get("cf-region") ||
+    null;
+
+  const latStr =
+    req.headers.get("x-vercel-ip-latitude") ||
+    req.headers.get("cf-iplatitude") ||
+    null;
+
+  const lngStr =
+    req.headers.get("x-vercel-ip-longitude") ||
+    req.headers.get("cf-iplongitude") ||
+    null;
+
+  const latitude = latStr ? parseFloat(latStr) : null;
+  const longitude = lngStr ? parseFloat(lngStr) : null;
+
+  return {
+    country: country ? country.toUpperCase().trim() : null,
+    city: city ? decodeURIComponent(city.trim()) : null,
+    region: region ? region.trim() : null,
+    latitude: !isNaN(Number(latitude)) && latitude !== null ? Number(latitude) : null,
+    longitude: !isNaN(Number(longitude)) && longitude !== null ? Number(longitude) : null,
+  };
+}

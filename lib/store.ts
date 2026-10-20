@@ -121,6 +121,10 @@ export interface SessionRecord {
   status: "active" | "kicked" | "tampered" | "expired" | "disconnected";
   tamper_flags: string[];
   pending_commands: SessionCommand[];
+  country?: string | null;
+  city?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   session_started: string;
   last_heartbeat: string;
   created_at: string;
@@ -157,6 +161,10 @@ export interface ExecutionLog {
   key_last4: string | null;
   status: "success" | "failed";
   failure_reason: string | null;
+  country?: string | null;
+  city?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   created_at: string;
 }
 

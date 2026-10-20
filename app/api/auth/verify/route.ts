@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { dbService, isStaffReviewKey, type ScriptRecord } from "@/lib/store";
 import { bundleModularScript } from "@/lib/module-bundler";
 import { sendExecutionWebhook } from "@/lib/discord-webhook";
-import { getClientIp, normalizeIp } from "@/lib/ip";
+import { getClientIp, normalizeIp, getClientGeo } from "@/lib/ip";
 import { encryptSessionPayload, isNonceReplayed, recordUsedNonce } from "@/lib/crypto-util";
 
 function isMaliciousScraper(userAgent: string): boolean {
@@ -116,6 +116,7 @@ export async function POST(req: NextRequest) {
 
   try {
     clientIp = getClientIp(req);
+    const clientGeo = getClientGeo(req);
     const userAgent = req.headers.get("user-agent") || "";
     const body = await req.json();
 
@@ -229,6 +230,10 @@ export async function POST(req: NextRequest) {
         roblox_username: robloxUser,
         roblox_user_id: robloxId,
         ip_address: clientIp,
+        country: clientGeo.country,
+        city: clientGeo.city,
+        latitude: clientGeo.latitude,
+        longitude: clientGeo.longitude,
         isp,
         os: detectedOs,
         executor: detectedExecutor,
@@ -583,6 +588,10 @@ export async function POST(req: NextRequest) {
       hwid: hwid || null,
       roblox_username: robloxUser,
       roblox_user_id: robloxId,
+      country: clientGeo.country,
+      city: clientGeo.city,
+      latitude: clientGeo.latitude,
+      longitude: clientGeo.longitude,
       status: "active",
       tamper_flags: [],
     });
@@ -594,6 +603,10 @@ export async function POST(req: NextRequest) {
       roblox_username: robloxUser,
       roblox_user_id: robloxId,
       ip_address: clientIp,
+      country: clientGeo.country,
+      city: clientGeo.city,
+      latitude: clientGeo.latitude,
+      longitude: clientGeo.longitude,
       isp,
       os: detectedOs,
       executor: detectedExecutor,
