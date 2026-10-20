@@ -89,8 +89,11 @@ end`;
             Method = "GET",
             Headers = { ["User-Agent"] = "Roblox/WinInet" }
         })
-        if _res and _res.StatusCode == 200 and _res.Body and not _res.Body:find("Error:") then
-            local _fn, _err = loadstring(_res.Body)
+        local _statusCode = (_res and (_res.StatusCode or _res.Status or _res.status_code or _res.status)) or 0
+        local _bodyStr = (_res and (_res.Body or _res.body)) or ""
+        if _statusCode == 200 and _bodyStr ~= "" and not _bodyStr:find("Error:") then
+            local _fn, _err = loadstring(_bodyStr)
+            _bodyStr = nil
             if _fn then
                 local _dynResult = _fn()
                 if _dynResult == nil then _dynResult = true end
@@ -103,7 +106,7 @@ end`;
 
   const assembledBundle = `--[[
   =======================================================
-  AERO SECURE VIRTUAL MODULE RUNTIME
+  ATOMPROTECT SECURE VIRTUAL MODULE RUNTIME
   Protected In-Memory Virtual File System
   =======================================================
 ]]--
@@ -133,7 +136,7 @@ ${streamingRequireLogic}
     if original_require and type(moduleName) ~= "string" then
         return original_require(moduleName)
     end
-    error("[AeroVFS] Module not found in virtual registry: " .. tostring(moduleName))
+    error("[AtomProtect VFS] Module not found in virtual registry: " .. tostring(moduleName))
 end
 
 -- Inject __vfs_require into environment
