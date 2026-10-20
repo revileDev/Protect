@@ -2308,26 +2308,34 @@ export const dbService = {
   // --------------------------------------------------------------------------
 
   async getBlacklistWords(): Promise<string[]> {
-    let remoteWords: string[] = [];
     if (isSupabaseConfigured && supabase) {
       try {
-        const { data, error } = await supabase.from("chatroom_blacklist").select("word");
+        const { data, error } = await supabase
+          .from("chatroom_blacklist")
+          .select("word")
+          .order("created_at", { ascending: false });
         if (data && !error) {
-          remoteWords = data.map((r: any) => String(r.word).trim().toLowerCase());
+          return data.map((r: any) => String(r.word).trim().toLowerCase()).filter(Boolean);
         }
-      } catch {
-        // fallback
+      } catch (err) {
+        console.error("Supabase getBlacklistWords error:", err);
       }
     }
     const db = readLocalDb();
-    const localWords = (db.chatroom_blacklist || []).map((w) => w.word.trim().toLowerCase());
-    const unique = Array.from(new Set([...remoteWords, ...localWords])).filter(Boolean);
-    return unique;
+    return (db.chatroom_blacklist || []).map((w) => w.word.trim().toLowerCase()).filter(Boolean);
   },
 
   async addBlacklistWord(word: string): Promise<boolean> {
     const cleaned = (word || "").trim().toLowerCase();
     if (!cleaned) return false;
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase.from("chatroom_blacklist").upsert({ word: cleaned }, { onConflict: "word" });
+      } catch (err) {
+        console.error("Supabase addBlacklistWord error:", err);
+      }
+    }
 
     const db = readLocalDb();
     if (!db.chatroom_blacklist) db.chatroom_blacklist = [];
@@ -2338,14 +2346,6 @@ export const dbService = {
         created_at: new Date().toISOString(),
       });
       writeLocalDb(db);
-    }
-
-    if (isSupabaseConfigured && supabase) {
-      try {
-        await supabase.from("chatroom_blacklist").upsert({ word: cleaned }, { onConflict: "word" });
-      } catch {
-        // fallback
-      }
     }
 
     // Automatically purge existing messages containing this blacklisted word
@@ -2360,18 +2360,20 @@ export const dbService = {
 
   async deleteBlacklistWord(word: string): Promise<boolean> {
     const cleaned = (word || "").trim().toLowerCase();
-    const db = readLocalDb();
-    if (db.chatroom_blacklist) {
-      db.chatroom_blacklist = db.chatroom_blacklist.filter((w) => w.word.toLowerCase() !== cleaned);
-      writeLocalDb(db);
-    }
+    if (!cleaned) return false;
 
     if (isSupabaseConfigured && supabase) {
       try {
         await supabase.from("chatroom_blacklist").delete().ilike("word", cleaned);
-      } catch {
-        // fallback
+      } catch (err) {
+        console.error("Supabase deleteBlacklistWord error:", err);
       }
+    }
+
+    const db = readLocalDb();
+    if (db.chatroom_blacklist) {
+      db.chatroom_blacklist = db.chatroom_blacklist.filter((w) => w.word.toLowerCase() !== cleaned);
+      writeLocalDb(db);
     }
     return true;
   },
@@ -2381,6 +2383,17 @@ export const dbService = {
     if (!words.length) return 0;
 
     let purgedCount = 0;
+    if (isSupabaseConfigured && supabase) {
+      try {
+        for (const w of words) {
+          const safe = w.replace(/[%_]/g, "\\$&");
+          await supabase.from("chatroom_messages").delete().ilike("message", `%${safe}%`);
+        }
+      } catch (err) {
+        console.error("Supabase purge error:", err);
+      }
+    }
+
     const db = readLocalDb();
     if (db.chatroom_messages) {
       const originalLen = db.chatroom_messages.length;
@@ -2390,16 +2403,6 @@ export const dbService = {
       });
       purgedCount += originalLen - db.chatroom_messages.length;
       writeLocalDb(db);
-    }
-
-    if (isSupabaseConfigured && supabase) {
-      try {
-        for (const w of words) {
-          await supabase.from("chatroom_messages").delete().ilike("message", `%${w}%`);
-        }
-      } catch {
-        // fallback
-      }
     }
     return purgedCount;
   },

@@ -46,16 +46,12 @@ export default function ChatroomManager() {
     setTimeout(() => setNotice(null), 3500);
   };
 
-  // Fetch initial messages and blacklist
-  const fetchChatData = async () => {
+  // Fetch messages
+  const fetchMessages = async () => {
     try {
-      const [msgRes, blackRes] = await Promise.all([
-        fetch("/api/chatroom/messages?limit=100"),
-        fetch("/api/chatroom/blacklist"),
-      ]);
-
-      if (msgRes.ok) {
-        const data = await msgRes.json();
+      const res = await fetch("/api/chatroom/messages?limit=100");
+      if (res.ok) {
+        const data = await res.json();
         if (data.messages) {
           setMessages(data.messages);
           if (autoScrollRef.current && scrollRef.current) {
@@ -67,23 +63,35 @@ export default function ChatroomManager() {
           }
         }
       }
+    } catch (err) {
+      console.error("Error loading chat messages:", err);
+    }
+  };
 
-      if (blackRes.ok) {
-        const data = await blackRes.json();
+  // Fetch blacklist words independently
+  const fetchBlacklist = async () => {
+    try {
+      const res = await fetch("/api/chatroom/blacklist");
+      if (res.ok) {
+        const data = await res.json();
         if (data.words) {
           setBlacklistWords(data.words);
         }
       }
     } catch (err) {
-      console.error("Error loading chat data:", err);
-    } finally {
-      setLoading(false);
+      console.error("Error loading blacklist:", err);
     }
   };
 
+  const refreshAll = async () => {
+    setLoading(true);
+    await Promise.all([fetchMessages(), fetchBlacklist()]);
+    setLoading(false);
+  };
+
   useEffect(() => {
-    fetchChatData();
-    const interval = setInterval(fetchChatData, 3500); // Polling every 3.5s
+    refreshAll();
+    const interval = setInterval(fetchMessages, 3500); // Poll ONLY messages every 3.5s
     return () => clearInterval(interval);
   }, []);
 
@@ -147,7 +155,13 @@ export default function ChatroomManager() {
     const word = newWordInput.trim().toLowerCase();
     if (!word || addingWord) return;
 
+    // Optimistic UI update
+    if (!blacklistWords.includes(word)) {
+      setBlacklistWords((prev) => [word, ...prev]);
+    }
+    setNewWordInput("");
     setAddingWord(true);
+
     try {
       const res = await fetch("/api/chatroom/blacklist", {
         method: "POST",
@@ -157,12 +171,16 @@ export default function ChatroomManager() {
       const data = await res.json();
       if (data.success && data.words) {
         setBlacklistWords(data.words);
-        setNewWordInput("");
         showNotification(`Word "${word}" added to filter. Messages purged.`);
-        fetchChatData();
+        fetchMessages();
+      } else {
+        fetchBlacklist();
+        showNotification(data.error || "Failed to add word.");
       }
     } catch (err) {
       console.error(err);
+      fetchBlacklist();
+      showNotification("Error connecting to server.");
     } finally {
       setAddingWord(false);
     }
@@ -170,16 +188,26 @@ export default function ChatroomManager() {
 
   // Delete Blacklist Word
   const handleDeleteBlacklistWord = async (word: string) => {
+    const cleaned = word.trim().toLowerCase();
+    // Optimistic UI update
+    setBlacklistWords((prev) => prev.filter((w) => w.toLowerCase() !== cleaned));
+
     try {
-      setBlacklistWords((prev) => prev.filter((w) => w !== word));
-      const res = await fetch(`/api/chatroom/blacklist?word=${encodeURIComponent(word)}`, {
+      const res = await fetch(`/api/chatroom/blacklist?word=${encodeURIComponent(cleaned)}`, {
         method: "DELETE",
       });
-      if (res.ok) {
-        showNotification(`Word "${word}" removed from filter.`);
+      const data = await res.json();
+      if (data.success && data.words) {
+        setBlacklistWords(data.words);
+        showNotification(`Word "${cleaned}" removed from filter.`);
+      } else {
+        fetchBlacklist();
+        showNotification(data.error || "Failed to remove word.");
       }
     } catch (err) {
       console.error(err);
+      fetchBlacklist();
+      showNotification("Error removing word.");
     }
   };
 
@@ -224,7 +252,7 @@ export default function ChatroomManager() {
 
         <button
           type="button"
-          onClick={fetchChatData}
+          onClick={refreshAll}
           disabled={loading}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-800/80 hover:bg-gray-700 text-gray-300 hover:text-white text-xs font-semibold border border-gray-700/60 transition-all self-start sm:self-auto"
         >
