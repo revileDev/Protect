@@ -4,7 +4,7 @@
 ======================================================================
   * Key: THEBESTFIXED
   * Discord: https://discord.gg/AeCYnnQmq5
-  * Compiled At: 2026-10-20 18:05:15 UTC
+  * Compiled At: 2026-10-20 18:25:33 UTC
   * Features:
     - Auto Game Detection (407+ Place IDs)
     - Key Auth Prompt Modal with Discord Clipboard Integration
@@ -2090,7 +2090,7 @@ do
         --[[
             AtomWare Floating Draggable Search & Gamehop Widget
             Cross-platform (PC & Mobile) interactive game search engine
-            Allows searching 407+ games by Place ID or Title, game-hopping, and executing.
+            Allows searching 700+ games by Place ID or Title, game-hopping, and executing.
         ]]
 
         local CoreGui = game:GetService("CoreGui")
@@ -2270,7 +2270,7 @@ do
             subLabel.Size = UDim2.new(1, -70, 0, 20)
             subLabel.Position = UDim2.new(0, 18, 0, 34)
             subLabel.BackgroundTransparency = 1
-            subLabel.Text = "Search 407+ supported games by Game Name or Place ID"
+            subLabel.Text = "Supports 700+ games | Search by Game Name or Place ID"
             subLabel.TextColor3 = Color3.fromRGB(150, 155, 175)
             subLabel.Font = Enum.Font.Gotham
             subLabel.TextSize = 12
@@ -2316,7 +2316,7 @@ do
             searchInput.Size = UDim2.new(1, -40, 1, 0)
             searchInput.Position = UDim2.new(0, 14, 0, 0)
             searchInput.BackgroundTransparency = 1
-            searchInput.PlaceholderText = "Type game name (e.g. Arsenal) or Place ID (e.g. 286090429)..."
+            searchInput.PlaceholderText = "Search by game or Place ID (supports 700+ games)..."
             searchInput.PlaceholderColor3 = Color3.fromRGB(110, 115, 135)
             searchInput.TextColor3 = Color3.fromRGB(255, 255, 255)
             searchInput.Font = Enum.Font.Gotham
@@ -2802,7 +2802,7 @@ do
     -- [MODULE 7: Core Orchestrator]
     local runAtomwareHub = (function()
         --[[
-            AtomWare Giant Script Hub (407+ Games) - Core Orchestrator Module
+            AtomWare Giant Script Hub (700+ Games) - Core Orchestrator Module
             Auto-detects game by PlaceId, verifies auth key, runs loadstring,
             mounts persistent watermark and draggable search/gamehop widget.
         ]]
@@ -2934,7 +2934,7 @@ do
                 desc.Size = UDim2.new(1, -32, 0, 60)
                 desc.Position = UDim2.new(0, 16, 0, 52)
                 desc.BackgroundTransparency = 1
-                desc.Text = "The game you are in (Place ID: " .. tostring(currentPlaceId) .. ") is not yet supported by AtomWare.\n\nUse the floating 🔍 button on your screen to explore 407+ supported games and hop to them!"
+                desc.Text = "The game you are in (Place ID: " .. tostring(currentPlaceId) .. ") is not yet supported by AtomWare.\n\nUse the floating 🔍 button on your screen to explore 700+ supported games and hop to them!"
                 desc.TextColor3 = Color3.fromRGB(170, 175, 195)
                 desc.Font = Enum.Font.Gotham
                 desc.TextSize = 13

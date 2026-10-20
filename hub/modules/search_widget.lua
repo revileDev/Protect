@@ -1,7 +1,7 @@
 --[[
     AtomWare Floating Draggable Search & Gamehop Widget
     Cross-platform (PC & Mobile) interactive game search engine
-    Allows searching 407+ games by Place ID or Title, game-hopping, and executing.
+    Allows searching 700+ games by Place ID or Title, game-hopping, and executing.
 ]]
 
 local CoreGui = game:GetService("CoreGui")
@@ -181,7 +181,7 @@ function SearchWidget:Init(gamesDb, notificationModule, authPromptModule, teleme
     subLabel.Size = UDim2.new(1, -70, 0, 20)
     subLabel.Position = UDim2.new(0, 18, 0, 34)
     subLabel.BackgroundTransparency = 1
-    subLabel.Text = "Search 407+ supported games by Game Name or Place ID"
+    subLabel.Text = "Supports 700+ games | Search by Game Name or Place ID"
     subLabel.TextColor3 = Color3.fromRGB(150, 155, 175)
     subLabel.Font = Enum.Font.Gotham
     subLabel.TextSize = 12
@@ -227,7 +227,7 @@ function SearchWidget:Init(gamesDb, notificationModule, authPromptModule, teleme
     searchInput.Size = UDim2.new(1, -40, 1, 0)
     searchInput.Position = UDim2.new(0, 14, 0, 0)
     searchInput.BackgroundTransparency = 1
-    searchInput.PlaceholderText = "Type game name (e.g. Arsenal) or Place ID (e.g. 286090429)..."
+    searchInput.PlaceholderText = "Search by game or Place ID (supports 700+ games)..."
     searchInput.PlaceholderColor3 = Color3.fromRGB(110, 115, 135)
     searchInput.TextColor3 = Color3.fromRGB(255, 255, 255)
     searchInput.Font = Enum.Font.Gotham

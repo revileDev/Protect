@@ -1,5 +1,5 @@
 --[[
-    AtomWare Giant Script Hub (407+ Games) - Core Orchestrator Module
+    AtomWare Giant Script Hub (700+ Games) - Core Orchestrator Module
     Auto-detects game by PlaceId, verifies auth key, runs loadstring,
     mounts persistent watermark and draggable search/gamehop widget.
 ]]
@@ -131,7 +131,7 @@ local function runAtomwareHub(GamesDatabase, Notification, Telemetry, AuthPrompt
         desc.Size = UDim2.new(1, -32, 0, 60)
         desc.Position = UDim2.new(0, 16, 0, 52)
         desc.BackgroundTransparency = 1
-        desc.Text = "The game you are in (Place ID: " .. tostring(currentPlaceId) .. ") is not yet supported by AtomWare.\n\nUse the floating 🔍 button on your screen to explore 407+ supported games and hop to them!"
+        desc.Text = "The game you are in (Place ID: " .. tostring(currentPlaceId) .. ") is not yet supported by AtomWare.\n\nUse the floating 🔍 button on your screen to explore 700+ supported games and hop to them!"
         desc.TextColor3 = Color3.fromRGB(170, 175, 195)
         desc.Font = Enum.Font.Gotham
         desc.TextSize = 13
