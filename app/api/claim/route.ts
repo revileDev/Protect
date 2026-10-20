@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dbService } from "@/lib/store";
 import { getClientIp } from "@/lib/ip";
+import { antiBypassService } from "@/lib/anti-bypass";
 
 async function isVpnOrProxy(req: NextRequest, ip: string): Promise<boolean> {
   const via = req.headers.get("via");
@@ -138,6 +139,35 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           { error: "Discord authentication required. Please join our Discord and link your account." },
           { status: 400 }
+        );
+      }
+    } else {
+      // Enforce strict Anti-Bypass checkpoint verification token
+      const { session_id, claim_token } = body;
+      if (!session_id || !claim_token) {
+        return NextResponse.json(
+          {
+            error: "Access Denied: Valid checkpoint verification token is required. Bypassing checkpoints is not permitted.",
+            bypass_blocked: true,
+          },
+          { status: 403 }
+        );
+      }
+
+      const claimValidation = antiBypassService.verifyAndConsumeClaimToken(
+        String(session_id),
+        String(claim_token),
+        ip,
+        targetScriptId
+      );
+
+      if (!claimValidation.valid) {
+        return NextResponse.json(
+          {
+            error: claimValidation.error || "Checkpoint authorization failed. Please complete all checkpoints legitimately.",
+            bypass_blocked: true,
+          },
+          { status: 403 }
         );
       }
     }

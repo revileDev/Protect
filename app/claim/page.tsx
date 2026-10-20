@@ -1,7 +1,7 @@
 // app/claim/page.tsx
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Navbar from "@/components/Navbar";
 import {
   Key,
@@ -12,20 +12,184 @@ import {
   ArrowRight,
   ShieldCheck,
   RefreshCw,
-  MessageSquare,
   ExternalLink,
   Shield,
   Flame,
   Zap,
   Star,
   Skull,
-  Link2,
   Clock,
   Lock,
   ChevronRight,
+  SlidersHorizontal,
 } from "lucide-react";
-import type { CheckpointItem, CreatorProfile, CreatorEmblem } from "@/lib/store";
+import type { CheckpointItem, CreatorProfile } from "@/lib/store";
 import { SOCIAL_PLATFORMS } from "@/lib/social-platforms";
+
+// Fast client-side Proof-of-Work solver (takes ~20ms in genuine browsers, defeats headless HTTP scrapers)
+async function solvePoW(nonce: string, difficulty: number): Promise<string> {
+  const prefix = "0".repeat(difficulty);
+  const encoder = new TextEncoder();
+  let i = 0;
+  while (i < 300000) {
+    const data = encoder.encode(nonce + i);
+    const hashBuf = await window.crypto.subtle.digest("SHA-256", data);
+    const hashArr = Array.from(new Uint8Array(hashBuf));
+    const hashHex = hashArr.map((b) => b.toString(16).padStart(2, "0")).join("");
+    if (hashHex.startsWith(prefix)) {
+      return String(i);
+    }
+    i++;
+  }
+  return String(i);
+}
+
+// Anti-tamper check to detect typical browser bypass scripts / userscripts
+function checkClientIntegrity(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    const fetchStr = Function.prototype.toString.call(window.fetch);
+    // If fetch has been replaced by an extension wrapper with typical bypass keywords
+    if (
+      fetchStr.includes("bypass") ||
+      fetchStr.includes("linkvertise") ||
+      fetchStr.includes("tampermonkey")
+    ) {
+      return false;
+    }
+  } catch {
+    // ignore
+  }
+  return true;
+}
+
+// Interactive Slide to Claim Component (blocks bot .click() automation)
+function SlideToClaim({
+  onComplete,
+  disabled,
+  loading,
+}: {
+  onComplete: () => void;
+  disabled: boolean;
+  loading: boolean;
+}) {
+  const [sliderPos, setSliderPos] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [completed, setCompleted] = useState(false);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const dragStartTimeRef = useRef(0);
+
+  const handleStart = (clientX: number) => {
+    if (disabled || loading || completed) return;
+    setIsDragging(true);
+    dragStartTimeRef.current = Date.now();
+  };
+
+  const handleMove = (clientX: number) => {
+    if (!isDragging || !trackRef.current || completed) return;
+    const rect = trackRef.current.getBoundingClientRect();
+    const max = rect.width - 44;
+    const current = Math.max(0, Math.min(max, clientX - rect.left - 20));
+    setSliderPos(current);
+
+    if (current >= max * 0.92) {
+      // Must take at least 150ms of human drag movement (anti-bot instant drag spoof)
+      if (Date.now() - dragStartTimeRef.current >= 140) {
+        setCompleted(true);
+        setIsDragging(false);
+        setSliderPos(max);
+        onComplete();
+      }
+    }
+  };
+
+  const handleEnd = () => {
+    if (!isDragging) return;
+    setIsDragging(false);
+    if (!completed) {
+      setSliderPos(0);
+    }
+  };
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => handleMove(e.clientX);
+    const onMouseUp = () => handleEnd();
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches[0]) handleMove(e.touches[0].clientX);
+    };
+    const onTouchEnd = () => handleEnd();
+
+    if (isDragging) {
+      window.addEventListener("mousemove", onMouseMove);
+      window.addEventListener("mouseup", onMouseUp);
+      window.addEventListener("touchmove", onTouchMove);
+      window.addEventListener("touchend", onTouchEnd);
+    }
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [isDragging]);
+
+  return (
+    <div
+      ref={trackRef}
+      className={`relative w-full h-12 rounded-xl border flex items-center select-none overflow-hidden transition-all ${
+        disabled
+          ? "bg-obsidian-850/60 border-obsidian-750 opacity-40 cursor-not-allowed"
+          : completed
+          ? "bg-emerald-950/30 border-emerald-500/40"
+          : "bg-obsidian-850 border-obsidian-700 shadow-inner"
+      }`}
+    >
+      {/* Background progress fill */}
+      <div
+        className="absolute left-0 top-0 bottom-0 bg-white/10 transition-all pointer-events-none"
+        style={{ width: `${sliderPos + 44}px` }}
+      />
+
+      {/* Guide Text */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-xs font-bold text-zinc-400">
+        {loading ? (
+          <span className="flex items-center gap-1.5 text-zinc-300">
+            <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Allocating license key...
+          </span>
+        ) : completed ? (
+          <span className="flex items-center gap-1 text-emerald-400 font-mono">
+            <CheckCircle2 className="w-4 h-4" /> Verified • Generating Key...
+          </span>
+        ) : (
+          <span className="flex items-center gap-1.5 tracking-wide text-zinc-400">
+            <span>Slide to Claim License Key</span>
+            <ArrowRight className="w-3.5 h-3.5 opacity-60" />
+          </span>
+        )}
+      </div>
+
+      {/* Draggable Thumb */}
+      <div
+        onMouseDown={(e) => handleStart(e.clientX)}
+        onTouchStart={(e) => e.touches[0] && handleStart(e.touches[0].clientX)}
+        style={{ transform: `translateX(${sliderPos}px)` }}
+        className={`absolute left-1 w-10 h-10 rounded-lg flex items-center justify-center transition-transform duration-75 cursor-grab active:cursor-grabbing shadow-md ${
+          completed
+            ? "bg-emerald-500 text-black cursor-default"
+            : disabled
+            ? "bg-zinc-700 text-zinc-400"
+            : "bg-white text-black hover:bg-zinc-200"
+        }`}
+      >
+        {completed ? (
+          <Check className="w-5 h-5 font-bold" />
+        ) : (
+          <Key className="w-4 h-4" />
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function ClaimKeyPage() {
   const [step, setStep] = useState<"verification" | "claimed">("verification");
@@ -48,6 +212,14 @@ export default function ClaimKeyPage() {
   const [completedCpIds, setCompletedCpIds] = useState<string[]>([]);
   const [currentTimer, setCurrentTimer] = useState<number | null>(null);
   const [timerRunning, setTimerRunning] = useState(false);
+
+  // Anti-Bypass Security Session State
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [currentStepToken, setCurrentStepToken] = useState<string | null>(null);
+  const [powChallenge, setPowChallenge] = useState<{ nonce: string; difficulty: number } | null>(null);
+  const [stepGatewayUrls, setStepGatewayUrls] = useState<string[]>([]);
+  const [claimToken, setClaimToken] = useState<string | null>(null);
+  const [verifyingStep, setVerifyingStep] = useState(false);
 
   // Creator Profile
   const [profile, setProfile] = useState<CreatorProfile>({
@@ -126,6 +298,42 @@ export default function ClaimKeyPage() {
     }
   };
 
+  // Initialize anti-bypass checkpoint session with server clock
+  const initCheckpointSession = async (slug: string) => {
+    try {
+      const res = await fetch("/api/checkpoints/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "start",
+          script_slug: slug,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSessionId(data.sessionId);
+        setCurrentStepToken(data.currentStepToken);
+        setPowChallenge(data.powChallenge);
+        if (data.stepDetails && Array.isArray(data.stepDetails)) {
+          setCheckpoints(
+            data.stepDetails.map((s: any) => ({
+              id: s.id,
+              script_id: "all",
+              title: s.title,
+              url: s.gatewayUrl, // Uses secure gateway redirect
+              duration_seconds: s.duration_seconds,
+              order: s.order,
+              created_at: new Date().toISOString(),
+            }))
+          );
+          setStepGatewayUrls(data.stepDetails.map((s: any) => s.gatewayUrl));
+        }
+      }
+    } catch (err) {
+      console.error("Failed to init checkpoint session:", err);
+    }
+  };
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
@@ -168,7 +376,7 @@ export default function ClaimKeyPage() {
       })
       .catch(() => {});
 
-    // Fetch checkpoints
+    // Fetch checkpoints & profile
     const cpEndpoint = slug
       ? `/api/checkpoints?script_slug=${encodeURIComponent(slug)}`
       : "/api/checkpoints";
@@ -182,31 +390,13 @@ export default function ClaimKeyPage() {
         return res.json();
       })
       .then((data) => {
-        if (data.checkpoints && data.checkpoints.length > 0) {
-          setCheckpoints(data.checkpoints);
-        } else {
-          setCheckpoints([
-            {
-              id: "fallback-cp-1",
-              script_id: "all",
-              title: "Security Verification",
-              url: data.profile?.socials?.discord || "https://discord.gg/",
-              duration_seconds: 5,
-              order: 1,
-              created_at: new Date().toISOString(),
-            },
-          ]);
-        }
         if (data.profile) setProfile(data.profile);
         if (data.script) setTargetScript(data.script);
       })
       .catch(() => {});
 
-    fetch("/api/claim", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "start_checkpoint" }),
-    }).catch(() => {});
+    // Initialize anti-bypass session
+    initCheckpointSession(slug);
   }, []);
 
   // Timer Countdown Handler
@@ -215,13 +405,7 @@ export default function ClaimKeyPage() {
 
     if (currentTimer <= 0) {
       setTimerRunning(false);
-      const activeCp = checkpoints[activeCpIndex];
-      if (activeCp) {
-        setCompletedCpIds((prev) => [...prev, activeCp.id]);
-        if (activeCpIndex + 1 < checkpoints.length) {
-          setActiveCpIndex((prev) => prev + 1);
-        }
-      }
+      handleVerifyCurrentStep();
       return;
     }
 
@@ -230,23 +414,95 @@ export default function ClaimKeyPage() {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [timerRunning, currentTimer, checkpoints, activeCpIndex]);
+  }, [timerRunning, currentTimer]);
 
+  // Click handler: opens secure gateway link and starts timer
   const handleStartCheckpoint = (cp: CheckpointItem, index: number) => {
     if (completedCpIds.includes(cp.id)) return;
     if (index !== activeCpIndex) return;
 
-    if (cp.url) {
-      window.open(cp.url, "_blank", "noopener,noreferrer");
+    setError(null);
+
+    // Verify browser integrity
+    if (!checkClientIntegrity()) {
+      setError("Tampermonkey / Bypasser script detected. Please disable any script extensions and reload.");
+      return;
+    }
+
+    const gatewayUrl = stepGatewayUrls[index] || cp.url;
+    if (gatewayUrl) {
+      window.open(gatewayUrl, "_blank", "noopener,noreferrer");
     }
 
     setCurrentTimer(cp.duration_seconds || 5);
     setTimerRunning(true);
   };
 
+  // Verify step completion with server
+  const handleVerifyCurrentStep = async () => {
+    const activeCp = checkpoints[activeCpIndex];
+    if (!activeCp || !sessionId || !currentStepToken) return;
+
+    setVerifyingStep(true);
+    setError(null);
+
+    try {
+      // Compute proof of work in background
+      let powSolution = "";
+      if (powChallenge) {
+        powSolution = await solvePoW(powChallenge.nonce, powChallenge.difficulty);
+      }
+
+      const res = await fetch("/api/checkpoints/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "verify_step",
+          sessionId,
+          stepIndex: activeCpIndex,
+          stepToken: currentStepToken,
+          powSolution,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        if (data.remainingSeconds) {
+          setError(
+            data.error ||
+              `Task dwell time not reached. Please wait ${data.remainingSeconds}s on the destination page.`
+          );
+          setCurrentTimer(data.remainingSeconds);
+          setTimerRunning(true);
+        } else {
+          setError(data.error || "Verification failed. Please complete the task genuinely.");
+        }
+        return;
+      }
+
+      // Step successfully verified on server!
+      setCompletedCpIds((prev) => [...prev, activeCp.id]);
+
+      if (data.allCompleted && data.claimToken) {
+        setClaimToken(data.claimToken);
+      } else if (data.nextStep !== undefined) {
+        setActiveCpIndex(data.nextStep);
+        setCurrentStepToken(data.nextStepToken);
+        setPowChallenge(data.nextPowChallenge);
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Failed to verify step with server. Please try again.");
+    } finally {
+      setVerifyingStep(false);
+    }
+  };
+
   const allCheckpointsDone =
     checkpoints.length > 0 && checkpoints.every((cp) => completedCpIds.includes(cp.id));
 
+  // Claim key handler (validates claim_token with server)
   const handleClaimKey = async () => {
     if (!scriptSlug && availableScripts.length > 0) {
       setError("Please select which script you want to claim a key for.");
@@ -255,6 +511,11 @@ export default function ClaimKeyPage() {
 
     if (claimMethod === "discord_oauth" && !discordUsername.trim()) {
       setError("Please enter your Discord username to claim your license key.");
+      return;
+    }
+
+    if (claimMethod === "checkpoints" && (!sessionId || !claimToken)) {
+      setError("Missing checkpoint authorization token. Please complete all tasks.");
       return;
     }
 
@@ -271,6 +532,8 @@ export default function ClaimKeyPage() {
         body: JSON.stringify({
           script_slug: scriptSlug,
           claim_id: claimId,
+          session_id: sessionId,
+          claim_token: claimToken,
           discord_user:
             claimMethod === "discord_oauth"
               ? { id: sanitizedId, tag: sanitizedTag }
@@ -328,141 +591,103 @@ export default function ClaimKeyPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-obsidian-950 text-zinc-100 selection:bg-white selection:text-black">
-      <Navbar discordUrl={discordInvite} />
+      <Navbar />
 
-      <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 lg:p-8 flex items-center justify-center">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full items-start">
-          {/* LEFT COLUMN: CREATOR PROFILE CARD */}
-          <div className="lg:col-span-5 bg-obsidian-900 border border-obsidian-700 rounded-2xl p-6 sm:p-7 shadow-2xl relative overflow-hidden flex flex-col items-center text-center">
-            {/* Background ambient lighting */}
-            <div className="absolute -top-16 -left-16 w-48 h-48 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
-            <div className="absolute -bottom-16 -right-16 w-48 h-48 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
+      <main className="flex-1 flex flex-col items-center justify-center p-4 py-12 relative overflow-hidden">
+        {/* Glow backdrop matching site style */}
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 bg-zinc-700/10 rounded-full blur-[128px] pointer-events-none" />
 
-            {/* Avatar with Guns.lol glowing ring & pulse */}
-            <div className="relative mb-3.5 group">
-              <div className="w-20 h-20 rounded-full p-1 bg-gradient-to-tr from-purple-500 via-blue-500 to-emerald-400 shadow-xl shadow-purple-500/20">
-                <img
-                  src={profile.avatar_url || "https://api.dicebear.com/7.x/bottts/svg?seed=Revile21"}
-                  alt="Creator Avatar"
-                  className="w-full h-full rounded-full object-cover bg-black"
-                  referrerPolicy="no-referrer"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src =
-                      "https://api.dicebear.com/7.x/bottts/svg?seed=Revile21";
-                  }}
-                />
+        <div className="w-full max-w-lg z-10 space-y-4">
+          {/* Top Creator Profile Card */}
+          <div className="p-4 rounded-2xl bg-obsidian-900 border border-obsidian-800 shadow-xl space-y-3">
+            <div className="flex items-center gap-3">
+              <img
+                src={profile.avatar_url || "/placeholder-avatar.png"}
+                alt={profile.display_name}
+                className="w-12 h-12 rounded-xl border border-obsidian-750 object-cover bg-obsidian-850 shrink-0"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm font-bold text-white truncate">{profile.display_name}</h2>
+                  <span className="flex items-center gap-1 text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Official System
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400 truncate mt-0.5">{profile.bio}</p>
               </div>
-              <span className="absolute bottom-1 right-1 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-obsidian-900 animate-pulse" />
             </div>
-
-            {/* Display Name */}
-            <h2 className="text-base sm:text-lg font-bold text-white tracking-wide">
-              {profile.display_name || "Revile"}
-            </h2>
 
             {/* Emblems */}
-            <div className="flex flex-wrap items-center justify-center gap-1.5 my-3">
-              {(profile.emblems || []).map((emb) => (
-                <div
-                  key={emb.id}
-                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wide uppercase border bg-obsidian-850"
-                  style={{
-                    borderColor: `${emb.color || "#3b82f6"}40`,
-                    color: emb.color || "#3b82f6",
-                  }}
-                >
-                  {renderEmblemIcon(emb.icon)}
-                  <span>{emb.label}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Bio */}
-            <p className="text-xs text-zinc-400 max-w-sm leading-relaxed mb-4">
-              {profile.bio || "Lead Developer & Script Engineer."}
-            </p>
-
-            {/* Target Script Indicator */}
-            {targetScript ? (
-              <div className="w-full mb-4 p-3 rounded-xl bg-obsidian-850 border border-obsidian-700 text-left">
-                <div className="flex items-center gap-2 text-xs font-bold text-white">
-                  <Lock className="w-3.5 h-3.5 text-zinc-400" />
-                  <span>Script-Locked Key</span>
-                </div>
-                <p className="text-[11px] text-zinc-400 mt-0.5 leading-snug">
-                  Key authorized for <strong>{targetScript.name}</strong> (/{targetScript.slug}).
-                </p>
-              </div>
-            ) : scriptSlug ? (
-              <div className="w-full mb-4 p-3 rounded-xl bg-obsidian-850 border border-obsidian-700 text-left">
-                <div className="flex items-center gap-2 text-xs font-bold text-white">
-                  <Lock className="w-3.5 h-3.5 text-zinc-400" />
-                  <span>Script: {scriptSlug}</span>
-                </div>
-                <p className="text-[11px] text-zinc-400 mt-0.5 leading-snug">
-                  Key will be locked strictly to this script identifier.
-                </p>
-              </div>
-            ) : null}
-
-            {/* Branded Social Buttons (All 9 Supported Platforms) */}
-            <div className="w-full flex flex-wrap items-center justify-center gap-2 pt-3 border-t border-obsidian-750">
-              {SOCIAL_PLATFORMS.map((platform) => {
-                const isEnabled = profile.social_toggles?.[platform.key] !== false;
-                const link = (profile.socials as Record<string, string | undefined>)[platform.key];
-                if (!isEnabled || !link) return null;
-
-                return (
-                  <a
-                    key={platform.key}
-                    href={link}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-3 py-1.5 rounded-xl bg-obsidian-800 hover:bg-obsidian-750 border border-obsidian-700 text-zinc-200 hover:text-white transition-all text-xs font-semibold flex items-center gap-1.5 shadow-sm"
-                    style={{ borderLeftColor: platform.color, borderLeftWidth: "3px" }}
+            {profile.emblems && profile.emblems.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-1 border-t border-obsidian-800">
+                {profile.emblems.map((emb) => (
+                  <span
+                    key={emb.id}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold border bg-obsidian-850"
+                    style={{ borderColor: `${emb.color}30`, color: emb.color }}
                   >
-                    <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24" style={{ color: platform.color }}>
-                      <path d={platform.path} />
-                    </svg>
-                    <span>{platform.name}</span>
-                  </a>
-                );
-              })}
-            </div>
+                    {renderEmblemIcon(emb.icon)}
+                    <span>{emb.label}</span>
+                  </span>
+                ))}
+              </div>
+            )}
 
-            {claimId && (
-              <div className="mt-4 pt-3 border-t border-obsidian-750 w-full text-[10px] text-zinc-500 font-mono truncate">
-                HWID: {claimId.slice(0, 16)}...
+            {/* Socials */}
+            {profile.socials && Object.values(profile.socials).some(Boolean) && (
+              <div className="flex flex-wrap gap-2 pt-2 border-t border-obsidian-800 text-[11px]">
+                {SOCIAL_PLATFORMS.map((plat) => {
+                  const url = (profile.socials as any)?.[plat.key];
+                  if (!url) return null;
+                  return (
+                    <a
+                      key={plat.key}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2.5 py-1 rounded-lg bg-obsidian-850 border border-obsidian-750 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors flex items-center gap-1 font-mono text-[11px]"
+                    >
+                      <span>{plat.name}</span>
+                      <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+                    </a>
+                  );
+                })}
               </div>
             )}
           </div>
 
-          {/* RIGHT COLUMN: VERIFICATION GATE */}
-          <div className="lg:col-span-7 bg-obsidian-900 border border-obsidian-700 rounded-2xl p-6 sm:p-8 shadow-2xl">
-            {/* Header */}
-            <div className="mb-6">
-              <div className="flex items-center gap-2 mb-1.5">
-                <div className="w-7 h-7 rounded-lg bg-obsidian-800 border border-obsidian-700 text-white flex items-center justify-center">
+          {/* Main Key Claim Container */}
+          <div className="p-6 rounded-2xl bg-obsidian-900 border border-obsidian-800 shadow-2xl relative">
+            <div className="flex items-center justify-between pb-4 mb-4 border-b border-obsidian-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-white">
                   <Key className="w-4 h-4" />
                 </div>
-                <h1 className="text-lg sm:text-xl font-bold text-white tracking-tight">
-                  Script License Allocation
-                </h1>
+                <div>
+                  <h1 className="text-sm font-bold text-white">License Key Gateway</h1>
+                  <p className="text-[11px] text-zinc-400">
+                    Complete the secure checkpoint tasks below to allocate your key.
+                  </p>
+                </div>
               </div>
-              <p className="text-xs text-zinc-400">
-                Complete the security checkpoints below to generate your single-device license key.
-              </p>
+
+              {/* Anti-Bypass Protected Badge */}
+              <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-[10px] font-mono font-semibold">
+                <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                <span>Anti-Bypass Shield</span>
+              </span>
             </div>
 
-            {/* VPN Alert */}
+            {/* VPN Detected Banner */}
             {vpnDetected && (
-              <div className="mb-6 p-4 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-300">
-                <div className="flex items-start gap-3">
-                  <ShieldAlert className="w-5 h-5 flex-shrink-0 text-rose-400 mt-0.5" />
+              <div className="mb-4 p-4 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs">
+                <div className="flex items-start gap-2.5">
+                  <ShieldAlert className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
                   <div>
-                    <h3 className="text-sm font-bold text-rose-300">VPN / Proxy Detected</h3>
-                    <p className="text-xs text-rose-300/80 mt-1 leading-relaxed">
-                      Keys cannot be bound to commercial VPN or datacenter proxy IP addresses. Disconnect from your VPN and reload this page.
+                    <h4 className="font-bold text-rose-200">VPN / Proxy Detected</h4>
+                    <p className="text-zinc-300 mt-1 leading-relaxed">
+                      To prevent abuse, claiming license keys through a VPN or Proxy network is strictly disabled. Please turn off your VPN, then reload this page.
                     </p>
                     <button
                       type="button"
@@ -477,9 +702,10 @@ export default function ClaimKeyPage() {
               </div>
             )}
 
+            {/* Error Banner */}
             {error && !vpnDetected && (
-              <div className="mb-4 p-3 rounded-xl bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs font-mono">
-                {error}
+              <div className="mb-4 p-3 rounded-xl bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs font-mono leading-relaxed">
+                ⚠️ {error}
               </div>
             )}
 
@@ -510,12 +736,7 @@ export default function ClaimKeyPage() {
                             setTargetScript(s);
                             setError(null);
                             checkAlreadyClaimed(s.slug);
-                            fetch(`/api/checkpoints?script_slug=${encodeURIComponent(s.slug)}`)
-                              .then((r) => r.json())
-                              .then((d) => {
-                                if (d.checkpoints && d.checkpoints.length > 0) setCheckpoints(d.checkpoints);
-                                if (d.script) setTargetScript(d.script);
-                              });
+                            initCheckpointSession(s.slug);
                           }}
                           className="p-3 rounded-xl border border-obsidian-700 bg-obsidian-800/60 hover:border-zinc-400 text-left transition-all flex items-center justify-between group"
                         >
@@ -544,6 +765,8 @@ export default function ClaimKeyPage() {
                         onClick={() => {
                           setScriptSlug("");
                           setTargetScript(null);
+                          setCompletedCpIds([]);
+                          setActiveCpIndex(0);
                         }}
                         className="text-[11px] text-zinc-400 hover:text-white underline font-medium"
                       >
@@ -593,11 +816,11 @@ export default function ClaimKeyPage() {
                     </div>
                   </div>
                 ) : (
-                  /* Checkpoints */
+                  /* Checkpoints List */
                   <div className="space-y-2.5">
                     <div className="flex items-center justify-between text-xs font-mono text-zinc-400 mb-1">
                       <span>Checkpoints Required:</span>
-                      <span className="text-emerald-400">
+                      <span className="text-emerald-400 font-bold">
                         {completedCpIds.length} of {checkpoints.length} Completed
                       </span>
                     </div>
@@ -614,7 +837,7 @@ export default function ClaimKeyPage() {
                             isCompleted
                               ? "bg-emerald-500/5 border-emerald-500/30"
                               : isCurrent
-                              ? "bg-obsidian-800 border-zinc-500"
+                              ? "bg-obsidian-800 border-zinc-500 shadow-sm"
                               : "bg-obsidian-850 border-obsidian-700 opacity-60"
                           }`}
                         >
@@ -646,10 +869,10 @@ export default function ClaimKeyPage() {
                                 </h4>
                                 <p className="text-[11px] text-zinc-400 truncate">
                                   {isCompleted
-                                    ? "Checkpoint validated."
+                                    ? "Verified by server clock."
                                     : isCurrent && timerRunning
-                                    ? `Wait ${currentTimer}s on the destination page...`
-                                    : `Visit link and wait ${cp.duration_seconds}s.`}
+                                    ? `Wait ${currentTimer}s on the destination task page...`
+                                    : `Visit task and spend ${cp.duration_seconds}s.`}
                                 </p>
                               </div>
                             </div>
@@ -661,18 +884,23 @@ export default function ClaimKeyPage() {
                                   <span>Done</span>
                                 </span>
                               ) : isCurrent ? (
-                                timerRunning ? (
+                                verifyingStep ? (
                                   <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-obsidian-750 border border-obsidian-600 text-zinc-200 text-xs font-mono">
-                                    <Clock className="w-3.5 h-3.5 animate-spin" />
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-zinc-400" />
+                                    <span>Verifying...</span>
+                                  </div>
+                                ) : timerRunning ? (
+                                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-obsidian-750 border border-obsidian-600 text-zinc-200 text-xs font-mono">
+                                    <Clock className="w-3.5 h-3.5 animate-spin text-zinc-400" />
                                     <span>{currentTimer}s</span>
                                   </div>
                                 ) : (
                                   <button
                                     type="button"
                                     onClick={() => handleStartCheckpoint(cp, idx)}
-                                    className="px-3.5 py-1.5 rounded-xl bg-white hover:bg-zinc-200 text-black font-semibold text-xs transition-all flex items-center gap-1.5"
+                                    className="px-3.5 py-1.5 rounded-xl bg-white hover:bg-zinc-200 text-black font-semibold text-xs transition-all flex items-center gap-1.5 shadow-sm active:scale-95"
                                   >
-                                    <span>Visit Link</span>
+                                    <span>Visit Task</span>
                                     <ExternalLink className="w-3 h-3" />
                                   </button>
                                 )
@@ -704,31 +932,50 @@ export default function ClaimKeyPage() {
                   </div>
                 )}
 
-                {/* Final Button */}
-                <button
-                  type="button"
-                  onClick={handleClaimKey}
-                  disabled={
-                    loading ||
-                    (claimMethod === "checkpoints" && !allCheckpointsDone) ||
-                    (claimMethod === "discord_oauth" && (!discordJoined || !discordUsername.trim()))
-                  }
-                  className="w-full py-3 rounded-xl bg-white hover:bg-zinc-200 text-black font-bold text-xs transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-sm"
-                >
-                  {loading ? (
-                    <span>Allocating key from pool...</span>
-                  ) : (claimMethod === "checkpoints" && allCheckpointsDone) ||
-                    (claimMethod === "discord_oauth" && discordJoined && discordUsername.trim()) ? (
-                    <>
-                      <span>Generate License Key</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </>
-                  ) : claimMethod === "discord_oauth" ? (
-                    <span>{!discordJoined ? "Join Discord Above First" : "Enter Discord Username Above"}</span>
+                {/* Final Claim Section */}
+                {claimMethod === "checkpoints" ? (
+                  allCheckpointsDone && claimToken ? (
+                    /* Interactive Slide-to-Claim to prevent automated headless bypass bots */
+                    <div className="space-y-2 pt-2 animate-in fade-in">
+                      <div className="flex items-center justify-between text-xs text-zinc-400 font-mono px-1">
+                        <span className="flex items-center gap-1.5 text-emerald-400">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> All checkpoints verified
+                        </span>
+                        <span>Drag slider to finalize</span>
+                      </div>
+                      <SlideToClaim
+                        onComplete={handleClaimKey}
+                        disabled={loading}
+                        loading={loading}
+                      />
+                    </div>
                   ) : (
-                    <span>Complete All Checkpoints Above</span>
-                  )}
-                </button>
+                    <button
+                      type="button"
+                      disabled={true}
+                      className="w-full py-3 rounded-xl bg-obsidian-800 border border-obsidian-700 text-zinc-500 font-bold text-xs cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      <Lock className="w-3.5 h-3.5" />
+                      <span>Complete All Checkpoints Above</span>
+                    </button>
+                  )
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleClaimKey}
+                    disabled={loading || !discordJoined || !discordUsername.trim()}
+                    className="w-full py-3 rounded-xl bg-white hover:bg-zinc-200 text-black font-bold text-xs transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-sm"
+                  >
+                    {loading ? (
+                      <span>Allocating key from pool...</span>
+                    ) : (
+                      <>
+                        <span>Generate License Key</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
             )}
 
@@ -748,114 +995,87 @@ export default function ClaimKeyPage() {
                     <ShieldCheck className="w-7 h-7 text-emerald-400 mx-auto mb-2" />
                   )}
                   <h3 className="text-sm font-bold text-white">
-                    {alreadyClaimed ? "Existing License Key Retrieved" : "License Key Allocated"}
+                    {alreadyClaimed ? "Existing Key Allocated" : "License Key Generated"}
                   </h3>
-                  <p className="text-xs text-zinc-400 mt-1">
-                    Bound to network IP: <code className="text-zinc-200 font-mono">{boundIp || "Your Network IP"}</code>.
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    {alreadyClaimed
+                      ? "Your IP already has an active key. Copy and paste it into your script."
+                      : "Your key has been allocated and cryptographically bound to your IP."}
                   </p>
                 </div>
 
-                {targetScript && (
-                  <div className="p-3 rounded-xl bg-obsidian-850 border border-obsidian-700 text-xs text-zinc-300 flex items-center gap-2 font-mono">
-                    <Lock className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0" />
-                    <span>
-                      Locked to: <strong className="text-white">{targetScript.name}</strong>.
-                    </span>
+                {/* Key Display Card */}
+                <div className="p-3.5 rounded-xl bg-obsidian-850 border border-obsidian-700 flex items-center justify-between gap-3">
+                  <div className="font-mono text-xs font-bold text-white tracking-wider truncate select-all">
+                    {claimedKey}
                   </div>
-                )}
+                  <button
+                    type="button"
+                    onClick={copyKey}
+                    className="px-3 py-1.5 rounded-lg bg-white hover:bg-zinc-200 text-black font-semibold text-xs transition-all flex items-center gap-1.5 shrink-0"
+                  >
+                    {copied ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Copy</span>
+                      </>
+                    )}
+                  </button>
+                </div>
 
-                {/* Key Box */}
-                <div className="bg-obsidian-850 border border-obsidian-700 rounded-xl p-4 space-y-2">
-                  <label className="block text-[11px] font-mono text-zinc-400 uppercase tracking-wider">
-                    Your License Key
-                  </label>
-                  <div className="flex items-center gap-2 bg-obsidian-950 border border-obsidian-700 rounded-lg p-2.5">
-                    <span className="font-mono text-sm font-bold text-white flex-1 select-all truncate">
-                      {claimedKey}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={copyKey}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white text-black hover:bg-zinc-200 text-xs font-semibold whitespace-nowrap transition-all"
-                    >
-                      {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copied ? "Copied" : "Copy"}</span>
-                    </button>
+                {/* Key Metadata */}
+                <div className="grid grid-cols-2 gap-2 text-[11px] font-mono">
+                  <div className="p-2.5 rounded-lg bg-obsidian-850 border border-obsidian-800">
+                    <span className="text-zinc-500 block">Bound IP:</span>
+                    <span className="text-zinc-300 font-bold truncate block">{boundIp || "Your Network"}</span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-obsidian-850 border border-obsidian-800">
+                    <span className="text-zinc-500 block">Status:</span>
+                    <span className="text-emerald-400 font-bold block">Active</span>
                   </div>
                 </div>
 
-                {expiresAt ? (
-                  <div className="text-center text-xs font-mono text-zinc-400">
-                    Expires: <span className="text-white">{new Date(expiresAt).toLocaleString()}</span>
-                  </div>
-                ) : (
-                  <div className="text-center text-xs font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 py-2 rounded-xl">
-                    ✓ Key active. Timer initiates on first in-game execution.
-                  </div>
-                )}
+                {/* Dynamic IP Reset Self-Service */}
+                <div className="pt-2 border-t border-obsidian-800">
+                  <button
+                    type="button"
+                    onClick={handleResetIp}
+                    disabled={ipResetting}
+                    className="w-full py-2 rounded-xl bg-obsidian-850 hover:bg-obsidian-800 border border-obsidian-750 text-zinc-300 hover:text-white text-xs font-semibold transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${ipResetting ? "animate-spin" : ""}`} />
+                    <span>{ipResetting ? "Rebinding IP..." : "Reset Bound IP to Current Location"}</span>
+                  </button>
 
-                {/* Self-Service Dynamic IP Reset (12h cooldown) */}
-                <div className="p-4 rounded-xl bg-obsidian-850 border border-obsidian-700 space-y-2.5 text-left">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-xs font-bold text-white">
-                      <RefreshCw className="w-4 h-4 text-blue-400" />
-                      <span>Dynamic IP Address Reset</span>
-                    </div>
-                    <span className="text-[10px] text-zinc-400 font-mono">12-Hour Cooldown</span>
-                  </div>
-                  <p className="text-xs text-zinc-400 leading-relaxed">
-                    If your ISP dynamic IP changed or you moved networks, click below to rebind this key to your current IP.
-                  </p>
                   {ipResetStatus && (
                     <div
-                      className={`p-2 rounded-lg text-xs font-mono ${
+                      className={`mt-2 p-2.5 rounded-lg text-xs font-mono ${
                         ipResetStatus.type === "success"
-                          ? "bg-emerald-500/10 text-emerald-300 border border-emerald-500/30"
-                          : "bg-rose-500/10 text-rose-300 border border-rose-500/30"
+                          ? "bg-emerald-950/40 border border-emerald-500/30 text-emerald-300"
+                          : "bg-rose-950/40 border border-rose-500/30 text-rose-300"
                       }`}
                     >
                       {ipResetStatus.message}
                     </div>
                   )}
-                  <button
-                    type="button"
-                    disabled={ipResetting}
-                    onClick={handleResetIp}
-                    className="w-full py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold text-xs transition-all flex items-center justify-center gap-2 shadow-sm"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${ipResetting ? "animate-spin" : ""}`} />
-                    <span>{ipResetting ? "Rebinding Key IP..." : "Rebind Key to Current Network IP"}</span>
-                  </button>
                 </div>
 
-                {/* Discord renewal link */}
-                <div className="p-4 rounded-xl bg-obsidian-850 border border-obsidian-700 space-y-2">
-                  <div className="flex items-center gap-2 text-xs font-bold text-white">
-                    <MessageSquare className="w-4 h-4 text-indigo-400" />
-                    <span>Need Another Key or HWID Reset?</span>
-                  </div>
-                  <p className="text-xs text-zinc-400 leading-relaxed">
-                    Keys are bound to a single IP address. For IP resets or key extensions, join our Discord server.
-                  </p>
+                {/* Discord Help Button */}
+                <div className="text-center pt-2">
                   <a
                     href={discordInvite}
                     target="_blank"
-                    rel="noreferrer"
-                    className="w-full py-2 px-3 rounded-xl bg-obsidian-800 hover:bg-obsidian-750 border border-obsidian-700 text-white font-semibold text-xs transition-all flex items-center justify-center gap-2"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white transition-colors underline font-medium"
                   >
-                    <span>Open Discord Server</span>
-                    <ExternalLink className="w-3.5 h-3.5 text-zinc-400" />
+                    <span>Need help with your key? Join Discord</span>
+                    <ExternalLink className="w-3 h-3" />
                   </a>
-                </div>
-
-                {/* Usage instructions */}
-                <div className="p-3.5 rounded-xl bg-obsidian-850 border border-obsidian-700 text-xs text-zinc-400 leading-relaxed font-mono">
-                  <p className="font-bold text-white mb-1">Execution Steps:</p>
-                  <ol className="list-decimal list-inside space-y-0.5 text-zinc-400">
-                    <li>Execute your script loadstring in Roblox.</li>
-                    <li>Paste your key into the prompt and hit Verify.</li>
-                    <li>Your key caches locally to skip future prompts.</li>
-                  </ol>
                 </div>
               </div>
             )}
