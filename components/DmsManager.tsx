@@ -139,7 +139,8 @@ export default function DmsManager() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId: selectedUserId,
-          username: activeConv?.username || "Player",
+          username: "Admin / Dev",
+          displayName: "Admin / Dev",
           senderType: "dev",
           message: text,
         }),
@@ -271,13 +272,13 @@ export default function DmsManager() {
                     <img
                       src={
                         uid
-                          ? `https://www.roblox.com/headshot-thumbnail/image?userId=${uid}&width=48&height=48&format=png`
-                          : "https://api.dicebear.com/7.x/bottts/svg?seed=" + c.username
+                          ? `/api/roblox/avatar?userId=${uid}`
+                          : `/api/roblox/avatar?username=${encodeURIComponent(c.username)}`
                       }
                       alt={c.username}
                       className="w-10 h-10 rounded-full bg-[#181a24] border border-gray-700/60 object-cover shrink-0"
                       onError={(e: any) => {
-                        e.target.src = "https://api.dicebear.com/7.x/bottts/svg?seed=" + c.username;
+                        e.target.src = `/api/roblox/avatar?username=${encodeURIComponent(c.username)}`;
                       }}
                     />
 
@@ -321,11 +322,14 @@ export default function DmsManager() {
                   <img
                     src={
                       selectedConv.user_id && selectedConv.user_id !== "0"
-                        ? `https://www.roblox.com/headshot-thumbnail/image?userId=${selectedConv.user_id}&width=48&height=48&format=png`
-                        : "https://api.dicebear.com/7.x/bottts/svg?seed=" + selectedConv.username
+                        ? `/api/roblox/avatar?userId=${selectedConv.user_id}`
+                        : `/api/roblox/avatar?username=${encodeURIComponent(selectedConv.username)}`
                     }
                     alt={selectedConv.username}
                     className="w-8 h-8 rounded-full border border-gray-700/60 object-cover"
+                    onError={(e: any) => {
+                      e.target.src = `/api/roblox/avatar?username=${encodeURIComponent(selectedConv.username)}`;
+                    }}
                   />
                   <div>
                     <div className="flex items-center gap-2">
@@ -374,7 +378,7 @@ export default function DmsManager() {
                       >
                         <div className="flex items-center gap-1.5 mb-1 px-1 text-[10px] text-gray-500">
                           <span className="font-semibold text-gray-300">
-                            {isDev ? "AtomWare Dev 👑" : m.username}
+                            {isDev ? "👑 Admin / Dev" : m.username}
                           </span>
                           <span>•</span>
                           <span>{formatTime(m.created_at)}</span>

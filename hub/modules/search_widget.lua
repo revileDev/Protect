@@ -10,20 +10,29 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local TeleportService = game:GetService("TeleportService")
 
-local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local LocalPlayer = Players.LocalPlayer or (function()
+    local p = Players.PlayerAdded:Wait()
+    return p
+end)()
 
 local SearchWidget = {}
 local widgetGui = nil
 
 local function getGuiParent()
     local success, target = pcall(function()
+        local test = Instance.new("Folder")
+        test.Parent = CoreGui
+        test:Destroy()
         return CoreGui
     end)
     if success and target then
         return target
     end
-    return PlayerGui
+    local lp = Players.LocalPlayer
+    if lp then
+        return lp:FindFirstChild("PlayerGui") or lp:WaitForChild("PlayerGui", 5)
+    end
+    return nil
 end
 
 -- Draggable helper with drag-vs-click detection
@@ -92,7 +101,7 @@ function SearchWidget:Init(gamesDb, notificationModule, authPromptModule, teleme
     local floatBtn = Instance.new("TextButton")
     floatBtn.Name = "FloatingSearchButton"
     floatBtn.Size = UDim2.new(0, 48, 0, 48)
-    floatBtn.Position = UDim2.new(0, 20, 0.45, 0)
+    floatBtn.Position = UDim2.new(0, 20, 0.45, -28)
     floatBtn.BackgroundColor3 = Color3.fromRGB(28, 30, 40)
     floatBtn.Text = "🔍"
     floatBtn.TextSize = 20

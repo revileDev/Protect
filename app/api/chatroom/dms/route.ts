@@ -37,10 +37,13 @@ export async function POST(req: NextRequest) {
     }
 
     const type = senderType === "dev" ? "dev" : "user";
+    const senderUsername = type === "dev" ? "Admin / Dev" : (username ? String(username) : "Player");
+    const senderDisplayName = type === "dev" ? "Admin / Dev" : (displayName ? String(displayName) : senderUsername);
+
     const result = await dbService.postDevMessage({
       user_id: String(userId),
-      username: username ? String(username) : (type === "dev" ? "AtomWare Dev" : "Player"),
-      display_name: displayName ? String(displayName) : undefined,
+      username: senderUsername,
+      display_name: senderDisplayName,
       avatar_url: avatarUrl ? String(avatarUrl) : undefined,
       sender_type: type,
       message: message.trim(),

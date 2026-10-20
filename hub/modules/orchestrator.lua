@@ -8,17 +8,26 @@ local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local CoreGui = game:GetService("CoreGui")
 
-local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local LocalPlayer = Players.LocalPlayer or (function()
+    local p = Players.PlayerAdded:Wait()
+    return p
+end)()
 
 local function getGuiParent()
     local success, target = pcall(function()
+        local test = Instance.new("Folder")
+        test.Parent = CoreGui
+        test:Destroy()
         return CoreGui
     end)
     if success and target then
         return target
     end
-    return PlayerGui
+    local lp = Players.LocalPlayer
+    if lp then
+        return lp:FindFirstChild("PlayerGui") or lp:WaitForChild("PlayerGui", 5)
+    end
+    return nil
 end
 
 local function runAtomwareHub(GamesDatabase, Notification, Telemetry, AuthPrompt, SearchWidget, Watermark, ChatroomWidget)
@@ -32,11 +41,23 @@ local function runAtomwareHub(GamesDatabase, Notification, Telemetry, AuthPrompt
     _G.AtomwareHubLoaded = true
 
     -- Initialize Watermark, Floating Search Widget & Chatroom Widget immediately
-    Watermark:Init()
-    SearchWidget:Init(GamesDatabase, Notification, AuthPrompt, Telemetry)
-    if ChatroomWidget and type(ChatroomWidget.Init) == "function" then
-        ChatroomWidget:Init(Notification)
-    end
+    pcall(function()
+        if Watermark and type(Watermark.Init) == "function" then
+            Watermark:Init()
+        end
+    end)
+
+    pcall(function()
+        if SearchWidget and type(SearchWidget.Init) == "function" then
+            SearchWidget:Init(GamesDatabase, Notification, AuthPrompt, Telemetry)
+        end
+    end)
+
+    pcall(function()
+        if ChatroomWidget and type(ChatroomWidget.Init) == "function" then
+            ChatroomWidget:Init(Notification)
+        end
+    end)
 
     -- Auto-detect Current Game
     local currentPlaceId = game.PlaceId

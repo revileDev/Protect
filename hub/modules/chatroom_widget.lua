@@ -1,12 +1,12 @@
 --[[
     AtomWare Global Chatroom & Developer Direct Messages Widget
     - Floating draggable messaging circle (💬) with live unread badge & sound ping
-    - Pixel-perfect Atom Protect obsidian/violet floating modal (no background blur/dim)
-    - Tab 1: Global Live Chatroom with real Roblox player avatars, usernames & timestamps
-    - Tab 2: "Contact Your Dev" 1-on-1 direct messaging system with the script developer
+    - Perfectly aligned with search widget on left dock (no overlap)
+    - Tab 1: Global Live Chatroom with real Roblox player avatars, usernames, cooldown & timestamps
+    - Tab 2: "Contact Your Dev" 1-on-1 direct messaging system with developer reply notifications
     - Real-time cloud sync with atomprotect.vercel.app backend & Supabase
     - Word blacklist enforcement & instant moderation filter
-    - Settings menu to completely disable the chatroom or mute notifications
+    - Granular settings menu: toggle chatroom, dev tab, chat notifications, dev notifications, or completely disable
 ]]
 
 local CoreGui = game:GetService("CoreGui")
@@ -16,8 +16,10 @@ local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 local SoundService = game:GetService("SoundService")
 
-local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local LocalPlayer = Players.LocalPlayer or (function()
+    local p = Players.PlayerAdded:Wait()
+    return p
+end)()
 
 local API_BASE = "https://atomprotect.vercel.app/api/chatroom"
 
@@ -25,12 +27,19 @@ local ChatroomWidget = {}
 
 local function getGuiParent()
     local success, target = pcall(function()
+        local test = Instance.new("Folder")
+        test.Parent = CoreGui
+        test:Destroy()
         return CoreGui
     end)
     if success and target then
         return target
     end
-    return PlayerGui
+    local lp = Players.LocalPlayer
+    if lp then
+        return lp:FindFirstChild("PlayerGui") or lp:WaitForChild("PlayerGui", 5)
+    end
+    return nil
 end
 
 local function safeHttpRequest(url, method, body, headers)
@@ -80,7 +89,6 @@ local function formatTimestamp(isoString)
     if not isoString or type(isoString) ~= "string" then
         return os.date("%I:%M %p")
     end
-    -- Extract time portion HH:MM from ISO timestamp (e.g. 2026-10-20T11:42:00Z)
     local hour, min = isoString:match("(%d%d):(%d%d)")
     if hour and min then
         local h = tonumber(hour)
@@ -98,6 +106,8 @@ function ChatroomWidget:Init(NotificationModule)
     _G.AtomwareChatroomLoaded = true
 
     local parent = getGuiParent()
+    if not parent then return end
+
     local old = parent:FindFirstChild("Atomware_ChatroomWidget")
     if old then
         old:Destroy()
@@ -106,7 +116,7 @@ function ChatroomWidget:Init(NotificationModule)
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "Atomware_ChatroomWidget"
     screenGui.ResetOnSpawn = false
-    screenGui.DisplayOrder = 1005
+    screenGui.DisplayOrder = 955
     screenGui.IgnoreGuiInset = true
     screenGui.Parent = parent
 
@@ -114,18 +124,25 @@ function ChatroomWidget:Init(NotificationModule)
     local isOpen = false
     local activeTab = "global" -- "global" | "dev"
     local unreadCount = 0
-    local isMuted = false
+    local isGlobalChatEnabled = true
+    local isDevTabEnabled = true
+    local isGlobalNotificationsEnabled = true
+    local isDevNotificationsEnabled = true
+    local isMasterMuted = false
+    local clientCooldownSeconds = 5
+    local lastSentTime = 0
     local lastGlobalTimestamp = nil
     local lastDevTimestamp = nil
     local isPolling = true
 
     --------------------------------------------------------------------------
-    -- 1. FLOATING CHAT BUTTON (💬 Solid obsidian circle, matching search widget)
+    -- 1. FLOATING CHAT BUTTON (💬 Solid obsidian circle, vertically stacked under search)
     --------------------------------------------------------------------------
     local floatBtn = Instance.new("TextButton")
     floatBtn.Name = "FloatingChatButton"
-    floatBtn.Size = UDim2.new(0, 46, 0, 46)
-    floatBtn.Position = UDim2.new(1, -70, 0.5, -60) -- Positioned above the search widget
+    floatBtn.Size = UDim2.new(0, 48, 0, 48)
+    -- Placed at X: 20px, Y: 45% + 28px (Search button is at X: 20px, Y: 45% - 28px) -> NEVER OVERLAP!
+    floatBtn.Position = UDim2.new(0, 20, 0.45, 28)
     floatBtn.BackgroundColor3 = Color3.fromRGB(28, 30, 40)
     floatBtn.BorderSizePixel = 0
     floatBtn.Text = "💬"
@@ -173,45 +190,63 @@ function ChatroomWidget:Init(NotificationModule)
             unreadBadge.Visible = true
         else
             unreadBadge.Visible = false
-            unreadCount = 0
         end
     end
 
     --------------------------------------------------------------------------
-    -- 2. MAIN CHATROOM MODAL WINDOW (Fitted obsidian card UI)
+    -- 2. FLOATING OBSIDIAN MODAL (No background blur/dim)
     --------------------------------------------------------------------------
     local chatModal = Instance.new("Frame")
     chatModal.Name = "ChatModal"
-    chatModal.Size = UDim2.new(0, 440, 0, 480)
+    chatModal.Size = UDim2.new(0, 420, 0, 520)
     chatModal.AnchorPoint = Vector2.new(0.5, 0.5)
     chatModal.Position = UDim2.new(0.5, 0, 0.5, 0)
-    chatModal.BackgroundColor3 = Color3.fromRGB(18, 16, 26) -- Dark charcoal/violet
+    chatModal.BackgroundColor3 = Color3.fromRGB(15, 13, 22) -- Deep obsidian
     chatModal.BorderSizePixel = 0
     chatModal.Visible = false
     chatModal.ClipsDescendants = true
     chatModal.Parent = screenGui
+
+    -- Responsiveness on mobile
+    local camera = workspace.CurrentCamera
+    local function adjustModalSize()
+        if camera and camera.ViewportSize.X > 0 then
+            local maxX = math.min(camera.ViewportSize.X - 24, 420)
+            local maxY = math.min(camera.ViewportSize.Y - 40, 540)
+            chatModal.Size = UDim2.new(0, maxX, 0, maxY)
+        end
+    end
+    adjustModalSize()
+    if camera then
+        camera:GetPropertyChangedSignal("ViewportSize"):Connect(adjustModalSize)
+    end
 
     local modalCorner = Instance.new("UICorner")
     modalCorner.CornerRadius = UDim.new(0, 14)
     modalCorner.Parent = chatModal
 
     local modalStroke = Instance.new("UIStroke")
-    modalStroke.Color = Color3.fromRGB(44, 38, 66)
+    modalStroke.Color = Color3.fromRGB(44, 38, 64)
     modalStroke.Thickness = 1.5
     modalStroke.Parent = chatModal
 
-    -- Header (Top Bar: Dot + ATOM CHAT | Global Network ... Settings ... Close)
+    -- Header Frame
     local headerFrame = Instance.new("Frame")
     headerFrame.Name = "Header"
-    headerFrame.Size = UDim2.new(1, 0, 0, 48)
-    headerFrame.BackgroundColor3 = Color3.fromRGB(24, 21, 36)
+    headerFrame.BackgroundColor3 = Color3.fromRGB(20, 17, 30)
     headerFrame.BorderSizePixel = 0
+    headerFrame.Size = UDim2.new(1, 0, 0, 48)
     headerFrame.Parent = chatModal
 
+    local headerCorner = Instance.new("UICorner")
+    headerCorner.CornerRadius = UDim.new(0, 14)
+    headerCorner.Parent = headerFrame
+
+    -- Live dot
     local dot = Instance.new("Frame")
-    dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94) -- Live green status dot
-    dot.Position = UDim2.new(0, 16, 0.5, -4)
     dot.Size = UDim2.new(0, 8, 0, 8)
+    dot.Position = UDim2.new(0, 16, 0.5, -4)
+    dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
     dot.BorderSizePixel = 0
     dot.Parent = headerFrame
 
@@ -300,14 +335,14 @@ function ChatroomWidget:Init(NotificationModule)
     tabGlobalBtn.Parent = tabsFrame
 
     local tabGlobalCorner = Instance.new("UICorner")
-    tabGlobalCorner.CornerRadius = UDim.new(0, 6)
+    tabGlobalCorner.CornerRadius = UDim.new(0, 8)
     tabGlobalCorner.Parent = tabGlobalBtn
 
     local tabDevBtn = Instance.new("TextButton")
     tabDevBtn.Name = "TabDev"
     tabDevBtn.Size = UDim2.new(0.5, -8, 0, 30)
     tabDevBtn.Position = UDim2.new(0.5, 2, 0.5, -15)
-    tabDevBtn.BackgroundColor3 = Color3.fromRGB(28, 24, 42) -- Inactive dark
+    tabDevBtn.BackgroundColor3 = Color3.fromRGB(28, 24, 42)
     tabDevBtn.BorderSizePixel = 0
     tabDevBtn.Font = Enum.Font.GothamBold
     tabDevBtn.Text = "📩  Contact Your Dev"
@@ -317,22 +352,43 @@ function ChatroomWidget:Init(NotificationModule)
     tabDevBtn.Parent = tabsFrame
 
     local tabDevCorner = Instance.new("UICorner")
-    tabDevCorner.CornerRadius = UDim.new(0, 6)
+    tabDevCorner.CornerRadius = UDim.new(0, 8)
     tabDevCorner.Parent = tabDevBtn
 
+    local function refreshTabLayout()
+        if not isGlobalChatEnabled and isDevTabEnabled then
+            tabGlobalBtn.Visible = false
+            tabDevBtn.Visible = true
+            tabDevBtn.Position = UDim2.new(0, 12, 0.5, -15)
+            tabDevBtn.Size = UDim2.new(1, -24, 0, 30)
+        elseif isGlobalChatEnabled and not isDevTabEnabled then
+            tabDevBtn.Visible = false
+            tabGlobalBtn.Visible = true
+            tabGlobalBtn.Position = UDim2.new(0, 12, 0.5, -15)
+            tabGlobalBtn.Size = UDim2.new(1, -24, 0, 30)
+        else
+            tabGlobalBtn.Visible = true
+            tabDevBtn.Visible = true
+            tabGlobalBtn.Size = UDim2.new(0.5, -8, 0, 30)
+            tabGlobalBtn.Position = UDim2.new(0, 6, 0.5, -15)
+            tabDevBtn.Size = UDim2.new(0.5, -8, 0, 30)
+            tabDevBtn.Position = UDim2.new(0.5, 2, 0.5, -15)
+        end
+    end
+
     --------------------------------------------------------------------------
-    -- 4. CHAT MESSAGES SCROLL CONTAINER
+    -- 4. MESSAGES SCROLL CONTAINER
     --------------------------------------------------------------------------
     local messagesFrame = Instance.new("ScrollingFrame")
-    messagesFrame.Name = "MessagesList"
+    messagesFrame.Name = "MessagesFrame"
     messagesFrame.BackgroundTransparency = 1
     messagesFrame.BorderSizePixel = 0
-    messagesFrame.Position = UDim2.new(0, 12, 0, 94)
-    messagesFrame.Size = UDim2.new(1, -24, 1, -152) -- Leaves room for input box
-    messagesFrame.ScrollBarThickness = 4
-    messagesFrame.ScrollBarImageColor3 = Color3.fromRGB(60, 55, 85)
+    messagesFrame.Position = UDim2.new(0, 12, 0, 92)
+    messagesFrame.Size = UDim2.new(1, -24, 1, -152)
     messagesFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
     messagesFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    messagesFrame.ScrollBarThickness = 3
+    messagesFrame.ScrollBarImageColor3 = Color3.fromRGB(80, 70, 110)
     messagesFrame.Parent = chatModal
 
     local messagesLayout = Instance.new("UIListLayout")
@@ -398,45 +454,43 @@ function ChatroomWidget:Init(NotificationModule)
     sendCorner.CornerRadius = UDim.new(0, 6)
     sendCorner.Parent = btnSend
 
-    -- Warning Banner for Blacklisted Words
-    local warnBanner = Instance.new("TextLabel")
-    warnBanner.Name = "WarnBanner"
-    warnBanner.BackgroundColor3 = Color3.fromRGB(239, 68, 68)
-    warnBanner.Position = UDim2.new(0, 12, 1, -82)
-    warnBanner.Size = UDim2.new(1, -24, 0, 26)
-    warnBanner.Font = Enum.Font.GothamBold
-    warnBanner.Text = "⚠️ Message blocked by word filter."
-    warnBanner.TextColor3 = Color3.fromRGB(255, 255, 255)
-    warnBanner.TextSize = 11
-    warnBanner.Visible = false
-    warnBanner.Parent = chatModal
+    -- Warning Banner for Blacklisted words or errors
+    local warningBanner = Instance.new("TextLabel")
+    warningBanner.Name = "WarningBanner"
+    warningBanner.BackgroundColor3 = Color3.fromRGB(185, 28, 28)
+    warningBanner.Size = UDim2.new(1, -24, 0, 26)
+    warningBanner.Position = UDim2.new(0, 12, 1, -80)
+    warningBanner.Font = Enum.Font.GothamBold
+    warningBanner.TextColor3 = Color3.fromRGB(255, 255, 255)
+    warningBanner.TextSize = 10
+    warningBanner.Visible = false
+    warningBanner.ZIndex = 5
+    warningBanner.Parent = chatModal
 
     local warnCorner = Instance.new("UICorner")
     warnCorner.CornerRadius = UDim.new(0, 6)
-    warnCorner.Parent = warnBanner
+    warnCorner.Parent = warningBanner
 
     local function showWarning(msg)
-        warnBanner.Text = "⚠️ " .. (msg or "Message blocked by filter.")
-        warnBanner.Visible = true
-        task.delay(3, function()
-            if warnBanner and warnBanner.Parent then
-                warnBanner.Visible = false
-            end
+        warningBanner.Text = "⚠️ " .. msg
+        warningBanner.Visible = true
+        task.delay(4, function()
+            warningBanner.Visible = false
         end)
     end
 
     --------------------------------------------------------------------------
-    -- 6. SETTINGS MODAL (Disable Chatroom & Notification Toggles)
+    -- 6. SETTINGS MODAL (Preferences & Feature Toggles)
     --------------------------------------------------------------------------
     local settingsModal = Instance.new("Frame")
     settingsModal.Name = "SettingsModal"
-    settingsModal.Size = UDim2.new(0, 320, 0, 220)
+    settingsModal.Size = UDim2.new(0, 340, 0, 340)
     settingsModal.AnchorPoint = Vector2.new(0.5, 0.5)
     settingsModal.Position = UDim2.new(0.5, 0, 0.5, 0)
-    settingsModal.BackgroundColor3 = Color3.fromRGB(22, 19, 32)
+    settingsModal.BackgroundColor3 = Color3.fromRGB(20, 17, 30)
     settingsModal.BorderSizePixel = 0
     settingsModal.Visible = false
-    settingsModal.ZIndex = 10
+    settingsModal.ZIndex = 15
     settingsModal.Parent = chatModal
 
     local sCorner = Instance.new("UICorner")
@@ -450,69 +504,88 @@ function ChatroomWidget:Init(NotificationModule)
 
     local sTitle = Instance.new("TextLabel")
     sTitle.BackgroundTransparency = 1
-    sTitle.Position = UDim2.new(0, 16, 0, 14)
-    sTitle.Size = UDim2.new(1, -32, 0, 20)
+    sTitle.Position = UDim2.new(0, 16, 0, 12)
+    sTitle.Size = UDim2.new(1, -32, 0, 22)
     sTitle.Font = Enum.Font.GothamBold
     sTitle.Text = "⚙️ Chatroom Preferences"
     sTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
     sTitle.TextSize = 13
     sTitle.TextXAlignment = Enum.TextXAlignment.Left
-    sTitle.ZIndex = 11
+    sTitle.ZIndex = 16
     sTitle.Parent = settingsModal
 
-    -- Mute Audio Toggle Button
-    local btnMuteToggle = Instance.new("TextButton")
-    btnMuteToggle.Size = UDim2.new(1, -32, 0, 36)
-    btnMuteToggle.Position = UDim2.new(0, 16, 0, 46)
-    btnMuteToggle.BackgroundColor3 = Color3.fromRGB(30, 26, 44)
-    btnMuteToggle.Font = Enum.Font.Gotham
-    btnMuteToggle.Text = "🔔 Notification Pings: Enabled"
-    btnMuteToggle.TextColor3 = Color3.fromRGB(200, 200, 225)
-    btnMuteToggle.TextSize = 11
-    btnMuteToggle.ZIndex = 11
-    btnMuteToggle.AutoButtonColor = false
-    btnMuteToggle.Parent = settingsModal
+    local function createToggleBtn(name, text, yPos, bgColor, txtColor)
+        local btn = Instance.new("TextButton")
+        btn.Name = name
+        btn.Size = UDim2.new(1, -32, 0, 32)
+        btn.Position = UDim2.new(0, 16, 0, yPos)
+        btn.BackgroundColor3 = bgColor or Color3.fromRGB(28, 25, 42)
+        btn.Font = Enum.Font.Gotham
+        btn.Text = text
+        btn.TextColor3 = txtColor or Color3.fromRGB(210, 210, 230)
+        btn.TextSize = 11
+        btn.ZIndex = 16
+        btn.AutoButtonColor = false
+        btn.Parent = settingsModal
 
-    local muteCorner = Instance.new("UICorner")
-    muteCorner.CornerRadius = UDim.new(0, 6)
-    muteCorner.Parent = btnMuteToggle
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 6)
+        corner.Parent = btn
 
-    btnMuteToggle.MouseButton1Click:Connect(function()
-        isMuted = not isMuted
-        if isMuted then
-            btnMuteToggle.Text = "🔕 Notification Pings: Muted"
-            btnMuteToggle.TextColor3 = Color3.fromRGB(150, 145, 170)
-        else
-            btnMuteToggle.Text = "🔔 Notification Pings: Enabled"
-            btnMuteToggle.TextColor3 = Color3.fromRGB(200, 200, 225)
-        end
-    end)
+        return btn
+    end
 
-    -- Completely Disable Chatroom Button
-    local btnDisableChat = Instance.new("TextButton")
-    btnDisableChat.Size = UDim2.new(1, -32, 0, 36)
-    btnDisableChat.Position = UDim2.new(0, 16, 0, 90)
-    btnDisableChat.BackgroundColor3 = Color3.fromRGB(60, 20, 30)
+    -- 1. Toggle Global Chat Tab
+    local btnToggleGlobalTab = createToggleBtn(
+        "ToggleGlobalTab",
+        "💬 Global Chat Tab: Enabled",
+        42,
+        Color3.fromRGB(32, 28, 48),
+        Color3.fromRGB(168, 85, 247)
+    )
+
+    -- 2. Toggle Contact Dev Tab
+    local btnToggleDevTab = createToggleBtn(
+        "ToggleDevTab",
+        "📩 Contact Dev Tab: Enabled",
+        80,
+        Color3.fromRGB(32, 28, 48),
+        Color3.fromRGB(168, 85, 247)
+    )
+
+    -- 3. Toggle Global Notifications
+    local btnToggleGlobalNotif = createToggleBtn(
+        "ToggleGlobalNotif",
+        "🔔 Chatroom Notifications: Enabled",
+        118,
+        Color3.fromRGB(28, 25, 42)
+    )
+
+    -- 4. Toggle Dev Reply Notifications
+    local btnToggleDevNotif = createToggleBtn(
+        "ToggleDevNotif",
+        "👑 Dev Reply Notifications: Enabled",
+        156,
+        Color3.fromRGB(28, 25, 42)
+    )
+
+    -- 5. Master Mute Toggle
+    local btnMasterMute = createToggleBtn(
+        "MasterMute",
+        "🔕 Master Mute (All Pings): OFF",
+        194,
+        Color3.fromRGB(28, 25, 42)
+    )
+
+    -- 6. Completely Disable Widget Button
+    local btnDisableChat = createToggleBtn(
+        "DisableChat",
+        "🚫 Completely Disable Chat Widget",
+        232,
+        Color3.fromRGB(60, 20, 30),
+        Color3.fromRGB(255, 120, 120)
+    )
     btnDisableChat.Font = Enum.Font.GothamBold
-    btnDisableChat.Text = "🚫 Completely Disable Chatroom"
-    btnDisableChat.TextColor3 = Color3.fromRGB(255, 120, 120)
-    btnDisableChat.TextSize = 11
-    btnDisableChat.ZIndex = 11
-    btnDisableChat.AutoButtonColor = false
-    btnDisableChat.Parent = settingsModal
-
-    local disableCorner = Instance.new("UICorner")
-    disableCorner.CornerRadius = UDim.new(0, 6)
-    disableCorner.Parent = btnDisableChat
-
-    btnDisableChat.MouseButton1Click:Connect(function()
-        isPolling = false
-        screenGui:Destroy()
-        _G.AtomwareChatroomLoaded = false
-        if NotificationModule then
-            NotificationModule:Show("Chatroom Disabled", "Chatroom has been completely disabled for this session.", 4, "Info")
-        end
-    end)
 
     -- Close Settings Button
     local btnCloseSettings = Instance.new("TextButton")
@@ -520,15 +593,100 @@ function ChatroomWidget:Init(NotificationModule)
     btnCloseSettings.Position = UDim2.new(0, 16, 1, -44)
     btnCloseSettings.BackgroundColor3 = Color3.fromRGB(168, 85, 247)
     btnCloseSettings.Font = Enum.Font.GothamBold
-    btnCloseSettings.Text = "Save & Close"
+    btnCloseSettings.Text = "Save & Close Preferences"
     btnCloseSettings.TextColor3 = Color3.fromRGB(255, 255, 255)
     btnCloseSettings.TextSize = 11
-    btnCloseSettings.ZIndex = 11
+    btnCloseSettings.ZIndex = 16
     btnCloseSettings.Parent = settingsModal
 
     local closeSetCorner = Instance.new("UICorner")
     closeSetCorner.CornerRadius = UDim.new(0, 6)
     closeSetCorner.Parent = btnCloseSettings
+
+    -- Button Click Handlers
+    btnToggleGlobalTab.MouseButton1Click:Connect(function()
+        isGlobalChatEnabled = not isGlobalChatEnabled
+        if not isGlobalChatEnabled and not isDevTabEnabled then
+            isDevTabEnabled = true
+            btnToggleDevTab.Text = "📩 Contact Dev Tab: Enabled"
+            btnToggleDevTab.TextColor3 = Color3.fromRGB(168, 85, 247)
+        end
+
+        if isGlobalChatEnabled then
+            btnToggleGlobalTab.Text = "💬 Global Chat Tab: Enabled"
+            btnToggleGlobalTab.TextColor3 = Color3.fromRGB(168, 85, 247)
+        else
+            btnToggleGlobalTab.Text = "💬 Global Chat Tab: Disabled"
+            btnToggleGlobalTab.TextColor3 = Color3.fromRGB(150, 145, 170)
+            if activeTab == "global" and isDevTabEnabled then
+                tabDevBtn.MouseButton1Click:Fire()
+            end
+        end
+        refreshTabLayout()
+    end)
+
+    btnToggleDevTab.MouseButton1Click:Connect(function()
+        isDevTabEnabled = not isDevTabEnabled
+        if not isDevTabEnabled and not isGlobalChatEnabled then
+            isGlobalChatEnabled = true
+            btnToggleGlobalTab.Text = "💬 Global Chat Tab: Enabled"
+            btnToggleGlobalTab.TextColor3 = Color3.fromRGB(168, 85, 247)
+        end
+
+        if isDevTabEnabled then
+            btnToggleDevTab.Text = "📩 Contact Dev Tab: Enabled"
+            btnToggleDevTab.TextColor3 = Color3.fromRGB(168, 85, 247)
+        else
+            btnToggleDevTab.Text = "📩 Contact Dev Tab: Disabled"
+            btnToggleDevTab.TextColor3 = Color3.fromRGB(150, 145, 170)
+            if activeTab == "dev" and isGlobalChatEnabled then
+                tabGlobalBtn.MouseButton1Click:Fire()
+            end
+        end
+        refreshTabLayout()
+    end)
+
+    btnToggleGlobalNotif.MouseButton1Click:Connect(function()
+        isGlobalNotificationsEnabled = not isGlobalNotificationsEnabled
+        if isGlobalNotificationsEnabled then
+            btnToggleGlobalNotif.Text = "🔔 Chatroom Notifications: Enabled"
+            btnToggleGlobalNotif.TextColor3 = Color3.fromRGB(210, 210, 230)
+        else
+            btnToggleGlobalNotif.Text = "🔕 Chatroom Notifications: Muted"
+            btnToggleGlobalNotif.TextColor3 = Color3.fromRGB(150, 145, 170)
+        end
+    end)
+
+    btnToggleDevNotif.MouseButton1Click:Connect(function()
+        isDevNotificationsEnabled = not isDevNotificationsEnabled
+        if isDevNotificationsEnabled then
+            btnToggleDevNotif.Text = "👑 Dev Reply Notifications: Enabled"
+            btnToggleDevNotif.TextColor3 = Color3.fromRGB(210, 210, 230)
+        else
+            btnToggleDevNotif.Text = "🔕 Dev Reply Notifications: Muted"
+            btnToggleDevNotif.TextColor3 = Color3.fromRGB(150, 145, 170)
+        end
+    end)
+
+    btnMasterMute.MouseButton1Click:Connect(function()
+        isMasterMuted = not isMasterMuted
+        if isMasterMuted then
+            btnMasterMute.Text = "🔕 Master Mute (All Pings): ON"
+            btnMasterMute.TextColor3 = Color3.fromRGB(244, 95, 95)
+        else
+            btnMasterMute.Text = "🔕 Master Mute (All Pings): OFF"
+            btnMasterMute.TextColor3 = Color3.fromRGB(210, 210, 230)
+        end
+    end)
+
+    btnDisableChat.MouseButton1Click:Connect(function()
+        isPolling = false
+        screenGui:Destroy()
+        _G.AtomwareChatroomLoaded = false
+        if NotificationModule then
+            NotificationModule:Show("Chatroom Disabled", "Chatroom widget has been completely disabled for this session.", 4, "Info")
+        end
+    end)
 
     btnCloseSettings.MouseButton1Click:Connect(function()
         settingsModal.Visible = false
@@ -567,7 +725,7 @@ function ChatroomWidget:Init(NotificationModule)
 
         -- Set headshot thumbnail
         if isDev then
-            avatarImg.Image = "rbxassetid://10849911875" -- Shield/Developer badge icon
+            avatarImg.Image = "rbxassetid://10849911875" -- Developer Shield Badge Icon
         else
             local uid = tonumber(msgData.user_id) or 1
             avatarImg.Image = string.format("rbxthumb://type=AvatarHeadShot&id=%d&w=48&h=48", uid)
@@ -585,8 +743,16 @@ function ChatroomWidget:Init(NotificationModule)
         userLabel.Size = UDim2.new(0, 0, 1, 0)
         userLabel.AutomaticSize = Enum.AutomaticSize.X
         userLabel.Font = Enum.Font.GothamBold
-        userLabel.Text = (isDev and "👑 " or "") .. tostring(msgData.username or "Player")
-        userLabel.TextColor3 = isDev and Color3.fromRGB(192, 132, 252) or (isSelf and Color3.fromRGB(129, 140, 248) or Color3.fromRGB(240, 240, 250))
+
+        -- Fix: Dev messages ALWAYS render clearly as "👑 Admin / Dev"
+        if isDev then
+            userLabel.Text = "👑 Admin / Dev"
+            userLabel.TextColor3 = Color3.fromRGB(192, 132, 252)
+        else
+            userLabel.Text = tostring(msgData.display_name or msgData.username or "Player")
+            userLabel.TextColor3 = isSelf and Color3.fromRGB(129, 140, 248) or Color3.fromRGB(240, 240, 250)
+        end
+
         userLabel.TextSize = 11
         userLabel.TextXAlignment = Enum.TextXAlignment.Left
         userLabel.Parent = infoLine
@@ -621,30 +787,43 @@ function ChatroomWidget:Init(NotificationModule)
         -- Message Bubble
         local bubble = Instance.new("Frame")
         bubble.Name = "Bubble"
-        bubble.Position = UDim2.new(0, 40, 0, 18)
+        bubble.Position = UDim2.new(0, 40, 0, 20)
         bubble.Size = UDim2.new(1, -40, 0, 0)
         bubble.AutomaticSize = Enum.AutomaticSize.Y
-        bubble.BackgroundColor3 = isDev and Color3.fromRGB(38, 28, 58) or (isSelf and Color3.fromRGB(30, 28, 48) or Color3.fromRGB(24, 21, 35))
         bubble.BorderSizePixel = 0
+
+        if isDev then
+            bubble.BackgroundColor3 = Color3.fromRGB(38, 24, 58)
+        elseif isSelf then
+            bubble.BackgroundColor3 = Color3.fromRGB(28, 25, 46)
+        else
+            bubble.BackgroundColor3 = Color3.fromRGB(22, 19, 32)
+        end
         bubble.Parent = row
 
-        local bCorner = Instance.new("UICorner")
-        bCorner.CornerRadius = UDim.new(0, 8)
-        bCorner.Parent = bubble
+        local bubbleCorner = Instance.new("UICorner")
+        bubbleCorner.CornerRadius = UDim.new(0, 8)
+        bubbleCorner.Parent = bubble
 
-        local bStroke = Instance.new("UIStroke")
-        bStroke.Color = isDev and Color3.fromRGB(168, 85, 247) or Color3.fromRGB(40, 35, 60)
-        bStroke.Thickness = isDev and 1.2 or 0.8
-        bStroke.Parent = bubble
+        local bubbleStroke = Instance.new("UIStroke")
+        bubbleStroke.Color = isDev and Color3.fromRGB(120, 60, 180) or Color3.fromRGB(36, 32, 52)
+        bubbleStroke.Thickness = 1
+        bubbleStroke.Parent = bubble
+
+        local msgPad = Instance.new("UIPadding")
+        msgPad.PaddingTop = UDim.new(0, 8)
+        msgPad.PaddingBottom = UDim.new(0, 8)
+        msgPad.PaddingLeft = UDim.new(0, 10)
+        msgPad.PaddingRight = UDim.new(0, 10)
+        msgPad.Parent = bubble
 
         local msgText = Instance.new("TextLabel")
         msgText.BackgroundTransparency = 1
-        msgText.Position = UDim2.new(0, 10, 0, 8)
-        msgText.Size = UDim2.new(1, -20, 0, 0)
+        msgText.Size = UDim2.new(1, 0, 0, 0)
         msgText.AutomaticSize = Enum.AutomaticSize.Y
         msgText.Font = Enum.Font.Gotham
         msgText.Text = tostring(msgData.message or "")
-        msgText.TextColor3 = Color3.fromRGB(245, 245, 250)
+        msgText.TextColor3 = Color3.fromRGB(235, 235, 245)
         msgText.TextSize = 11
         msgText.TextWrapped = true
         msgText.TextXAlignment = Enum.TextXAlignment.Left
@@ -679,15 +858,20 @@ function ChatroomWidget:Init(NotificationModule)
                 local ok, parsed = pcall(function()
                     return HttpService:JSONDecode(body)
                 end)
-                if ok and parsed and parsed.messages then
-                    for _, m in ipairs(parsed.messages) do
-                        if m.id and not seenMessageIds[m.id] then
-                            seenMessageIds[m.id] = true
-                            renderMessageBubble(m, false)
-                            lastGlobalTimestamp = m.created_at
-                        end
+                if ok and parsed then
+                    if type(parsed.cooldown_seconds) == "number" then
+                        clientCooldownSeconds = parsed.cooldown_seconds
                     end
-                    scrollToBottom()
+                    if parsed.messages then
+                        for _, m in ipairs(parsed.messages) do
+                            if m.id and not seenMessageIds[m.id] then
+                                seenMessageIds[m.id] = true
+                                renderMessageBubble(m, false)
+                                lastGlobalTimestamp = m.created_at
+                            end
+                        end
+                        scrollToBottom()
+                    end
                 end
             end
         end)
@@ -740,7 +924,7 @@ function ChatroomWidget:Init(NotificationModule)
     end)
 
     --------------------------------------------------------------------------
-    -- 9. SEND MESSAGE HANDLER
+    -- 9. SEND MESSAGE HANDLER WITH COOLDOWN COUNTDOWN
     --------------------------------------------------------------------------
     local isSending = false
     local function sendMessage()
@@ -748,6 +932,16 @@ function ChatroomWidget:Init(NotificationModule)
         local raw = textBox.Text or ""
         local trimmed = raw:gsub("^%s*(.-)%s*$", "%1")
         if #trimmed == 0 then return end
+
+        -- Client-side cooldown check for global chat
+        if activeTab == "global" and clientCooldownSeconds > 0 then
+            local elapsed = os.clock() - lastSentTime
+            if elapsed < clientCooldownSeconds then
+                local remaining = math.ceil(clientCooldownSeconds - elapsed)
+                showWarning(string.format("Chat cooldown active! Please wait %d seconds.", remaining))
+                return
+            end
+        end
 
         isSending = true
         btnSend.Text = "..."
@@ -776,14 +970,15 @@ function ChatroomWidget:Init(NotificationModule)
 
             local success, resBody, statusCode = safeHttpRequest(targetUrl, "POST", payload)
             isSending = false
-            btnSend.Text = "SEND"
 
             if success and resBody then
                 local ok, parsed = pcall(function()
                     return HttpService:JSONDecode(resBody)
                 end)
                 if ok and parsed then
-                    if parsed.blocked then
+                    if parsed.rateLimited then
+                        showWarning(parsed.error or "Chat cooldown active. Please wait.")
+                    elseif parsed.blocked then
                         showWarning("Message contains blacklisted words and was blocked.")
                     elseif parsed.message then
                         local m = parsed.message
@@ -792,13 +987,39 @@ function ChatroomWidget:Init(NotificationModule)
                             renderMessageBubble(m, activeTab == "dev")
                             scrollToBottom()
                         end
+
+                        -- Start cooldown visual countdown on the Send button
+                        if activeTab == "global" and clientCooldownSeconds > 0 then
+                            lastSentTime = os.clock()
+                            task.spawn(function()
+                                for c = clientCooldownSeconds, 1, -1 do
+                                    if not isSending then
+                                        btnSend.Text = string.format("%ds", c)
+                                        btnSend.BackgroundColor3 = Color3.fromRGB(50, 45, 65)
+                                    end
+                                    task.wait(1)
+                                end
+                                if not isSending then
+                                    btnSend.Text = "SEND"
+                                    btnSend.BackgroundColor3 = Color3.fromRGB(168, 85, 247)
+                                end
+                            end)
+                        else
+                            btnSend.Text = "SEND"
+                            btnSend.BackgroundColor3 = Color3.fromRGB(168, 85, 247)
+                        end
                     end
+                else
+                    btnSend.Text = "SEND"
                 end
             else
-                if statusCode == 400 then
+                btnSend.Text = "SEND"
+                if statusCode == 429 then
+                    showWarning("Chat cooldown active! Please slow down.")
+                elseif statusCode == 400 then
                     showWarning("Message blocked by word filter.")
                 else
-                    showWarning("Failed to send message. Check connection.")
+                    showWarning("Failed to send. Server error.")
                 end
             end
         end)
@@ -819,40 +1040,85 @@ function ChatroomWidget:Init(NotificationModule)
             task.wait(3.5)
             if not isPolling then break end
 
-            -- Poll global messages
-            local url = API_BASE .. "/messages?limit=25"
-            if lastGlobalTimestamp then
-                url = url .. "&since=" .. HttpService:UrlEncode(lastGlobalTimestamp)
-            end
+            -- 1. Poll global messages if enabled
+            if isGlobalChatEnabled then
+                local url = API_BASE .. "/messages?limit=25"
+                if lastGlobalTimestamp then
+                    url = url .. "&since=" .. HttpService:UrlEncode(lastGlobalTimestamp)
+                end
 
-            local success, body = safeHttpRequest(url, "GET")
-            if success and body then
-                local ok, parsed = pcall(function()
-                    return HttpService:JSONDecode(body)
-                end)
-                if ok and parsed and parsed.messages then
-                    local newIncoming = 0
-                    for _, m in ipairs(parsed.messages) do
-                        if m.id and not seenMessageIds[m.id] then
-                            seenMessageIds[m.id] = true
-                            lastGlobalTimestamp = m.created_at
-                            if activeTab == "global" then
-                                renderMessageBubble(m, false)
-                                scrollToBottom()
+                local success, body = safeHttpRequest(url, "GET")
+                if success and body then
+                    local ok, parsed = pcall(function()
+                        return HttpService:JSONDecode(body)
+                    end)
+                    if ok and parsed then
+                        if type(parsed.cooldown_seconds) == "number" then
+                            clientCooldownSeconds = parsed.cooldown_seconds
+                        end
+
+                        if parsed.messages then
+                            local newIncoming = 0
+                            for _, m in ipairs(parsed.messages) do
+                                if m.id and not seenMessageIds[m.id] then
+                                    seenMessageIds[m.id] = true
+                                    lastGlobalTimestamp = m.created_at
+                                    if activeTab == "global" then
+                                        renderMessageBubble(m, false)
+                                        scrollToBottom()
+                                    end
+                                    if tostring(m.user_id) ~= tostring(LocalPlayer.UserId) then
+                                        newIncoming = newIncoming + 1
+                                    end
+                                end
                             end
-                            if tostring(m.user_id) ~= tostring(LocalPlayer.UserId) then
-                                newIncoming = newIncoming + 1
+
+                            if newIncoming > 0 and (not isOpen or activeTab ~= "global") then
+                                updateBadge(newIncoming)
+                                if isGlobalNotificationsEnabled and not isMasterMuted and NotificationModule then
+                                    pcall(function()
+                                        SoundService:PlayLocalSound(Instance.new("Sound", SoundService))
+                                    end)
+                                    NotificationModule:Show("💬 Chatroom", string.format("%d new message(s) in global chat", newIncoming), 2.5, "Info")
+                                end
                             end
                         end
                     end
+                end
+            end
 
-                    if newIncoming > 0 and not isOpen then
-                        updateBadge(newIncoming)
-                        if not isMuted and NotificationModule then
-                            pcall(function()
-                                SoundService:PlayLocalSound(Instance.new("Sound", SoundService))
-                            end)
-                            NotificationModule:Show("💬 Chatroom", string.format("%d new message(s) in global chat", newIncoming), 2.5, "Info")
+            -- 2. Poll Developer DMs for this player
+            if isDevTabEnabled then
+                local dmUrl = string.format("%s/dms?userId=%s", API_BASE, tostring(LocalPlayer.UserId))
+                local successDm, bodyDm = safeHttpRequest(dmUrl, "GET")
+                if successDm and bodyDm then
+                    local okDm, parsedDm = pcall(function()
+                        return HttpService:JSONDecode(bodyDm)
+                    end)
+                    if okDm and parsedDm and parsedDm.messages then
+                        local newDevReplies = 0
+                        for _, m in ipairs(parsedDm.messages) do
+                            if m.id and not seenMessageIds[m.id] then
+                                seenMessageIds[m.id] = true
+                                lastDevTimestamp = m.created_at
+                                if activeTab == "dev" then
+                                    renderMessageBubble(m, true)
+                                    scrollToBottom()
+                                end
+                                if m.sender_type == "dev" then
+                                    newDevReplies = newDevReplies + 1
+                                end
+                            end
+                        end
+
+                        if newDevReplies > 0 and (not isOpen or activeTab ~= "dev") then
+                            updateBadge(newDevReplies)
+                            if isDevNotificationsEnabled and not isMasterMuted and NotificationModule then
+                                pcall(function()
+                                    SoundService:PlayLocalSound(Instance.new("Sound", SoundService))
+                                end)
+                                NotificationModule:Show("👑 Developer Reply", "A developer has replied to your message!", 4.5, "Success")
+                            end
                         end
                     end
                 end

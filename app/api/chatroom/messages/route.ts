@@ -10,8 +10,16 @@ export async function GET(req: NextRequest) {
     const since = searchParams.get("since") || undefined;
     const limit = Math.min(Number(searchParams.get("limit") || 100), 200);
 
-    const messages = await dbService.getChatroomMessages(since, limit);
-    return NextResponse.json({ success: true, messages });
+    const [messages, cooldown] = await Promise.all([
+      dbService.getChatroomMessages(since, limit),
+      dbService.getChatroomCooldown(),
+    ]);
+
+    return NextResponse.json({
+      success: true,
+      messages,
+      cooldown_seconds: cooldown,
+    });
   } catch (error: any) {
     console.error("Error fetching chatroom messages:", error);
     return NextResponse.json(
@@ -38,6 +46,18 @@ export async function POST(req: NextRequest) {
       message: message.trim(),
       is_dev: Boolean(isDev),
     });
+
+    if (result.rateLimited) {
+      return NextResponse.json(
+        {
+          success: false,
+          rateLimited: true,
+          remaining: result.remaining,
+          error: result.error || "Chat cooldown active.",
+        },
+        { status: 429 }
+      );
+    }
 
     if (result.blocked) {
       return NextResponse.json(

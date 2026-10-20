@@ -225,6 +225,7 @@ export interface SystemSettings {
   discord_invite_url: string;
   vpn_detection_enabled: boolean;
   tos_content: string;
+  chatroom_cooldown_seconds?: number;
 }
 
 export interface StaffReviewRecord {
@@ -466,6 +467,9 @@ function getTimeCutoff(timeframe?: string): number {
   if (timeframe === "year") return now - 365 * 24 * 60 * 60 * 1000;
   return 0; // all time
 }
+
+// In-memory rate limiting map for chatroom messages
+const lastChatTimeByUser = new Map<string, number>();
 
 export const dbService = {
   // Loader configs
@@ -2307,6 +2311,56 @@ export const dbService = {
   // CHATROOM & WORD BLACKLIST METHODS
   // --------------------------------------------------------------------------
 
+  async getChatroomCooldown(): Promise<number> {
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from("system_settings")
+          .select("chatroom_cooldown_seconds")
+          .eq("id", 1)
+          .maybeSingle();
+        if (data && !error && typeof data.chatroom_cooldown_seconds === "number") {
+          return data.chatroom_cooldown_seconds;
+        }
+      } catch {
+        // fallback
+      }
+    }
+    const db = readLocalDb();
+    const val = db.settings?.chatroom_cooldown_seconds;
+    return typeof val === "number" ? val : 5; // Default 5s
+  },
+
+  async setChatroomCooldown(seconds: number): Promise<number> {
+    const clamped = Math.max(0, Math.min(300, Math.floor(seconds || 0)));
+    const db = readLocalDb();
+    if (!db.settings) {
+      db.settings = {
+        claim_method: "checkpoints",
+        checkpoint_delay_seconds: 5,
+        discord_guild_id: "",
+        discord_bot_token: "",
+        discord_invite_url: "",
+        vpn_detection_enabled: false,
+        tos_content: "",
+      };
+    }
+    db.settings.chatroom_cooldown_seconds = clamped;
+    writeLocalDb(db);
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase
+          .from("system_settings")
+          .update({ chatroom_cooldown_seconds: clamped })
+          .eq("id", 1);
+      } catch {
+        // column might not exist yet; gracefully handled
+      }
+    }
+    return clamped;
+  },
+
   async getBlacklistWords(): Promise<string[]> {
     if (isSupabaseConfigured && supabase) {
       try {
@@ -2356,6 +2410,51 @@ export const dbService = {
     }
 
     return true;
+  },
+
+  async addBlacklistWords(words: string[]): Promise<string[]> {
+    const cleaned = Array.from(
+      new Set(
+        (words || [])
+          .map((w) => (w || "").trim().toLowerCase())
+          .filter(Boolean)
+      )
+    );
+    if (!cleaned.length) return await this.getBlacklistWords();
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase
+          .from("chatroom_blacklist")
+          .upsert(
+            cleaned.map((w) => ({ word: w })),
+            { onConflict: "word" }
+          );
+      } catch (err) {
+        console.error("Supabase addBlacklistWords error:", err);
+      }
+    }
+
+    const db = readLocalDb();
+    if (!db.chatroom_blacklist) db.chatroom_blacklist = [];
+    for (const w of cleaned) {
+      if (!db.chatroom_blacklist.some((item) => item.word.toLowerCase() === w)) {
+        db.chatroom_blacklist.push({
+          id: crypto.randomUUID(),
+          word: w,
+          created_at: new Date().toISOString(),
+        });
+      }
+    }
+    writeLocalDb(db);
+
+    try {
+      await this.purgeBlacklistedMessages(cleaned);
+    } catch {
+      // non-fatal
+    }
+
+    return await this.getBlacklistWords();
   },
 
   async deleteBlacklistWord(word: string): Promise<boolean> {
@@ -2454,10 +2553,28 @@ export const dbService = {
     avatar_url?: string;
     message: string;
     is_dev?: boolean;
-  }): Promise<{ success: boolean; data?: ChatroomMessage; blocked?: boolean; error?: string }> {
+  }): Promise<{ success: boolean; data?: ChatroomMessage; blocked?: boolean; rateLimited?: boolean; remaining?: number; error?: string }> {
     const rawText = (msg.message || "").trim();
     if (!rawText) {
       return { success: false, error: "Message cannot be empty." };
+    }
+
+    // Cooldown check for regular players (dev messages bypass cooldown)
+    if (!msg.is_dev) {
+      const cooldownSecs = await this.getChatroomCooldown();
+      if (cooldownSecs > 0) {
+        const lastSent = lastChatTimeByUser.get(String(msg.user_id));
+        const now = Date.now();
+        if (lastSent && now - lastSent < cooldownSecs * 1000) {
+          const remainingSecs = Math.ceil((cooldownSecs * 1000 - (now - lastSent)) / 1000);
+          return {
+            success: false,
+            rateLimited: true,
+            remaining: remainingSecs,
+            error: `Slow down! Chat cooldown is active. Please wait ${remainingSecs} second${remainingSecs === 1 ? "" : "s"}.`,
+          };
+        }
+      }
     }
 
     // Check blacklist
@@ -2468,18 +2585,23 @@ export const dbService = {
       return { success: false, blocked: true, error: "Message contains blacklisted language and was blocked." };
     }
 
+    const uid = String(msg.user_id || "0");
     const record: ChatroomMessage = {
       id: crypto.randomUUID(),
-      user_id: String(msg.user_id || "0"),
+      user_id: uid,
       username: msg.username || "Anonymous",
       display_name: msg.display_name || msg.username || "Anonymous",
-      avatar_url: msg.avatar_url || (msg.user_id && msg.user_id !== "0"
-        ? `https://www.roblox.com/headshot-thumbnail/image?userId=${msg.user_id}&width=48&height=48&format=png`
-        : "https://api.dicebear.com/7.x/bottts/svg?seed=Dev"),
+      avatar_url: msg.avatar_url || (uid && uid !== "0"
+        ? `/api/roblox/avatar?userId=${uid}`
+        : `/api/roblox/avatar?username=${encodeURIComponent(msg.username || "")}`),
       message: rawText,
       is_dev: Boolean(msg.is_dev),
       created_at: new Date().toISOString(),
     };
+
+    if (!msg.is_dev) {
+      lastChatTimeByUser.set(uid, Date.now());
+    }
 
     const db = readLocalDb();
     if (!db.chatroom_messages) db.chatroom_messages = [];
@@ -2585,8 +2707,10 @@ export const dbService = {
         if (new Date(m.created_at).getTime() > new Date(existing.last_timestamp).getTime()) {
           existing.last_message = m.message;
           existing.last_timestamp = m.created_at;
-          if (m.username) existing.username = m.username;
-          if (m.avatar_url) existing.avatar_url = m.avatar_url;
+          if (m.sender_type === "user") {
+            if (m.username) existing.username = m.username;
+            if (m.avatar_url) existing.avatar_url = m.avatar_url;
+          }
         }
         if (isUnreadUser) {
           existing.unread_count += 1;
@@ -2652,17 +2776,18 @@ export const dbService = {
     }
 
     const uid = String(msg.user_id);
+    const isDev = msg.sender_type === "dev";
     const record: DevMessage = {
       id: crypto.randomUUID(),
       user_id: uid,
-      username: msg.username || (msg.sender_type === "dev" ? "AtomWare Dev" : "Player"),
-      display_name: msg.display_name || msg.username || (msg.sender_type === "dev" ? "AtomWare Dev" : "Player"),
+      username: isDev ? "Admin / Dev" : (msg.username || "Player"),
+      display_name: isDev ? "Admin / Dev" : (msg.display_name || msg.username || "Player"),
       avatar_url: msg.avatar_url || (uid && uid !== "0"
-        ? `https://www.roblox.com/headshot-thumbnail/image?userId=${uid}&width=48&height=48&format=png`
-        : "https://api.dicebear.com/7.x/bottts/svg?seed=Dev"),
+        ? `/api/roblox/avatar?userId=${uid}`
+        : `/api/roblox/avatar?username=${encodeURIComponent(msg.username || "")}`),
       sender_type: msg.sender_type,
       message: rawText,
-      read: msg.sender_type === "dev", // dev's own message is already read
+      read: isDev, // dev's own message is already read
       created_at: new Date().toISOString(),
     };
 
