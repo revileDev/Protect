@@ -4,7 +4,7 @@
 ======================================================================
   * Key: THEBESTFIXED
   * Discord: https://discord.gg/AeCYnnQmq5
-  * Compiled At: 2026-10-20 18:25:33 UTC
+  * Compiled At: 2026-10-20 18:47:11 UTC
   * Features:
     - Auto Game Detection (407+ Place IDs)
     - Key Auth Prompt Modal with Discord Clipboard Integration
@@ -2799,7 +2799,954 @@ do
         return Watermark
     end)()
 
-    -- [MODULE 7: Core Orchestrator]
+    -- [MODULE 7: Global Chatroom & Developer Direct Messages]
+    local ChatroomWidget = (function()
+        --[[
+            AtomWare Global Chatroom & Developer Direct Messages Widget
+            - Floating draggable messaging circle (💬) with live unread badge & sound ping
+            - Pixel-perfect Atom Protect obsidian/violet floating modal (no background blur/dim)
+            - Tab 1: Global Live Chatroom with real Roblox player avatars, usernames & timestamps
+            - Tab 2: "Contact Your Dev" 1-on-1 direct messaging system with the script developer
+            - Real-time cloud sync with atomprotect.vercel.app backend & Supabase
+            - Word blacklist enforcement & instant moderation filter
+            - Settings menu to completely disable the chatroom or mute notifications
+        ]]
+
+        local CoreGui = game:GetService("CoreGui")
+        local Players = game:GetService("Players")
+        local TweenService = game:GetService("TweenService")
+        local UserInputService = game:GetService("UserInputService")
+        local HttpService = game:GetService("HttpService")
+        local SoundService = game:GetService("SoundService")
+
+        local LocalPlayer = Players.LocalPlayer
+        local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+        local API_BASE = "https://atomprotect.vercel.app/api/chatroom"
+
+        local ChatroomWidget = {}
+
+        local function getGuiParent()
+            local success, target = pcall(function()
+                return CoreGui
+            end)
+            if success and target then
+                return target
+            end
+            return PlayerGui
+        end
+
+        local function safeHttpRequest(url, method, body, headers)
+            method = method or "GET"
+            headers = headers or { ["Content-Type"] = "application/json" }
+
+            -- 1. Try executor custom request methods
+            local reqFn = request or http_request or (syn and syn.request) or (http and http.request)
+            if type(reqFn) == "function" then
+                local ok, response = pcall(reqFn, {
+                    Url = url,
+                    Method = method,
+                    Headers = headers,
+                    Body = body
+                })
+                if ok and response then
+                    local status = response.StatusCode or response.Status or 200
+                    local resBody = response.Body or response.body or ""
+                    return (status >= 200 and status < 300), resBody, status
+                end
+            end
+
+            -- 2. Fallback to game:HttpGet for GET requests
+            if method == "GET" then
+                local ok, resBody = pcall(function()
+                    return game:HttpGet(url)
+                end)
+                if ok and type(resBody) == "string" then
+                    return true, resBody, 200
+                end
+            end
+
+            -- 3. Fallback to game:HttpPost for POST requests
+            if method == "POST" and type(body) == "string" then
+                local ok, resBody = pcall(function()
+                    return game:HttpPost(url, body, "application/json")
+                end)
+                if ok and type(resBody) == "string" then
+                    return true, resBody, 200
+                end
+            end
+
+            return false, nil, 0
+        end
+
+        local function formatTimestamp(isoString)
+            if not isoString or type(isoString) ~= "string" then
+                return os.date("%I:%M %p")
+            end
+            -- Extract time portion HH:MM from ISO timestamp (e.g. 2026-10-20T11:42:00Z)
+            local hour, min = isoString:match("(%d%d):(%d%d)")
+            if hour and min then
+                local h = tonumber(hour)
+                local ampm = h >= 12 and "PM" or "AM"
+                local h12 = h % 12
+                if h12 == 0 then h12 = 12 end
+                return string.format("%d:%s %s", h12, min, ampm)
+            end
+            return os.date("%I:%M %p")
+        end
+
+        function ChatroomWidget:Init(NotificationModule)
+            -- Guard against duplicate mount
+            if _G.AtomwareChatroomLoaded == true then return end
+            _G.AtomwareChatroomLoaded = true
+
+            local parent = getGuiParent()
+            local old = parent:FindFirstChild("Atomware_ChatroomWidget")
+            if old then
+                old:Destroy()
+            end
+
+            local screenGui = Instance.new("ScreenGui")
+            screenGui.Name = "Atomware_ChatroomWidget"
+            screenGui.ResetOnSpawn = false
+            screenGui.DisplayOrder = 1005
+            screenGui.IgnoreGuiInset = true
+            screenGui.Parent = parent
+
+            -- Widget State
+            local isOpen = false
+            local activeTab = "global" -- "global" | "dev"
+            local unreadCount = 0
+            local isMuted = false
+            local lastGlobalTimestamp = nil
+            local lastDevTimestamp = nil
+            local isPolling = true
+
+            --------------------------------------------------------------------------
+            -- 1. FLOATING CHAT BUTTON (💬 Solid obsidian circle, matching search widget)
+            --------------------------------------------------------------------------
+            local floatBtn = Instance.new("TextButton")
+            floatBtn.Name = "FloatingChatButton"
+            floatBtn.Size = UDim2.new(0, 46, 0, 46)
+            floatBtn.Position = UDim2.new(1, -70, 0.5, -60) -- Positioned above the search widget
+            floatBtn.BackgroundColor3 = Color3.fromRGB(28, 30, 40)
+            floatBtn.BorderSizePixel = 0
+            floatBtn.Text = "💬"
+            floatBtn.TextSize = 20
+            floatBtn.AutoButtonColor = false
+            floatBtn.ClipsDescendants = false
+            floatBtn.Parent = screenGui
+
+            local floatCorner = Instance.new("UICorner")
+            floatCorner.CornerRadius = UDim.new(1, 0)
+            floatCorner.Parent = floatBtn
+
+            local floatStroke = Instance.new("UIStroke")
+            floatStroke.Color = Color3.fromRGB(50, 55, 75)
+            floatStroke.Thickness = 1.5
+            floatStroke.Parent = floatBtn
+
+            -- Red Unread Badge
+            local unreadBadge = Instance.new("Frame")
+            unreadBadge.Name = "UnreadBadge"
+            unreadBadge.Size = UDim2.new(0, 18, 0, 18)
+            unreadBadge.Position = UDim2.new(1, -12, 0, -4)
+            unreadBadge.BackgroundColor3 = Color3.fromRGB(239, 68, 68) -- Bright red
+            unreadBadge.BorderSizePixel = 0
+            unreadBadge.Visible = false
+            unreadBadge.Parent = floatBtn
+
+            local badgeCorner = Instance.new("UICorner")
+            badgeCorner.CornerRadius = UDim.new(1, 0)
+            badgeCorner.Parent = unreadBadge
+
+            local badgeLabel = Instance.new("TextLabel")
+            badgeLabel.BackgroundTransparency = 1
+            badgeLabel.Size = UDim2.new(1, 0, 1, 0)
+            badgeLabel.Font = Enum.Font.GothamBold
+            badgeLabel.Text = "0"
+            badgeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+            badgeLabel.TextSize = 10
+            badgeLabel.Parent = unreadBadge
+
+            local function updateBadge(delta)
+                unreadCount = math.max(0, unreadCount + delta)
+                if unreadCount > 0 and not isOpen then
+                    badgeLabel.Text = unreadCount > 99 and "99+" or tostring(unreadCount)
+                    unreadBadge.Visible = true
+                else
+                    unreadBadge.Visible = false
+                    unreadCount = 0
+                end
+            end
+
+            --------------------------------------------------------------------------
+            -- 2. MAIN CHATROOM MODAL WINDOW (Fitted obsidian card UI)
+            --------------------------------------------------------------------------
+            local chatModal = Instance.new("Frame")
+            chatModal.Name = "ChatModal"
+            chatModal.Size = UDim2.new(0, 440, 0, 480)
+            chatModal.AnchorPoint = Vector2.new(0.5, 0.5)
+            chatModal.Position = UDim2.new(0.5, 0, 0.5, 0)
+            chatModal.BackgroundColor3 = Color3.fromRGB(18, 16, 26) -- Dark charcoal/violet
+            chatModal.BorderSizePixel = 0
+            chatModal.Visible = false
+            chatModal.ClipsDescendants = true
+            chatModal.Parent = screenGui
+
+            local modalCorner = Instance.new("UICorner")
+            modalCorner.CornerRadius = UDim.new(0, 14)
+            modalCorner.Parent = chatModal
+
+            local modalStroke = Instance.new("UIStroke")
+            modalStroke.Color = Color3.fromRGB(44, 38, 66)
+            modalStroke.Thickness = 1.5
+            modalStroke.Parent = chatModal
+
+            -- Header (Top Bar: Dot + ATOM CHAT | Global Network ... Settings ... Close)
+            local headerFrame = Instance.new("Frame")
+            headerFrame.Name = "Header"
+            headerFrame.Size = UDim2.new(1, 0, 0, 48)
+            headerFrame.BackgroundColor3 = Color3.fromRGB(24, 21, 36)
+            headerFrame.BorderSizePixel = 0
+            headerFrame.Parent = chatModal
+
+            local dot = Instance.new("Frame")
+            dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94) -- Live green status dot
+            dot.Position = UDim2.new(0, 16, 0.5, -4)
+            dot.Size = UDim2.new(0, 8, 0, 8)
+            dot.BorderSizePixel = 0
+            dot.Parent = headerFrame
+
+            local dotCorner = Instance.new("UICorner")
+            dotCorner.CornerRadius = UDim.new(1, 0)
+            dotCorner.Parent = dot
+
+            local headerTitle = Instance.new("TextLabel")
+            headerTitle.BackgroundTransparency = 1
+            headerTitle.Position = UDim2.new(0, 32, 0, 0)
+            headerTitle.Size = UDim2.new(0, 95, 1, 0)
+            headerTitle.Font = Enum.Font.GothamBold
+            headerTitle.Text = "ATOM CHAT"
+            headerTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+            headerTitle.TextSize = 13
+            headerTitle.TextXAlignment = Enum.TextXAlignment.Left
+            headerTitle.Parent = headerFrame
+
+            local headerSub = Instance.new("TextLabel")
+            headerSub.BackgroundTransparency = 1
+            headerSub.Position = UDim2.new(0, 130, 0, 0)
+            headerSub.Size = UDim2.new(0, 140, 1, 0)
+            headerSub.Font = Enum.Font.Gotham
+            headerSub.Text = "|  Global Hub"
+            headerSub.TextColor3 = Color3.fromRGB(156, 150, 175)
+            headerSub.TextSize = 12
+            headerSub.TextXAlignment = Enum.TextXAlignment.Left
+            headerSub.Parent = headerFrame
+
+            -- Settings Button (⚙️)
+            local btnSettings = Instance.new("TextButton")
+            btnSettings.Name = "BtnSettings"
+            btnSettings.BackgroundTransparency = 1
+            btnSettings.Position = UDim2.new(1, -72, 0, 8)
+            btnSettings.Size = UDim2.new(0, 32, 0, 32)
+            btnSettings.Font = Enum.Font.GothamBold
+            btnSettings.Text = "⚙️"
+            btnSettings.TextSize = 14
+            btnSettings.TextColor3 = Color3.fromRGB(180, 185, 205)
+            btnSettings.AutoButtonColor = false
+            btnSettings.Parent = headerFrame
+
+            -- Close Button (✕)
+            local btnClose = Instance.new("TextButton")
+            btnClose.Name = "BtnClose"
+            btnClose.BackgroundTransparency = 1
+            btnClose.Position = UDim2.new(1, -38, 0, 8)
+            btnClose.Size = UDim2.new(0, 32, 0, 32)
+            btnClose.Font = Enum.Font.GothamBold
+            btnClose.Text = "✕"
+            btnClose.TextColor3 = Color3.fromRGB(244, 95, 95)
+            btnClose.TextSize = 14
+            btnClose.AutoButtonColor = false
+            btnClose.Parent = headerFrame
+
+            -- Divider
+            local headerDivider = Instance.new("Frame")
+            headerDivider.BackgroundColor3 = Color3.fromRGB(36, 32, 52)
+            headerDivider.BorderSizePixel = 0
+            headerDivider.Position = UDim2.new(0, 0, 0, 48)
+            headerDivider.Size = UDim2.new(1, 0, 0, 1)
+            headerDivider.Parent = chatModal
+
+            --------------------------------------------------------------------------
+            -- 3. TABS SWITCHER: [💬 Global Chat] | [📩 Contact Your Dev]
+            --------------------------------------------------------------------------
+            local tabsFrame = Instance.new("Frame")
+            tabsFrame.Name = "TabsFrame"
+            tabsFrame.BackgroundColor3 = Color3.fromRGB(22, 19, 32)
+            tabsFrame.BorderSizePixel = 0
+            tabsFrame.Position = UDim2.new(0, 0, 0, 49)
+            tabsFrame.Size = UDim2.new(1, 0, 0, 38)
+            tabsFrame.Parent = chatModal
+
+            local tabGlobalBtn = Instance.new("TextButton")
+            tabGlobalBtn.Name = "TabGlobal"
+            tabGlobalBtn.Size = UDim2.new(0.5, -8, 0, 30)
+            tabGlobalBtn.Position = UDim2.new(0, 6, 0.5, -15)
+            tabGlobalBtn.BackgroundColor3 = Color3.fromRGB(168, 85, 247) -- Active purple
+            tabGlobalBtn.BorderSizePixel = 0
+            tabGlobalBtn.Font = Enum.Font.GothamBold
+            tabGlobalBtn.Text = "💬  Global Chatroom"
+            tabGlobalBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            tabGlobalBtn.TextSize = 11
+            tabGlobalBtn.AutoButtonColor = false
+            tabGlobalBtn.Parent = tabsFrame
+
+            local tabGlobalCorner = Instance.new("UICorner")
+            tabGlobalCorner.CornerRadius = UDim.new(0, 6)
+            tabGlobalCorner.Parent = tabGlobalBtn
+
+            local tabDevBtn = Instance.new("TextButton")
+            tabDevBtn.Name = "TabDev"
+            tabDevBtn.Size = UDim2.new(0.5, -8, 0, 30)
+            tabDevBtn.Position = UDim2.new(0.5, 2, 0.5, -15)
+            tabDevBtn.BackgroundColor3 = Color3.fromRGB(28, 24, 42) -- Inactive dark
+            tabDevBtn.BorderSizePixel = 0
+            tabDevBtn.Font = Enum.Font.GothamBold
+            tabDevBtn.Text = "📩  Contact Your Dev"
+            tabDevBtn.TextColor3 = Color3.fromRGB(150, 145, 175)
+            tabDevBtn.TextSize = 11
+            tabDevBtn.AutoButtonColor = false
+            tabDevBtn.Parent = tabsFrame
+
+            local tabDevCorner = Instance.new("UICorner")
+            tabDevCorner.CornerRadius = UDim.new(0, 6)
+            tabDevCorner.Parent = tabDevBtn
+
+            --------------------------------------------------------------------------
+            -- 4. CHAT MESSAGES SCROLL CONTAINER
+            --------------------------------------------------------------------------
+            local messagesFrame = Instance.new("ScrollingFrame")
+            messagesFrame.Name = "MessagesList"
+            messagesFrame.BackgroundTransparency = 1
+            messagesFrame.BorderSizePixel = 0
+            messagesFrame.Position = UDim2.new(0, 12, 0, 94)
+            messagesFrame.Size = UDim2.new(1, -24, 1, -152) -- Leaves room for input box
+            messagesFrame.ScrollBarThickness = 4
+            messagesFrame.ScrollBarImageColor3 = Color3.fromRGB(60, 55, 85)
+            messagesFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+            messagesFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+            messagesFrame.Parent = chatModal
+
+            local messagesLayout = Instance.new("UIListLayout")
+            messagesLayout.SortOrder = Enum.SortOrder.LayoutOrder
+            messagesLayout.Padding = UDim.new(0, 8)
+            messagesLayout.Parent = messagesFrame
+
+            local function scrollToBottom()
+                task.defer(function()
+                    messagesFrame.CanvasPosition = Vector2.new(0, 999999)
+                end)
+            end
+
+            --------------------------------------------------------------------------
+            -- 5. BOTTOM INPUT CONTAINER (Input Box + Send Button)
+            --------------------------------------------------------------------------
+            local inputContainer = Instance.new("Frame")
+            inputContainer.Name = "InputContainer"
+            inputContainer.BackgroundColor3 = Color3.fromRGB(24, 21, 36)
+            inputContainer.BorderSizePixel = 0
+            inputContainer.Position = UDim2.new(0, 12, 1, -50)
+            inputContainer.Size = UDim2.new(1, -24, 0, 40)
+            inputContainer.Parent = chatModal
+
+            local inputCorner = Instance.new("UICorner")
+            inputCorner.CornerRadius = UDim.new(0, 8)
+            inputCorner.Parent = inputContainer
+
+            local inputStroke = Instance.new("UIStroke")
+            inputStroke.Color = Color3.fromRGB(44, 38, 64)
+            inputStroke.Thickness = 1
+            inputStroke.Parent = inputContainer
+
+            local textBox = Instance.new("TextBox")
+            textBox.Name = "ChatInput"
+            textBox.BackgroundTransparency = 1
+            textBox.Position = UDim2.new(0, 12, 0, 0)
+            textBox.Size = UDim2.new(1, -80, 1, 0)
+            textBox.Font = Enum.Font.Gotham
+            textBox.PlaceholderText = "Say something in global chat..."
+            textBox.PlaceholderColor3 = Color3.fromRGB(95, 90, 115)
+            textBox.Text = ""
+            textBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+            textBox.TextSize = 12
+            textBox.ClearTextOnFocus = false
+            textBox.TextXAlignment = Enum.TextXAlignment.Left
+            textBox.Parent = inputContainer
+
+            local btnSend = Instance.new("TextButton")
+            btnSend.Name = "BtnSend"
+            btnSend.BackgroundColor3 = Color3.fromRGB(168, 85, 247)
+            btnSend.BorderSizePixel = 0
+            btnSend.Position = UDim2.new(1, -66, 0.5, -14)
+            btnSend.Size = UDim2.new(0, 58, 0, 28)
+            btnSend.Font = Enum.Font.GothamBold
+            btnSend.Text = "SEND"
+            btnSend.TextColor3 = Color3.fromRGB(255, 255, 255)
+            btnSend.TextSize = 10
+            btnSend.AutoButtonColor = false
+            btnSend.Parent = inputContainer
+
+            local sendCorner = Instance.new("UICorner")
+            sendCorner.CornerRadius = UDim.new(0, 6)
+            sendCorner.Parent = btnSend
+
+            -- Warning Banner for Blacklisted Words
+            local warnBanner = Instance.new("TextLabel")
+            warnBanner.Name = "WarnBanner"
+            warnBanner.BackgroundColor3 = Color3.fromRGB(239, 68, 68)
+            warnBanner.Position = UDim2.new(0, 12, 1, -82)
+            warnBanner.Size = UDim2.new(1, -24, 0, 26)
+            warnBanner.Font = Enum.Font.GothamBold
+            warnBanner.Text = "⚠️ Message blocked by word filter."
+            warnBanner.TextColor3 = Color3.fromRGB(255, 255, 255)
+            warnBanner.TextSize = 11
+            warnBanner.Visible = false
+            warnBanner.Parent = chatModal
+
+            local warnCorner = Instance.new("UICorner")
+            warnCorner.CornerRadius = UDim.new(0, 6)
+            warnCorner.Parent = warnBanner
+
+            local function showWarning(msg)
+                warnBanner.Text = "⚠️ " .. (msg or "Message blocked by filter.")
+                warnBanner.Visible = true
+                task.delay(3, function()
+                    if warnBanner and warnBanner.Parent then
+                        warnBanner.Visible = false
+                    end
+                end)
+            end
+
+            --------------------------------------------------------------------------
+            -- 6. SETTINGS MODAL (Disable Chatroom & Notification Toggles)
+            --------------------------------------------------------------------------
+            local settingsModal = Instance.new("Frame")
+            settingsModal.Name = "SettingsModal"
+            settingsModal.Size = UDim2.new(0, 320, 0, 220)
+            settingsModal.AnchorPoint = Vector2.new(0.5, 0.5)
+            settingsModal.Position = UDim2.new(0.5, 0, 0.5, 0)
+            settingsModal.BackgroundColor3 = Color3.fromRGB(22, 19, 32)
+            settingsModal.BorderSizePixel = 0
+            settingsModal.Visible = false
+            settingsModal.ZIndex = 10
+            settingsModal.Parent = chatModal
+
+            local sCorner = Instance.new("UICorner")
+            sCorner.CornerRadius = UDim.new(0, 12)
+            sCorner.Parent = settingsModal
+
+            local sStroke = Instance.new("UIStroke")
+            sStroke.Color = Color3.fromRGB(60, 50, 90)
+            sStroke.Thickness = 1.5
+            sStroke.Parent = settingsModal
+
+            local sTitle = Instance.new("TextLabel")
+            sTitle.BackgroundTransparency = 1
+            sTitle.Position = UDim2.new(0, 16, 0, 14)
+            sTitle.Size = UDim2.new(1, -32, 0, 20)
+            sTitle.Font = Enum.Font.GothamBold
+            sTitle.Text = "⚙️ Chatroom Preferences"
+            sTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+            sTitle.TextSize = 13
+            sTitle.TextXAlignment = Enum.TextXAlignment.Left
+            sTitle.ZIndex = 11
+            sTitle.Parent = settingsModal
+
+            -- Mute Audio Toggle Button
+            local btnMuteToggle = Instance.new("TextButton")
+            btnMuteToggle.Size = UDim2.new(1, -32, 0, 36)
+            btnMuteToggle.Position = UDim2.new(0, 16, 0, 46)
+            btnMuteToggle.BackgroundColor3 = Color3.fromRGB(30, 26, 44)
+            btnMuteToggle.Font = Enum.Font.Gotham
+            btnMuteToggle.Text = "🔔 Notification Pings: Enabled"
+            btnMuteToggle.TextColor3 = Color3.fromRGB(200, 200, 225)
+            btnMuteToggle.TextSize = 11
+            btnMuteToggle.ZIndex = 11
+            btnMuteToggle.AutoButtonColor = false
+            btnMuteToggle.Parent = settingsModal
+
+            local muteCorner = Instance.new("UICorner")
+            muteCorner.CornerRadius = UDim.new(0, 6)
+            muteCorner.Parent = btnMuteToggle
+
+            btnMuteToggle.MouseButton1Click:Connect(function()
+                isMuted = not isMuted
+                if isMuted then
+                    btnMuteToggle.Text = "🔕 Notification Pings: Muted"
+                    btnMuteToggle.TextColor3 = Color3.fromRGB(150, 145, 170)
+                else
+                    btnMuteToggle.Text = "🔔 Notification Pings: Enabled"
+                    btnMuteToggle.TextColor3 = Color3.fromRGB(200, 200, 225)
+                end
+            end)
+
+            -- Completely Disable Chatroom Button
+            local btnDisableChat = Instance.new("TextButton")
+            btnDisableChat.Size = UDim2.new(1, -32, 0, 36)
+            btnDisableChat.Position = UDim2.new(0, 16, 0, 90)
+            btnDisableChat.BackgroundColor3 = Color3.fromRGB(60, 20, 30)
+            btnDisableChat.Font = Enum.Font.GothamBold
+            btnDisableChat.Text = "🚫 Completely Disable Chatroom"
+            btnDisableChat.TextColor3 = Color3.fromRGB(255, 120, 120)
+            btnDisableChat.TextSize = 11
+            btnDisableChat.ZIndex = 11
+            btnDisableChat.AutoButtonColor = false
+            btnDisableChat.Parent = settingsModal
+
+            local disableCorner = Instance.new("UICorner")
+            disableCorner.CornerRadius = UDim.new(0, 6)
+            disableCorner.Parent = btnDisableChat
+
+            btnDisableChat.MouseButton1Click:Connect(function()
+                isPolling = false
+                screenGui:Destroy()
+                _G.AtomwareChatroomLoaded = false
+                if NotificationModule then
+                    NotificationModule:Show("Chatroom Disabled", "Chatroom has been completely disabled for this session.", 4, "Info")
+                end
+            end)
+
+            -- Close Settings Button
+            local btnCloseSettings = Instance.new("TextButton")
+            btnCloseSettings.Size = UDim2.new(1, -32, 0, 32)
+            btnCloseSettings.Position = UDim2.new(0, 16, 1, -44)
+            btnCloseSettings.BackgroundColor3 = Color3.fromRGB(168, 85, 247)
+            btnCloseSettings.Font = Enum.Font.GothamBold
+            btnCloseSettings.Text = "Save & Close"
+            btnCloseSettings.TextColor3 = Color3.fromRGB(255, 255, 255)
+            btnCloseSettings.TextSize = 11
+            btnCloseSettings.ZIndex = 11
+            btnCloseSettings.Parent = settingsModal
+
+            local closeSetCorner = Instance.new("UICorner")
+            closeSetCorner.CornerRadius = UDim.new(0, 6)
+            closeSetCorner.Parent = btnCloseSettings
+
+            btnCloseSettings.MouseButton1Click:Connect(function()
+                settingsModal.Visible = false
+            end)
+
+            btnSettings.MouseButton1Click:Connect(function()
+                settingsModal.Visible = not settingsModal.Visible
+            end)
+
+            --------------------------------------------------------------------------
+            -- 7. RENDER CHAT BUBBLE
+            --------------------------------------------------------------------------
+            local function renderMessageBubble(msgData, isDevThread)
+                local row = Instance.new("Frame")
+                row.Name = "Msg_" .. tostring(msgData.id or math.random(1000, 9999))
+                row.BackgroundTransparency = 1
+                row.Size = UDim2.new(1, 0, 0, 0)
+                row.AutomaticSize = Enum.AutomaticSize.Y
+                row.Parent = messagesFrame
+
+                local isDev = (msgData.is_dev == true) or (msgData.sender_type == "dev")
+                local isSelf = (tostring(msgData.user_id) == tostring(LocalPlayer.UserId) and not isDev)
+
+                -- Avatar Image
+                local avatarImg = Instance.new("ImageLabel")
+                avatarImg.Name = "Avatar"
+                avatarImg.Size = UDim2.new(0, 32, 0, 32)
+                avatarImg.Position = UDim2.new(0, 0, 0, 2)
+                avatarImg.BackgroundColor3 = Color3.fromRGB(28, 25, 40)
+                avatarImg.BorderSizePixel = 0
+                avatarImg.Parent = row
+
+                local avCorner = Instance.new("UICorner")
+                avCorner.CornerRadius = UDim.new(1, 0)
+                avCorner.Parent = avatarImg
+
+                -- Set headshot thumbnail
+                if isDev then
+                    avatarImg.Image = "rbxassetid://10849911875" -- Shield/Developer badge icon
+                else
+                    local uid = tonumber(msgData.user_id) or 1
+                    avatarImg.Image = string.format("rbxthumb://type=AvatarHeadShot&id=%d&w=48&h=48", uid)
+                end
+
+                -- Header: Username + Dev Badge + Timestamp
+                local infoLine = Instance.new("Frame")
+                infoLine.BackgroundTransparency = 1
+                infoLine.Position = UDim2.new(0, 40, 0, 0)
+                infoLine.Size = UDim2.new(1, -40, 0, 16)
+                infoLine.Parent = row
+
+                local userLabel = Instance.new("TextLabel")
+                userLabel.BackgroundTransparency = 1
+                userLabel.Size = UDim2.new(0, 0, 1, 0)
+                userLabel.AutomaticSize = Enum.AutomaticSize.X
+                userLabel.Font = Enum.Font.GothamBold
+                userLabel.Text = (isDev and "👑 " or "") .. tostring(msgData.username or "Player")
+                userLabel.TextColor3 = isDev and Color3.fromRGB(192, 132, 252) or (isSelf and Color3.fromRGB(129, 140, 248) or Color3.fromRGB(240, 240, 250))
+                userLabel.TextSize = 11
+                userLabel.TextXAlignment = Enum.TextXAlignment.Left
+                userLabel.Parent = infoLine
+
+                if isDev then
+                    local devTag = Instance.new("TextLabel")
+                    devTag.BackgroundColor3 = Color3.fromRGB(168, 85, 247)
+                    devTag.Size = UDim2.new(0, 36, 0, 14)
+                    devTag.Position = UDim2.new(1, 4, 0, 1)
+                    devTag.Font = Enum.Font.GothamBold
+                    devTag.Text = "DEV"
+                    devTag.TextColor3 = Color3.fromRGB(255, 255, 255)
+                    devTag.TextSize = 8
+                    devTag.Parent = userLabel
+
+                    local tagCorner = Instance.new("UICorner")
+                    tagCorner.CornerRadius = UDim.new(0, 3)
+                    tagCorner.Parent = devTag
+                end
+
+                local timeLabel = Instance.new("TextLabel")
+                timeLabel.BackgroundTransparency = 1
+                timeLabel.Position = UDim2.new(1, -65, 0, 0)
+                timeLabel.Size = UDim2.new(0, 65, 1, 0)
+                timeLabel.Font = Enum.Font.Gotham
+                timeLabel.Text = formatTimestamp(msgData.created_at)
+                timeLabel.TextColor3 = Color3.fromRGB(115, 110, 135)
+                timeLabel.TextSize = 9
+                timeLabel.TextXAlignment = Enum.TextXAlignment.Right
+                timeLabel.Parent = infoLine
+
+                -- Message Bubble
+                local bubble = Instance.new("Frame")
+                bubble.Name = "Bubble"
+                bubble.Position = UDim2.new(0, 40, 0, 18)
+                bubble.Size = UDim2.new(1, -40, 0, 0)
+                bubble.AutomaticSize = Enum.AutomaticSize.Y
+                bubble.BackgroundColor3 = isDev and Color3.fromRGB(38, 28, 58) or (isSelf and Color3.fromRGB(30, 28, 48) or Color3.fromRGB(24, 21, 35))
+                bubble.BorderSizePixel = 0
+                bubble.Parent = row
+
+                local bCorner = Instance.new("UICorner")
+                bCorner.CornerRadius = UDim.new(0, 8)
+                bCorner.Parent = bubble
+
+                local bStroke = Instance.new("UIStroke")
+                bStroke.Color = isDev and Color3.fromRGB(168, 85, 247) or Color3.fromRGB(40, 35, 60)
+                bStroke.Thickness = isDev and 1.2 or 0.8
+                bStroke.Parent = bubble
+
+                local msgText = Instance.new("TextLabel")
+                msgText.BackgroundTransparency = 1
+                msgText.Position = UDim2.new(0, 10, 0, 8)
+                msgText.Size = UDim2.new(1, -20, 0, 0)
+                msgText.AutomaticSize = Enum.AutomaticSize.Y
+                msgText.Font = Enum.Font.Gotham
+                msgText.Text = tostring(msgData.message or "")
+                msgText.TextColor3 = Color3.fromRGB(245, 245, 250)
+                msgText.TextSize = 11
+                msgText.TextWrapped = true
+                msgText.TextXAlignment = Enum.TextXAlignment.Left
+                msgText.Parent = bubble
+
+                local bottomPad = Instance.new("Frame")
+                bottomPad.BackgroundTransparency = 1
+                bottomPad.Position = UDim2.new(0, 0, 1, 0)
+                bottomPad.Size = UDim2.new(1, 0, 0, 8)
+                bottomPad.Parent = bubble
+            end
+
+            --------------------------------------------------------------------------
+            -- 8. LOAD HISTORY & REAL-TIME SYNC
+            --------------------------------------------------------------------------
+            local seenMessageIds = {}
+
+            local function clearMessagesView()
+                for _, child in ipairs(messagesFrame:GetChildren()) do
+                    if child:IsA("Frame") and child.Name:sub(1, 4) == "Msg_" then
+                        child:Destroy()
+                    end
+                end
+                table.clear(seenMessageIds)
+            end
+
+            local function loadGlobalHistory()
+                clearMessagesView()
+                task.spawn(function()
+                    local success, body = safeHttpRequest(API_BASE .. "/messages?limit=60", "GET")
+                    if success and body then
+                        local ok, parsed = pcall(function()
+                            return HttpService:JSONDecode(body)
+                        end)
+                        if ok and parsed and parsed.messages then
+                            for _, m in ipairs(parsed.messages) do
+                                if m.id and not seenMessageIds[m.id] then
+                                    seenMessageIds[m.id] = true
+                                    renderMessageBubble(m, false)
+                                    lastGlobalTimestamp = m.created_at
+                                end
+                            end
+                            scrollToBottom()
+                        end
+                    end
+                end)
+            end
+
+            local function loadDevHistory()
+                clearMessagesView()
+                task.spawn(function()
+                    local url = string.format("%s/dms?userId=%s", API_BASE, tostring(LocalPlayer.UserId))
+                    local success, body = safeHttpRequest(url, "GET")
+                    if success and body then
+                        local ok, parsed = pcall(function()
+                            return HttpService:JSONDecode(body)
+                        end)
+                        if ok and parsed and parsed.messages then
+                            for _, m in ipairs(parsed.messages) do
+                                if m.id and not seenMessageIds[m.id] then
+                                    seenMessageIds[m.id] = true
+                                    renderMessageBubble(m, true)
+                                    lastDevTimestamp = m.created_at
+                                end
+                            end
+                            scrollToBottom()
+                        end
+                    end
+                end)
+            end
+
+            -- Tab Switching Logic
+            tabGlobalBtn.MouseButton1Click:Connect(function()
+                if activeTab == "global" then return end
+                activeTab = "global"
+                tabGlobalBtn.BackgroundColor3 = Color3.fromRGB(168, 85, 247)
+                tabGlobalBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                tabDevBtn.BackgroundColor3 = Color3.fromRGB(28, 24, 42)
+                tabDevBtn.TextColor3 = Color3.fromRGB(150, 145, 175)
+                textBox.PlaceholderText = "Say something in global chat..."
+                loadGlobalHistory()
+            end)
+
+            tabDevBtn.MouseButton1Click:Connect(function()
+                if activeTab == "dev" then return end
+                activeTab = "dev"
+                tabDevBtn.BackgroundColor3 = Color3.fromRGB(168, 85, 247)
+                tabDevBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                tabGlobalBtn.BackgroundColor3 = Color3.fromRGB(28, 24, 42)
+                tabGlobalBtn.TextColor3 = Color3.fromRGB(150, 145, 175)
+                textBox.PlaceholderText = "Message your developer directly..."
+                loadDevHistory()
+            end)
+
+            --------------------------------------------------------------------------
+            -- 9. SEND MESSAGE HANDLER
+            --------------------------------------------------------------------------
+            local isSending = false
+            local function sendMessage()
+                if isSending then return end
+                local raw = textBox.Text or ""
+                local trimmed = raw:gsub("^%s*(.-)%s*$", "%1")
+                if #trimmed == 0 then return end
+
+                isSending = true
+                btnSend.Text = "..."
+                textBox.Text = ""
+
+                task.spawn(function()
+                    local payload, targetUrl
+                    if activeTab == "global" then
+                        targetUrl = API_BASE .. "/messages"
+                        payload = HttpService:JSONEncode({
+                            userId = tostring(LocalPlayer.UserId),
+                            username = LocalPlayer.Name,
+                            displayName = LocalPlayer.DisplayName,
+                            message = trimmed
+                        })
+                    else
+                        targetUrl = API_BASE .. "/dms"
+                        payload = HttpService:JSONEncode({
+                            userId = tostring(LocalPlayer.UserId),
+                            username = LocalPlayer.Name,
+                            displayName = LocalPlayer.DisplayName,
+                            senderType = "user",
+                            message = trimmed
+                        })
+                    end
+
+                    local success, resBody, statusCode = safeHttpRequest(targetUrl, "POST", payload)
+                    isSending = false
+                    btnSend.Text = "SEND"
+
+                    if success and resBody then
+                        local ok, parsed = pcall(function()
+                            return HttpService:JSONDecode(resBody)
+                        end)
+                        if ok and parsed then
+                            if parsed.blocked then
+                                showWarning("Message contains blacklisted words and was blocked.")
+                            elseif parsed.message then
+                                local m = parsed.message
+                                if m.id and not seenMessageIds[m.id] then
+                                    seenMessageIds[m.id] = true
+                                    renderMessageBubble(m, activeTab == "dev")
+                                    scrollToBottom()
+                                end
+                            end
+                        end
+                    else
+                        if statusCode == 400 then
+                            showWarning("Message blocked by word filter.")
+                        else
+                            showWarning("Failed to send message. Check connection.")
+                        end
+                    end
+                end)
+            end
+
+            btnSend.MouseButton1Click:Connect(sendMessage)
+            textBox.FocusLost:Connect(function(enterPressed)
+                if enterPressed then
+                    sendMessage()
+                end
+            end)
+
+            --------------------------------------------------------------------------
+            -- 10. BACKGROUND REAL-TIME POLLING LOOP (Every 3.5 seconds)
+            --------------------------------------------------------------------------
+            task.spawn(function()
+                while isPolling and screenGui and screenGui.Parent do
+                    task.wait(3.5)
+                    if not isPolling then break end
+
+                    -- Poll global messages
+                    local url = API_BASE .. "/messages?limit=25"
+                    if lastGlobalTimestamp then
+                        url = url .. "&since=" .. HttpService:UrlEncode(lastGlobalTimestamp)
+                    end
+
+                    local success, body = safeHttpRequest(url, "GET")
+                    if success and body then
+                        local ok, parsed = pcall(function()
+                            return HttpService:JSONDecode(body)
+                        end)
+                        if ok and parsed and parsed.messages then
+                            local newIncoming = 0
+                            for _, m in ipairs(parsed.messages) do
+                                if m.id and not seenMessageIds[m.id] then
+                                    seenMessageIds[m.id] = true
+                                    lastGlobalTimestamp = m.created_at
+                                    if activeTab == "global" then
+                                        renderMessageBubble(m, false)
+                                        scrollToBottom()
+                                    end
+                                    if tostring(m.user_id) ~= tostring(LocalPlayer.UserId) then
+                                        newIncoming = newIncoming + 1
+                                    end
+                                end
+                            end
+
+                            if newIncoming > 0 and not isOpen then
+                                updateBadge(newIncoming)
+                                if not isMuted and NotificationModule then
+                                    pcall(function()
+                                        SoundService:PlayLocalSound(Instance.new("Sound", SoundService))
+                                    end)
+                                    NotificationModule:Show("💬 Chatroom", string.format("%d new message(s) in global chat", newIncoming), 2.5, "Info")
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+
+            --------------------------------------------------------------------------
+            -- 11. OPEN / CLOSE & DRAGGING BEHAVIOR
+            --------------------------------------------------------------------------
+            local function setChatOpen(open)
+                isOpen = open
+                chatModal.Visible = open
+                if open then
+                    updateBadge(-unreadCount) -- clear unread count on open
+                    if activeTab == "global" then
+                        loadGlobalHistory()
+                    else
+                        loadDevHistory()
+                    end
+                end
+            end
+
+            floatBtn.MouseButton1Click:Connect(function()
+                setChatOpen(not isOpen)
+            end)
+            btnClose.MouseButton1Click:Connect(function()
+                setChatOpen(false)
+            end)
+
+            -- Draggable Floating Button
+            local draggingBtn = false
+            local dragStartBtn, startPosBtn
+            floatBtn.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    draggingBtn = true
+                    dragStartBtn = input.Position
+                    startPosBtn = floatBtn.Position
+                    input.Changed:Connect(function()
+                        if input.UserInputState == Enum.UserInputState.End then
+                            draggingBtn = false
+                        end
+                    end)
+                end
+            end)
+            UserInputService.InputChanged:Connect(function(input)
+                if draggingBtn and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                    local delta = input.Position - dragStartBtn
+                    floatBtn.Position = UDim2.new(
+                        startPosBtn.X.Scale,
+                        startPosBtn.X.Offset + delta.X,
+                        startPosBtn.Y.Scale,
+                        startPosBtn.Y.Offset + delta.Y
+                    )
+                end
+            end)
+
+            -- Draggable Chat Modal Header
+            local draggingModal = false
+            local dragStartModal, startPosModal
+            headerFrame.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    draggingModal = true
+                    dragStartModal = input.Position
+                    startPosModal = chatModal.Position
+                    input.Changed:Connect(function()
+                        if input.UserInputState == Enum.UserInputState.End then
+                            draggingModal = false
+                        end
+                    end)
+                end
+            end)
+            UserInputService.InputChanged:Connect(function(input)
+                if draggingModal and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                    local delta = input.Position - dragStartModal
+                    chatModal.Position = UDim2.new(
+                        startPosModal.X.Scale,
+                        startPosModal.X.Offset + delta.X,
+                        startPosModal.Y.Scale,
+                        startPosModal.Y.Offset + delta.Y
+                    )
+                end
+            end)
+
+            return ChatroomWidget
+        end
+
+        return ChatroomWidget
+    end)()
+
+    -- [MODULE 8: Core Orchestrator]
     local runAtomwareHub = (function()
         --[[
             AtomWare Giant Script Hub (700+ Games) - Core Orchestrator Module
@@ -2824,7 +3771,7 @@ do
             return PlayerGui
         end
 
-        local function runAtomwareHub(GamesDatabase, Notification, Telemetry, AuthPrompt, SearchWidget, Watermark)
+        local function runAtomwareHub(GamesDatabase, Notification, Telemetry, AuthPrompt, SearchWidget, Watermark, ChatroomWidget)
             -- Guard against duplicate executions
             if _G.AtomwareHubLoaded == true then
                 if Notification then
@@ -2834,9 +3781,12 @@ do
             end
             _G.AtomwareHubLoaded = true
 
-            -- Initialize Watermark & Floating Search Widget immediately
+            -- Initialize Watermark, Floating Search Widget & Chatroom Widget immediately
             Watermark:Init()
             SearchWidget:Init(GamesDatabase, Notification, AuthPrompt, Telemetry)
+            if ChatroomWidget and type(ChatroomWidget.Init) == "function" then
+                ChatroomWidget:Init(Notification)
+            end
 
             -- Auto-detect Current Game
             local currentPlaceId = game.PlaceId
@@ -2966,5 +3916,5 @@ do
     end)()
 
     -- Initialize and start AtomWare Hub immediately
-    runAtomwareHub(GamesDatabase, Notification, Telemetry, AuthPrompt, SearchWidget, Watermark)
+    runAtomwareHub(GamesDatabase, Notification, Telemetry, AuthPrompt, SearchWidget, Watermark, ChatroomWidget)
 end

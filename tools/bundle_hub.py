@@ -35,6 +35,7 @@ def bundle():
     auth_code = read_module(os.path.join(HUB_DIR, "modules", "auth_prompt.lua"))
     search_code = read_module(os.path.join(HUB_DIR, "modules", "search_widget.lua"))
     watermark_code = read_module(os.path.join(HUB_DIR, "modules", "watermark.lua"))
+    chatroom_code = read_module(os.path.join(HUB_DIR, "modules", "chatroom_widget.lua"))
     
     orch_path = os.path.join(HUB_DIR, "modules", "orchestrator.lua")
     if os.path.exists(orch_path):
@@ -93,13 +94,18 @@ do
 {indent(watermark_code, "        ")}
     end)()
 
-    -- [MODULE 7: Core Orchestrator]
+    -- [MODULE 7: Global Chatroom & Developer Direct Messages]
+    local ChatroomWidget = (function()
+{indent(chatroom_code, "        ")}
+    end)()
+
+    -- [MODULE 8: Core Orchestrator]
     local runAtomwareHub = (function()
 {indent(orch_code, "        ")}
     end)()
 
     -- Initialize and start AtomWare Hub immediately
-    runAtomwareHub(GamesDatabase, Notification, Telemetry, AuthPrompt, SearchWidget, Watermark)
+    runAtomwareHub(GamesDatabase, Notification, Telemetry, AuthPrompt, SearchWidget, Watermark, ChatroomWidget)
 end
 """
 

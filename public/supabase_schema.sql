@@ -389,7 +389,60 @@ CREATE INDEX IF NOT EXISTS idx_client_errors_script ON public.client_errors(scri
 CREATE INDEX IF NOT EXISTS idx_client_errors_created ON public.client_errors(created_at DESC);
 
 -- ----------------------------------------------------------------------------
--- Enable Realtime for Live Telemetry
+-- 13. Global Chatroom & Developer Direct Messages (DMs)
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.chatroom_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id TEXT NOT NULL,
+    username TEXT NOT NULL,
+    display_name TEXT,
+    avatar_url TEXT,
+    message TEXT NOT NULL,
+    is_dev BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+CREATE INDEX IF NOT EXISTS idx_chatroom_messages_created ON public.chatroom_messages(created_at ASC);
+
+CREATE TABLE IF NOT EXISTS public.chatroom_blacklist (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    word TEXT NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+CREATE INDEX IF NOT EXISTS idx_chatroom_blacklist_word ON public.chatroom_blacklist(word);
+
+CREATE TABLE IF NOT EXISTS public.dev_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id TEXT NOT NULL,
+    username TEXT NOT NULL,
+    display_name TEXT,
+    avatar_url TEXT,
+    sender_type TEXT NOT NULL CHECK (sender_type IN ('user', 'dev')),
+    message TEXT NOT NULL,
+    read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+CREATE INDEX IF NOT EXISTS idx_dev_messages_user_created ON public.dev_messages(user_id, created_at ASC);
+
+ALTER TABLE public.chatroom_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chatroom_blacklist ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.dev_messages ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+    DROP POLICY IF EXISTS "Public full access on chatroom_messages" ON public.chatroom_messages;
+    CREATE POLICY "Public full access on chatroom_messages" ON public.chatroom_messages FOR ALL USING (true) WITH CHECK (true);
+
+    DROP POLICY IF EXISTS "Public full access on chatroom_blacklist" ON public.chatroom_blacklist;
+    CREATE POLICY "Public full access on chatroom_blacklist" ON public.chatroom_blacklist FOR ALL USING (true) WITH CHECK (true);
+
+    DROP POLICY IF EXISTS "Public full access on dev_messages" ON public.dev_messages;
+    CREATE POLICY "Public full access on dev_messages" ON public.dev_messages FOR ALL USING (true) WITH CHECK (true);
+EXCEPTION WHEN OTHERS THEN
+    NULL;
+END $$;
+
+-- ----------------------------------------------------------------------------
+-- Enable Realtime for Live Telemetry & Chatroom
 -- ----------------------------------------------------------------------------
 DO $$
 BEGIN
@@ -398,6 +451,8 @@ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.client_errors;
     ALTER PUBLICATION supabase_realtime ADD TABLE public.keys;
     ALTER PUBLICATION supabase_realtime ADD TABLE public.scripts;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.chatroom_messages;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.dev_messages;
 EXCEPTION WHEN OTHERS THEN
     NULL;
 END $$;

@@ -30,7 +30,11 @@ import {
   Gamepad2,
   Sparkles,
   Search,
+  MessageSquare,
+  Mail,
 } from "lucide-react";
+import ChatroomManager from "@/components/ChatroomManager";
+import DmsManager from "@/components/DmsManager";
 
 interface StaffReviewItem {
   id: string;
@@ -144,7 +148,7 @@ export default function PlayersPage() {
   const [announcements, setAnnouncements] = useState<GlobalAnnouncementItem[]>([]);
   const [scriptsList, setScriptsList] = useState<{ id: string; name: string; slug: string }[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"sessions" | "announcements" | "staff" | "bans">("sessions");
+  const [activeTab, setActiveTab] = useState<"sessions" | "announcements" | "staff" | "bans" | "chatroom" | "dms">("sessions");
   const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
   const [now, setNow] = useState(Date.now());
 
@@ -663,6 +667,30 @@ export default function PlayersPage() {
         >
           <Shield className="w-3.5 h-3.5" />
           <span>Staff History ({staffHistory.length})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("chatroom")}
+          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            activeTab === "chatroom"
+              ? "bg-purple-600 text-white shadow-sm"
+              : "text-gray-400 hover:text-white hover:bg-gray-800/60"
+          }`}
+        >
+          <MessageSquare className="w-3.5 h-3.5" />
+          <span>Chatroom</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("dms")}
+          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            activeTab === "dms"
+              ? "bg-indigo-600 text-white shadow-sm"
+              : "text-gray-400 hover:text-white hover:bg-gray-800/60"
+          }`}
+        >
+          <Mail className="w-3.5 h-3.5" />
+          <span>DMs / Contact Dev</span>
         </button>
         <button
           type="button"
@@ -1598,6 +1626,12 @@ export default function PlayersPage() {
           </div>
         </div>
       )}
+
+      {/* GLOBAL CHATROOM TAB */}
+      {activeTab === "chatroom" && <ChatroomManager />}
+
+      {/* DMS / CONTACT DEV TAB */}
+      {activeTab === "dms" && <DmsManager />}
 
       {/* Dismissable Screen Message Modal */}
       {messageModal && (

@@ -240,6 +240,35 @@ export interface StaffReviewRecord {
   created_at: string;
 }
 
+export interface ChatroomMessage {
+  id: string;
+  user_id: string;
+  username: string;
+  display_name?: string;
+  avatar_url?: string;
+  message: string;
+  is_dev: boolean;
+  created_at: string;
+}
+
+export interface ChatroomBlacklistWord {
+  id: string;
+  word: string;
+  created_at: string;
+}
+
+export interface DevMessage {
+  id: string;
+  user_id: string;
+  username: string;
+  display_name?: string;
+  avatar_url?: string;
+  sender_type: "user" | "dev";
+  message: string;
+  read: boolean;
+  created_at: string;
+}
+
 interface LocalDatabase {
   loader_configs: LoaderConfigRecord[];
   scripts: ScriptRecord[];
@@ -254,6 +283,9 @@ interface LocalDatabase {
   staff_reviews: StaffReviewRecord[];
   global_announcements: GlobalAnnouncement[];
   client_errors: ClientErrorLog[];
+  chatroom_messages?: ChatroomMessage[];
+  chatroom_blacklist?: ChatroomBlacklistWord[];
+  dev_messages?: DevMessage[];
 }
 
 const DB_DIR = path.join(process.cwd(), "data");
@@ -346,6 +378,9 @@ const initialDb: LocalDatabase = {
   staff_reviews: [],
   global_announcements: [],
   client_errors: [],
+  chatroom_messages: [],
+  chatroom_blacklist: [],
+  dev_messages: [],
 };
 
 const DB_BACKUP_FILE = path.join(DB_DIR, "db.json.bak");
@@ -374,6 +409,9 @@ function readLocalDb(): LocalDatabase {
       staff_reviews: data.staff_reviews || [],
       global_announcements: data.global_announcements || [],
       client_errors: data.client_errors || [],
+      chatroom_messages: data.chatroom_messages || [],
+      chatroom_blacklist: data.chatroom_blacklist || [],
+      dev_messages: data.dev_messages || [],
     };
     inMemoryDbCache = parsed;
     return parsed;
@@ -2260,6 +2298,408 @@ export const dbService = {
         await supabase.from("client_errors").delete().neq("id", "00000000-0000-0000-0000-000000000000");
       } catch {
         // ignore
+      }
+    }
+    return true;
+  },
+
+  // --------------------------------------------------------------------------
+  // CHATROOM & WORD BLACKLIST METHODS
+  // --------------------------------------------------------------------------
+
+  async getBlacklistWords(): Promise<string[]> {
+    let remoteWords: string[] = [];
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase.from("chatroom_blacklist").select("word");
+        if (data && !error) {
+          remoteWords = data.map((r: any) => String(r.word).trim().toLowerCase());
+        }
+      } catch {
+        // fallback
+      }
+    }
+    const db = readLocalDb();
+    const localWords = (db.chatroom_blacklist || []).map((w) => w.word.trim().toLowerCase());
+    const unique = Array.from(new Set([...remoteWords, ...localWords])).filter(Boolean);
+    return unique;
+  },
+
+  async addBlacklistWord(word: string): Promise<boolean> {
+    const cleaned = (word || "").trim().toLowerCase();
+    if (!cleaned) return false;
+
+    const db = readLocalDb();
+    if (!db.chatroom_blacklist) db.chatroom_blacklist = [];
+    if (!db.chatroom_blacklist.some((w) => w.word.toLowerCase() === cleaned)) {
+      db.chatroom_blacklist.push({
+        id: crypto.randomUUID(),
+        word: cleaned,
+        created_at: new Date().toISOString(),
+      });
+      writeLocalDb(db);
+    }
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase.from("chatroom_blacklist").upsert({ word: cleaned }, { onConflict: "word" });
+      } catch {
+        // fallback
+      }
+    }
+
+    // Automatically purge existing messages containing this blacklisted word
+    try {
+      await this.purgeBlacklistedMessages([cleaned]);
+    } catch {
+      // non-fatal
+    }
+
+    return true;
+  },
+
+  async deleteBlacklistWord(word: string): Promise<boolean> {
+    const cleaned = (word || "").trim().toLowerCase();
+    const db = readLocalDb();
+    if (db.chatroom_blacklist) {
+      db.chatroom_blacklist = db.chatroom_blacklist.filter((w) => w.word.toLowerCase() !== cleaned);
+      writeLocalDb(db);
+    }
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase.from("chatroom_blacklist").delete().ilike("word", cleaned);
+      } catch {
+        // fallback
+      }
+    }
+    return true;
+  },
+
+  async purgeBlacklistedMessages(blacklistWords?: string[]): Promise<number> {
+    const words = blacklistWords || (await this.getBlacklistWords());
+    if (!words.length) return 0;
+
+    let purgedCount = 0;
+    const db = readLocalDb();
+    if (db.chatroom_messages) {
+      const originalLen = db.chatroom_messages.length;
+      db.chatroom_messages = db.chatroom_messages.filter((m) => {
+        const text = m.message.toLowerCase();
+        return !words.some((w) => text.includes(w));
+      });
+      purgedCount += originalLen - db.chatroom_messages.length;
+      writeLocalDb(db);
+    }
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        for (const w of words) {
+          await supabase.from("chatroom_messages").delete().ilike("message", `%${w}%`);
+        }
+      } catch {
+        // fallback
+      }
+    }
+    return purgedCount;
+  },
+
+  async getChatroomMessages(since?: string, limit = 100): Promise<ChatroomMessage[]> {
+    let remote: ChatroomMessage[] = [];
+    if (isSupabaseConfigured && supabase) {
+      try {
+        let q = supabase
+          .from("chatroom_messages")
+          .select("*")
+          .order("created_at", { ascending: true })
+          .limit(limit);
+        if (since) {
+          q = q.gt("created_at", since);
+        }
+        const { data, error } = await q;
+        if (data && !error) remote = data;
+      } catch {
+        // fallback
+      }
+    }
+
+    const db = readLocalDb();
+    const map = new Map<string, ChatroomMessage>();
+    for (const m of remote) map.set(m.id, m);
+    for (const m of db.chatroom_messages || []) {
+      if (!map.has(m.id)) {
+        if (!since || new Date(m.created_at).getTime() > new Date(since).getTime()) {
+          map.set(m.id, m);
+        }
+      }
+    }
+
+    const words = await this.getBlacklistWords();
+    return Array.from(map.values())
+      .filter((m) => {
+        const text = (m.message || "").toLowerCase();
+        return !words.some((w) => text.includes(w));
+      })
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+      .slice(-limit);
+  },
+
+  async postChatroomMessage(msg: {
+    user_id: string;
+    username: string;
+    display_name?: string;
+    avatar_url?: string;
+    message: string;
+    is_dev?: boolean;
+  }): Promise<{ success: boolean; data?: ChatroomMessage; blocked?: boolean; error?: string }> {
+    const rawText = (msg.message || "").trim();
+    if (!rawText) {
+      return { success: false, error: "Message cannot be empty." };
+    }
+
+    // Check blacklist
+    const words = await this.getBlacklistWords();
+    const lower = rawText.toLowerCase();
+    const isBlocked = words.some((w) => lower.includes(w));
+    if (isBlocked) {
+      return { success: false, blocked: true, error: "Message contains blacklisted language and was blocked." };
+    }
+
+    const record: ChatroomMessage = {
+      id: crypto.randomUUID(),
+      user_id: String(msg.user_id || "0"),
+      username: msg.username || "Anonymous",
+      display_name: msg.display_name || msg.username || "Anonymous",
+      avatar_url: msg.avatar_url || (msg.user_id && msg.user_id !== "0"
+        ? `https://www.roblox.com/headshot-thumbnail/image?userId=${msg.user_id}&width=48&height=48&format=png`
+        : "https://api.dicebear.com/7.x/bottts/svg?seed=Dev"),
+      message: rawText,
+      is_dev: Boolean(msg.is_dev),
+      created_at: new Date().toISOString(),
+    };
+
+    const db = readLocalDb();
+    if (!db.chatroom_messages) db.chatroom_messages = [];
+    db.chatroom_messages.push(record);
+    if (db.chatroom_messages.length > 500) {
+      db.chatroom_messages = db.chatroom_messages.slice(-500);
+    }
+    writeLocalDb(db);
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase.from("chatroom_messages").insert([record]);
+      } catch {
+        // fallback
+      }
+    }
+
+    return { success: true, data: record };
+  },
+
+  async deleteChatroomMessage(id: string): Promise<boolean> {
+    const db = readLocalDb();
+    if (db.chatroom_messages) {
+      db.chatroom_messages = db.chatroom_messages.filter((m) => m.id !== id);
+      writeLocalDb(db);
+    }
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase.from("chatroom_messages").delete().eq("id", id);
+      } catch {
+        // fallback
+      }
+    }
+    return true;
+  },
+
+  // --------------------------------------------------------------------------
+  // CONTACT DEV / DIRECT MESSAGES (DMs)
+  // --------------------------------------------------------------------------
+
+  async getDevConversations(): Promise<
+    Array<{
+      user_id: string;
+      username: string;
+      display_name?: string;
+      avatar_url?: string;
+      last_message: string;
+      last_timestamp: string;
+      unread_count: number;
+    }>
+  > {
+    let allMsgs: DevMessage[] = [];
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from("dev_messages")
+          .select("*")
+          .order("created_at", { ascending: true });
+        if (data && !error) allMsgs = data;
+      } catch {
+        // fallback
+      }
+    }
+
+    const db = readLocalDb();
+    const map = new Map<string, DevMessage>();
+    for (const m of allMsgs) map.set(m.id, m);
+    for (const m of db.dev_messages || []) {
+      if (!map.has(m.id)) map.set(m.id, m);
+    }
+
+    const combined = Array.from(map.values());
+    const convMap = new Map<
+      string,
+      {
+        user_id: string;
+        username: string;
+        display_name?: string;
+        avatar_url?: string;
+        last_message: string;
+        last_timestamp: string;
+        unread_count: number;
+      }
+    >();
+
+    for (const m of combined) {
+      const uid = String(m.user_id);
+      const existing = convMap.get(uid);
+      const isUnreadUser = m.sender_type === "user" && !m.read;
+
+      if (!existing) {
+        convMap.set(uid, {
+          user_id: uid,
+          username: m.username || "Player",
+          display_name: m.display_name || m.username || "Player",
+          avatar_url: m.avatar_url,
+          last_message: m.message,
+          last_timestamp: m.created_at,
+          unread_count: isUnreadUser ? 1 : 0,
+        });
+      } else {
+        if (new Date(m.created_at).getTime() > new Date(existing.last_timestamp).getTime()) {
+          existing.last_message = m.message;
+          existing.last_timestamp = m.created_at;
+          if (m.username) existing.username = m.username;
+          if (m.avatar_url) existing.avatar_url = m.avatar_url;
+        }
+        if (isUnreadUser) {
+          existing.unread_count += 1;
+        }
+      }
+    }
+
+    return Array.from(convMap.values()).sort(
+      (a, b) => new Date(b.last_timestamp).getTime() - new Date(a.last_timestamp).getTime()
+    );
+  },
+
+  async getDevMessages(userId: string): Promise<DevMessage[]> {
+    const uid = String(userId);
+    let remote: DevMessage[] = [];
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from("dev_messages")
+          .select("*")
+          .eq("user_id", uid)
+          .order("created_at", { ascending: true });
+        if (data && !error) remote = data;
+      } catch {
+        // fallback
+      }
+    }
+
+    const db = readLocalDb();
+    const map = new Map<string, DevMessage>();
+    for (const m of remote) map.set(m.id, m);
+    for (const m of db.dev_messages || []) {
+      if (String(m.user_id) === uid && !map.has(m.id)) {
+        map.set(m.id, m);
+      }
+    }
+
+    return Array.from(map.values()).sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    );
+  },
+
+  async postDevMessage(msg: {
+    user_id: string;
+    username: string;
+    display_name?: string;
+    avatar_url?: string;
+    sender_type: "user" | "dev";
+    message: string;
+  }): Promise<{ success: boolean; data?: DevMessage; blocked?: boolean; error?: string }> {
+    const rawText = (msg.message || "").trim();
+    if (!rawText) {
+      return { success: false, error: "Message cannot be empty." };
+    }
+
+    // Check blacklist if user is sender
+    if (msg.sender_type === "user") {
+      const words = await this.getBlacklistWords();
+      const lower = rawText.toLowerCase();
+      if (words.some((w) => lower.includes(w))) {
+        return { success: false, blocked: true, error: "Message contains prohibited language and was blocked." };
+      }
+    }
+
+    const uid = String(msg.user_id);
+    const record: DevMessage = {
+      id: crypto.randomUUID(),
+      user_id: uid,
+      username: msg.username || (msg.sender_type === "dev" ? "AtomWare Dev" : "Player"),
+      display_name: msg.display_name || msg.username || (msg.sender_type === "dev" ? "AtomWare Dev" : "Player"),
+      avatar_url: msg.avatar_url || (uid && uid !== "0"
+        ? `https://www.roblox.com/headshot-thumbnail/image?userId=${uid}&width=48&height=48&format=png`
+        : "https://api.dicebear.com/7.x/bottts/svg?seed=Dev"),
+      sender_type: msg.sender_type,
+      message: rawText,
+      read: msg.sender_type === "dev", // dev's own message is already read
+      created_at: new Date().toISOString(),
+    };
+
+    const db = readLocalDb();
+    if (!db.dev_messages) db.dev_messages = [];
+    db.dev_messages.push(record);
+    writeLocalDb(db);
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase.from("dev_messages").insert([record]);
+      } catch {
+        // fallback
+      }
+    }
+
+    return { success: true, data: record };
+  },
+
+  async markDevMessagesRead(userId: string): Promise<boolean> {
+    const uid = String(userId);
+    const db = readLocalDb();
+    if (db.dev_messages) {
+      for (const m of db.dev_messages) {
+        if (String(m.user_id) === uid && m.sender_type === "user") {
+          m.read = true;
+        }
+      }
+      writeLocalDb(db);
+    }
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase
+          .from("dev_messages")
+          .update({ read: true })
+          .eq("user_id", uid)
+          .eq("sender_type", "user");
+      } catch {
+        // fallback
       }
     }
     return true;

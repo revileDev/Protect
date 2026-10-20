@@ -21,7 +21,7 @@ local function getGuiParent()
     return PlayerGui
 end
 
-local function runAtomwareHub(GamesDatabase, Notification, Telemetry, AuthPrompt, SearchWidget, Watermark)
+local function runAtomwareHub(GamesDatabase, Notification, Telemetry, AuthPrompt, SearchWidget, Watermark, ChatroomWidget)
     -- Guard against duplicate executions
     if _G.AtomwareHubLoaded == true then
         if Notification then
@@ -31,9 +31,12 @@ local function runAtomwareHub(GamesDatabase, Notification, Telemetry, AuthPrompt
     end
     _G.AtomwareHubLoaded = true
 
-    -- Initialize Watermark & Floating Search Widget immediately
+    -- Initialize Watermark, Floating Search Widget & Chatroom Widget immediately
     Watermark:Init()
     SearchWidget:Init(GamesDatabase, Notification, AuthPrompt, Telemetry)
+    if ChatroomWidget and type(ChatroomWidget.Init) == "function" then
+        ChatroomWidget:Init(Notification)
+    end
 
     -- Auto-detect Current Game
     local currentPlaceId = game.PlaceId
