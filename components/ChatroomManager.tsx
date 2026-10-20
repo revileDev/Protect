@@ -43,6 +43,7 @@ export default function ChatroomManager() {
   const [cooldownSeconds, setCooldownSeconds] = useState<number>(5);
   const [customCooldownInput, setCustomCooldownInput] = useState<string>("5");
   const [savingCooldown, setSavingCooldown] = useState(false);
+  const [clearingHistory, setClearingHistory] = useState(false);
 
   // Bulk add blacklist state
   const [showBulkModal, setShowBulkModal] = useState(false);
@@ -210,6 +211,32 @@ export default function ChatroomManager() {
     }
   };
 
+  // Delete all chatroom history
+  const handleClearAllHistory = async () => {
+    if (
+      !window.confirm(
+        "Are you sure you want to delete ALL chatroom messages? This will permanently wipe all chat logs from the database."
+      )
+    ) {
+      return;
+    }
+    setClearingHistory(true);
+    try {
+      const res = await fetch("/api/chatroom/messages?all=true", { method: "DELETE" });
+      if (res.ok) {
+        setMessages([]);
+        showNotification("All chatroom history has been permanently deleted.");
+      } else {
+        showNotification("Failed to delete chatroom history.");
+      }
+    } catch (err) {
+      console.error(err);
+      showNotification("Error connecting to server.");
+    } finally {
+      setClearingHistory(false);
+    }
+  };
+
   // Add Blacklist Word (single or comma-separated)
   const handleAddBlacklistWord = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -366,15 +393,28 @@ export default function ChatroomManager() {
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={refreshAll}
-          disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-800/80 hover:bg-gray-700 text-gray-300 hover:text-white text-xs font-semibold border border-gray-700/60 transition-all self-start sm:self-auto"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-          <span>Refresh</span>
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+          <button
+            type="button"
+            onClick={handleClearAllHistory}
+            disabled={clearingHistory || messages.length === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 text-xs font-semibold border border-rose-500/30 transition-all disabled:opacity-40 disabled:pointer-events-none"
+            title="Permanently delete all chatroom messages"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>{clearingHistory ? "Deleting..." : "Delete History"}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={refreshAll}
+            disabled={loading}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-800/80 hover:bg-gray-700 text-gray-300 hover:text-white text-xs font-semibold border border-gray-700/60 transition-all"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+            <span>Refresh</span>
+          </button>
+        </div>
       </div>
 
       {/* Cooldown Settings Strip */}

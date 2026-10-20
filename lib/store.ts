@@ -2901,6 +2901,21 @@ export const dbService = {
     return true;
   },
 
+  async clearAllChatroomMessages(): Promise<boolean> {
+    const db = readLocalDb();
+    db.chatroom_messages = [];
+    writeLocalDb(db);
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase.from("chatroom_messages").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      } catch (err) {
+        console.error("Supabase clearAllChatroomMessages error:", err);
+      }
+    }
+    return true;
+  },
+
   // --------------------------------------------------------------------------
   // CONTACT DEV / DIRECT MESSAGES (DMs)
   // --------------------------------------------------------------------------

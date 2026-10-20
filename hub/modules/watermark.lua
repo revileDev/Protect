@@ -139,7 +139,18 @@ function Watermark:Init()
             frameCount = 0
             lastTime = currentTime
 
-            textLabel.Text = string.format("ATOMWARE | HUB | FPS: %d", fps)
+            local keyBadge = ""
+            if _G.AtomProtectKeyInfo then
+                if _G.AtomProtectKeyInfo.is_admin then
+                    keyBadge = "STAFF | "
+                elseif _G.AtomProtectKeyInfo.is_lifetime then
+                    keyBadge = "LIFETIME | "
+                elseif _G.AtomProtectKeyInfo.duration_hours then
+                    keyBadge = tostring(_G.AtomProtectKeyInfo.duration_hours) .. "H KEY | "
+                end
+            end
+
+            textLabel.Text = string.format("ATOMWARE | %sFPS: %d", keyBadge, fps)
 
             if fps >= 50 then
                 statusDot.BackgroundColor3 = Color3.fromRGB(67, 181, 129) -- Emerald Green

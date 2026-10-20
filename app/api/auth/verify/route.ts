@@ -316,8 +316,8 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. Fetch Key Record strictly from database
-    const keyRecord = await dbService.getKeyByString(keyStr);
-    if (!keyRecord) {
+    const fetchedKey = await dbService.getKeyByString(keyStr);
+    if (!fetchedKey) {
       // Sliding window rate limit on failed key attempts to block brute-force / key guessing
       const now = Date.now();
       // Periodic pruning to avoid memory leak
@@ -367,6 +367,7 @@ export async function POST(req: NextRequest) {
 
     // Reset failed probe attempts on successful key lookup
     failedKeyAttempts.delete(clientIp);
+    const keyRecord = fetchedKey;
 
     const isStaff = isStaffReviewKey(keyRecord);
 
@@ -578,7 +579,8 @@ export async function POST(req: NextRequest) {
 
     // 9. Normal User Key Flow:
     // Activate key and start its expiration countdown upon first execution
-    await dbService.activateKey(keyRecord.id, clientIp);
+    const activatedKey = await dbService.activateKey(keyRecord.id, clientIp);
+    const activeKey = activatedKey || keyRecord;
 
     // Create active in-game session
     const session = await dbService.createSession({
@@ -655,17 +657,22 @@ export async function POST(req: NextRequest) {
     const secretKey = `${session.id}_${(key || "").trim()}_${nonce}`;
     const { encryptedHex, signature } = encryptSessionPayload(rawPayload, secretKey, nonce);
     let remainingSeconds: number | null = null;
-    if (keyRecord.expires_at) {
-      const diffMs = new Date(keyRecord.expires_at).getTime() - Date.now();
+    const isLifetime = !isStaff && (activeKey.duration_hours === null || activeKey.duration_hours === undefined);
+
+    if (activeKey.expires_at) {
+      const diffMs = new Date(activeKey.expires_at).getTime() - Date.now();
       remainingSeconds = Math.max(0, Math.floor(diffMs / 1000));
+    } else if (activeKey.duration_hours && activeKey.duration_hours > 0) {
+      remainingSeconds = activeKey.duration_hours * 3600;
     }
 
     return NextResponse.json({
       success: true,
       session_token: session.id,
-      expires_at: keyRecord.expires_at,
-      duration_hours: keyRecord.duration_hours,
+      expires_at: activeKey.expires_at,
+      duration_hours: activeKey.duration_hours,
       remaining_seconds: remainingSeconds,
+      is_lifetime: isLifetime,
       encrypted_payload: encryptedHex,
       payload_signature: signature,
       nonce,

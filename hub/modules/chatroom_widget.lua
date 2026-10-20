@@ -484,7 +484,7 @@ function ChatroomWidget:Init(NotificationModule)
     --------------------------------------------------------------------------
     local settingsModal = Instance.new("Frame")
     settingsModal.Name = "SettingsModal"
-    settingsModal.Size = UDim2.new(0, 340, 0, 340)
+    settingsModal.Size = UDim2.new(0, 340, 0, 375)
     settingsModal.AnchorPoint = Vector2.new(0.5, 0.5)
     settingsModal.Position = UDim2.new(0.5, 0, 0.5, 0)
     settingsModal.BackgroundColor3 = Color3.fromRGB(20, 17, 30)
@@ -587,6 +587,15 @@ function ChatroomWidget:Init(NotificationModule)
     )
     btnDisableChat.Font = Enum.Font.GothamBold
 
+    -- 7. Clear Messages View
+    local btnClearView = createToggleBtn(
+        "ClearView",
+        "🗑️ Clear In-Game Messages View",
+        270,
+        Color3.fromRGB(35, 25, 45),
+        Color3.fromRGB(220, 180, 240)
+    )
+
     -- Close Settings Button
     local btnCloseSettings = Instance.new("TextButton")
     btnCloseSettings.Size = UDim2.new(1, -32, 0, 32)
@@ -685,6 +694,14 @@ function ChatroomWidget:Init(NotificationModule)
         _G.AtomwareChatroomLoaded = false
         if NotificationModule then
             NotificationModule:Show("Chatroom Disabled", "Chatroom widget has been completely disabled for this session.", 4, "Info")
+        end
+    end)
+
+    btnClearView.MouseButton1Click:Connect(function()
+        clearMessagesView()
+        settingsModal.Visible = false
+        if NotificationModule then
+            NotificationModule:Show("Chat Cleared", "Message history view has been cleared for this session.", 3, "Info")
         end
     end)
 

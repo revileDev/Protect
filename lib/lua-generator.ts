@@ -837,15 +837,42 @@ ${
         end
     end
 
-    local remainingSeconds = initialRemainingSeconds or 0
-    local isLifetime = (initialRemainingSeconds == nil or initialRemainingSeconds <= 0)
+    local remainingSeconds = tonumber(initialRemainingSeconds) or 0
+    local durationHours = (payloadData and tonumber(payloadData.duration_hours)) or nil
+
+    -- Determine if this is truly a lifetime key:
+    -- Only lifetime if explicitly flagged as lifetime OR if duration_hours is nil and remainingSeconds is nil
+    local isLifetimeKey = false
+    if isAdminKey then
+        isLifetimeKey = false
+    elseif payloadData and payloadData.is_lifetime == true then
+        isLifetimeKey = true
+    elseif payloadData and payloadData.duration_hours == nil and (initialRemainingSeconds == nil or initialRemainingSeconds <= 0) then
+        isLifetimeKey = true
+    end
+
+    -- If key has duration_hours (e.g. 24), it is NEVER lifetime!
+    if durationHours and durationHours > 0 then
+        isLifetimeKey = false
+        if remainingSeconds <= 0 then
+            remainingSeconds = durationHours * 3600
+        end
+    end
+
+    -- Share key info globally for other modules (like Watermark)
+    _G.AtomProtectKeyInfo = {
+        is_lifetime = isLifetimeKey,
+        duration_hours = durationHours,
+        remaining_seconds = remainingSeconds,
+        is_admin = isAdminKey
+    }
 
     task.spawn(function()
         while ExpireFrame and ExpireFrame.Parent do
             if isAdminKey then
                 ELabel.Text = "★ Staff Access"
                 break
-            elseif isLifetime then
+            elseif isLifetimeKey then
                 ELabel.Text = "★ Lifetime Key"
                 break
             elseif remainingSeconds > 0 then

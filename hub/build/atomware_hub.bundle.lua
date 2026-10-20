@@ -4,7 +4,7 @@
 ======================================================================
   * Key: THEBESTFIXED
   * Discord: https://discord.gg/AeCYnnQmq5
-  * Compiled At: 2026-10-20T23:15:44.935Z
+  * Compiled At: 2026-10-20T23:41:18.475Z
   * Features:
     - Auto Game Detection (700+ Place IDs)
     - Key Auth Prompt Modal with Discord Clipboard Integration
@@ -2795,7 +2795,18 @@ do
                     frameCount = 0
                     lastTime = currentTime
 
-                    textLabel.Text = string.format("ATOMWARE | HUB | FPS: %d", fps)
+                    local keyBadge = ""
+                    if _G.AtomProtectKeyInfo then
+                        if _G.AtomProtectKeyInfo.is_admin then
+                            keyBadge = "STAFF | "
+                        elseif _G.AtomProtectKeyInfo.is_lifetime then
+                            keyBadge = "LIFETIME | "
+                        elseif _G.AtomProtectKeyInfo.duration_hours then
+                            keyBadge = tostring(_G.AtomProtectKeyInfo.duration_hours) .. "H KEY | "
+                        end
+                    end
+
+                    textLabel.Text = string.format("ATOMWARE | %sFPS: %d", keyBadge, fps)
 
                     if fps >= 50 then
                         statusDot.BackgroundColor3 = Color3.fromRGB(67, 181, 129) -- Emerald Green
@@ -3302,7 +3313,7 @@ do
             --------------------------------------------------------------------------
             local settingsModal = Instance.new("Frame")
             settingsModal.Name = "SettingsModal"
-            settingsModal.Size = UDim2.new(0, 340, 0, 340)
+            settingsModal.Size = UDim2.new(0, 340, 0, 375)
             settingsModal.AnchorPoint = Vector2.new(0.5, 0.5)
             settingsModal.Position = UDim2.new(0.5, 0, 0.5, 0)
             settingsModal.BackgroundColor3 = Color3.fromRGB(20, 17, 30)
@@ -3405,6 +3416,15 @@ do
             )
             btnDisableChat.Font = Enum.Font.GothamBold
 
+            -- 7. Clear Messages View
+            local btnClearView = createToggleBtn(
+                "ClearView",
+                "🗑️ Clear In-Game Messages View",
+                270,
+                Color3.fromRGB(35, 25, 45),
+                Color3.fromRGB(220, 180, 240)
+            )
+
             -- Close Settings Button
             local btnCloseSettings = Instance.new("TextButton")
             btnCloseSettings.Size = UDim2.new(1, -32, 0, 32)
@@ -3503,6 +3523,14 @@ do
                 _G.AtomwareChatroomLoaded = false
                 if NotificationModule then
                     NotificationModule:Show("Chatroom Disabled", "Chatroom widget has been completely disabled for this session.", 4, "Info")
+                end
+            end)
+
+            btnClearView.MouseButton1Click:Connect(function()
+                clearMessagesView()
+                settingsModal.Visible = false
+                if NotificationModule then
+                    NotificationModule:Show("Chat Cleared", "Message history view has been cleared for this session.", 3, "Info")
                 end
             end)
 

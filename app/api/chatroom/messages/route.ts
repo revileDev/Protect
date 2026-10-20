@@ -84,8 +84,15 @@ export async function DELETE(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
+    const all = searchParams.get("all") === "true" || id === "all";
+
+    if (all) {
+      await dbService.clearAllChatroomMessages();
+      return NextResponse.json({ success: true, message: "Chatroom history cleared successfully." });
+    }
+
     if (!id) {
-      return NextResponse.json({ success: false, error: "Missing message id" }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Missing message id or all=true" }, { status: 400 });
     }
 
     await dbService.deleteChatroomMessage(id);
