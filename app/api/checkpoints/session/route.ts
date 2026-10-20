@@ -65,23 +65,46 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ACTION: VERIFY STEP
-    if (action === "verify_step") {
-      const { sessionId, stepIndex, stepToken, powSolution } = body;
+    // ACTION: START STEP (Stamps server start clock and generates active step token)
+    if (action === "start_step") {
+      const { gatewayToken } = body;
 
-      if (!sessionId || stepIndex === undefined || !stepToken) {
+      if (!gatewayToken || typeof gatewayToken !== "string") {
         return NextResponse.json(
-          { success: false, error: "Missing required session or step parameters." },
+          { success: false, error: "Missing required gatewayToken parameter." },
+          { status: 400 }
+        );
+      }
+
+      const result = antiBypassService.startStep(gatewayToken, ip);
+
+      if (!result.success) {
+        return NextResponse.json(
+          { success: false, error: result.error || "Failed to start checkpoint step." },
+          { status: 400 }
+        );
+      }
+
+      return NextResponse.json(result);
+    }
+
+    // ACTION: VERIFY STEP (Enforces temporal dwell time and Proof-of-Work)
+    if (action === "verify_step") {
+      const { activeStepToken, stepToken, powSolution, powNonce } = body;
+      const targetToken = activeStepToken || stepToken;
+
+      if (!targetToken || typeof targetToken !== "string") {
+        return NextResponse.json(
+          { success: false, error: "Missing active step authorization token." },
           { status: 400 }
         );
       }
 
       const result = antiBypassService.verifyStep(
-        sessionId,
-        Number(stepIndex),
-        String(stepToken),
+        targetToken,
         ip,
-        String(powSolution || "")
+        String(powSolution || ""),
+        powNonce
       );
 
       if (!result.success) {
@@ -101,9 +124,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({ success: false, error: "Invalid action." }, { status: 400 });
+    return NextResponse.json({ error: "Unknown action." }, { status: 400 });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Error processing checkpoint session";
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+    const errorMsg = err instanceof Error ? err.message : "Error handling checkpoint session";
+    return NextResponse.json({ success: false, error: errorMsg }, { status: 500 });
   }
 }

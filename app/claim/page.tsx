@@ -218,6 +218,7 @@ export default function ClaimKeyPage() {
   const [currentStepToken, setCurrentStepToken] = useState<string | null>(null);
   const [powChallenge, setPowChallenge] = useState<{ nonce: string; difficulty: number } | null>(null);
   const [stepGatewayUrls, setStepGatewayUrls] = useState<string[]>([]);
+  const [stepGatewayTokens, setStepGatewayTokens] = useState<string[]>([]);
   const [claimToken, setClaimToken] = useState<string | null>(null);
   const [verifyingStep, setVerifyingStep] = useState(false);
 
@@ -312,7 +313,6 @@ export default function ClaimKeyPage() {
       const data = await res.json();
       if (data.success) {
         setSessionId(data.sessionId);
-        setCurrentStepToken(data.currentStepToken);
         setPowChallenge(data.powChallenge);
         if (data.stepDetails && Array.isArray(data.stepDetails)) {
           setCheckpoints(
@@ -324,9 +324,12 @@ export default function ClaimKeyPage() {
               duration_seconds: s.duration_seconds,
               order: s.order,
               created_at: new Date().toISOString(),
+              gatewayToken: s.gatewayToken,
+              gatewayUrl: s.gatewayUrl,
             }))
           );
           setStepGatewayUrls(data.stepDetails.map((s: any) => s.gatewayUrl));
+          setStepGatewayTokens(data.stepDetails.map((s: any) => s.gatewayToken));
         }
       }
     } catch (err) {
@@ -417,7 +420,7 @@ export default function ClaimKeyPage() {
   }, [timerRunning, currentTimer]);
 
   // Click handler: opens secure gateway link and starts timer
-  const handleStartCheckpoint = (cp: CheckpointItem, index: number) => {
+  const handleStartCheckpoint = async (cp: CheckpointItem, index: number) => {
     if (completedCpIds.includes(cp.id)) return;
     if (index !== activeCpIndex) return;
 
@@ -429,19 +432,47 @@ export default function ClaimKeyPage() {
       return;
     }
 
+    const gatewayToken = stepGatewayTokens[index] || (cp as any).gatewayToken;
     const gatewayUrl = stepGatewayUrls[index] || cp.url;
+
+    // Open target task in new tab synchronously to avoid browser popup blockers
     if (gatewayUrl) {
       window.open(gatewayUrl, "_blank", "noopener,noreferrer");
     }
 
-    setCurrentTimer(cp.duration_seconds || 5);
-    setTimerRunning(true);
+    // Call server to stamp start time on the server clock and get active step token
+    try {
+      const res = await fetch("/api/checkpoints/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "start_step",
+          gatewayToken,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success && data.activeStepToken) {
+        setCurrentStepToken(data.activeStepToken);
+        if (data.powChallenge) {
+          setPowChallenge(data.powChallenge);
+        }
+        const dur = data.duration || cp.duration_seconds || 5;
+        setCurrentTimer(dur);
+        setTimerRunning(true);
+      } else {
+        setError(data.error || "Failed to start checkpoint step.");
+      }
+    } catch (e) {
+      console.error(e);
+      setError("Failed to connect to verification server.");
+    }
   };
 
   // Verify step completion with server
   const handleVerifyCurrentStep = async () => {
     const activeCp = checkpoints[activeCpIndex];
-    if (!activeCp || !sessionId || !currentStepToken) return;
+    if (!activeCp || !currentStepToken) return;
 
     setVerifyingStep(true);
     setError(null);
@@ -458,10 +489,9 @@ export default function ClaimKeyPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "verify_step",
-          sessionId,
-          stepIndex: activeCpIndex,
-          stepToken: currentStepToken,
+          activeStepToken: currentStepToken,
           powSolution,
+          powNonce: powChallenge?.nonce || "",
         }),
       });
 
@@ -488,8 +518,10 @@ export default function ClaimKeyPage() {
         setClaimToken(data.claimToken);
       } else if (data.nextStep !== undefined) {
         setActiveCpIndex(data.nextStep);
-        setCurrentStepToken(data.nextStepToken);
-        setPowChallenge(data.nextPowChallenge);
+        setCurrentStepToken(null);
+        if (data.nextPowChallenge) {
+          setPowChallenge(data.nextPowChallenge);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -767,6 +799,8 @@ export default function ClaimKeyPage() {
                           setTargetScript(null);
                           setCompletedCpIds([]);
                           setActiveCpIndex(0);
+                          setClaimToken(null);
+                          setCurrentStepToken(null);
                         }}
                         className="text-[11px] text-zinc-400 hover:text-white underline font-medium"
                       >

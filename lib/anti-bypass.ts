@@ -5,59 +5,77 @@ import type { CheckpointItem } from "./store";
 const HMAC_SECRET =
   process.env.ANTI_BYPASS_SECRET ||
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  "atomprotect_anti_bypass_fortress_secure_salt_791823";
+  "atomprotect_fortress_stateless_secret_v2_981274";
 
-export interface CheckpointSession {
-  id: string;
-  ip: string;
-  user_agent_hash: string;
-  script_id: string;
-  created_at: number;
-  status: "in_progress" | "verified" | "claimed";
-  current_step: number; // 0-indexed
-  total_steps: number;
-  step_checkpoints: Array<{
-    id: string;
-    title: string;
-    url: string;
-    duration_seconds: number;
-    order: number;
-    started_at?: number;
-    gateway_visited?: boolean;
-    completed?: boolean;
-  }>;
-  pow_challenge: {
-    nonce: string;
-    difficulty: number;
-  };
-  claim_token?: string;
-  claimed_at?: number;
+// In-memory set of consumed claim tokens to prevent replay attacks
+const consumedClaimTokens = new Set<string>();
+
+export function isIpMatching(tokenIp: string, reqIp: string): boolean {
+  if (!tokenIp || !reqIp) return true;
+  if (tokenIp === reqIp) return true;
+
+  // Localhost aliases
+  const isLocalToken =
+    tokenIp === "127.0.0.1" || tokenIp === "::1" || tokenIp === "localhost";
+  const isLocalReq =
+    reqIp === "127.0.0.1" || reqIp === "::1" || reqIp === "localhost";
+  if (isLocalToken && isLocalReq) return true;
+
+  // Allow dual-stack transitions (e.g. mobile carrier switching between IPv4 NAT64 and IPv6)
+  const tokenIsV6 = tokenIp.includes(":");
+  const reqIsV6 = reqIp.includes(":");
+  if (tokenIsV6 !== reqIsV6) {
+    return true;
+  }
+
+  return false;
 }
 
-// Global in-memory session registry with 45-minute expiration
-const sessions = new Map<string, CheckpointSession>();
-
-// Cleanup stale sessions every 10 minutes
-if (typeof setInterval !== "undefined") {
-  setInterval(() => {
-    const now = Date.now();
-    sessions.forEach((sess, id) => {
-      if (now - sess.created_at > 45 * 60 * 1000) {
-        sessions.delete(id);
-      }
-    });
-  }, 10 * 60 * 1000);
+export function createSignedToken<T extends object>(payload: T): string {
+  const json = JSON.stringify(payload);
+  const b64 = Buffer.from(json, "utf8").toString("base64url");
+  const sig = crypto.createHmac("sha256", HMAC_SECRET).update(b64).digest("base64url");
+  return `${b64}.${sig}`;
 }
 
-function hashUserAgent(ua: string): string {
-  return crypto.createHash("sha256").update(ua || "unknown").digest("hex").slice(0, 16);
+export function verifySignedToken<T extends object>(
+  token: string
+): { valid: boolean; payload?: T; error?: string } {
+  if (!token || typeof token !== "string" || !token.includes(".")) {
+    return { valid: false, error: "Malformed token format." };
+  }
+
+  const [b64, sig] = token.split(".");
+  if (!b64 || !sig) {
+    return { valid: false, error: "Invalid token structure." };
+  }
+
+  const expectedSig = crypto.createHmac("sha256", HMAC_SECRET).update(b64).digest("base64url");
+  if (sig.length !== expectedSig.length) {
+    return { valid: false, error: "Invalid token signature length." };
+  }
+
+  const match = crypto.timingSafeEqual(
+    Buffer.from(sig, "utf8"),
+    Buffer.from(expectedSig, "utf8")
+  );
+  if (!match) {
+    return { valid: false, error: "Token signature verification failed. Tampering detected." };
+  }
+
+  try {
+    const raw = Buffer.from(b64, "base64url").toString("utf8");
+    const payload = JSON.parse(raw) as T & { exp?: number };
+    if (payload.exp && Date.now() > payload.exp) {
+      return { valid: false, error: "Token has expired. Please refresh the page." };
+    }
+    return { valid: true, payload };
+  } catch {
+    return { valid: false, error: "Failed to parse token payload." };
+  }
 }
 
-function signHmac(data: string): string {
-  return crypto.createHmac("sha256", HMAC_SECRET).update(data).digest("hex");
-}
-
-function generatePoWChallenge(difficulty = 3): { nonce: string; difficulty: number } {
+export function generatePoWChallenge(difficulty = 3): { nonce: string; difficulty: number } {
   return {
     nonce: crypto.randomBytes(16).toString("hex"),
     difficulty,
@@ -69,6 +87,41 @@ export function verifyPoWSolution(nonce: string, solution: string, difficulty: n
   const hash = crypto.createHash("sha256").update(nonce + solution).digest("hex");
   const prefix = "0".repeat(difficulty);
   return hash.startsWith(prefix);
+}
+
+export interface GatewayTokenPayload {
+  t: "gw";
+  sid: string;
+  step: number;
+  total: number;
+  ip: string;
+  targetUrl: string;
+  duration: number;
+  scriptId: string;
+  exp: number;
+}
+
+export interface ActiveStepTokenPayload {
+  t: "active";
+  sid: string;
+  step: number;
+  total: number;
+  ip: string;
+  startedAt: number; // Server clock millisecond timestamp
+  duration: number;
+  scriptId: string;
+  powNonce: string;
+  powDifficulty: number;
+  exp: number;
+}
+
+export interface ClaimTokenPayload {
+  t: "claim";
+  sid: string;
+  scriptId: string;
+  ip: string;
+  completedAt: number;
+  exp: number;
 }
 
 export const antiBypassService = {
@@ -87,107 +140,157 @@ export const antiBypassService = {
       duration_seconds: number;
       order: number;
       gatewayUrl: string;
+      gatewayToken: string;
     }[];
-    currentStepToken: string;
     powChallenge: { nonce: string; difficulty: number };
   } {
     const sessionId = crypto.randomUUID();
     const sorted = [...checkpoints].sort((a, b) => a.order - b.order);
-
-    const stepCheckpoints = sorted.map((cp) => ({
-      id: cp.id,
-      title: cp.title,
-      url: cp.url,
-      duration_seconds: Math.max(5, Number(cp.duration_seconds) || 5),
-      order: cp.order,
-      gateway_visited: false,
-      completed: false,
-    }));
-
+    const totalSteps = sorted.length;
     const powChallenge = generatePoWChallenge(3);
 
-    const session: CheckpointSession = {
-      id: sessionId,
-      ip,
-      user_agent_hash: hashUserAgent(userAgent),
-      script_id: scriptId,
-      created_at: Date.now(),
-      status: "in_progress",
-      current_step: 0,
-      total_steps: stepCheckpoints.length,
-      step_checkpoints: stepCheckpoints,
-      pow_challenge: powChallenge,
-    };
+    const stepDetails = sorted.map((cp, idx) => {
+      const duration = Math.max(5, Number(cp.duration_seconds) || 5);
+      const gwPayload: GatewayTokenPayload = {
+        t: "gw",
+        sid: sessionId,
+        step: idx,
+        total: totalSteps,
+        ip,
+        targetUrl: cp.url,
+        duration,
+        scriptId,
+        exp: Date.now() + 60 * 60 * 1000, // 1 hour validity
+      };
+      const gatewayToken = createSignedToken(gwPayload);
+      const gatewayUrl = `/api/checkpoints/gateway?gt=${gatewayToken}`;
 
-    sessions.set(sessionId, session);
-
-    const currentStepToken = signHmac(`${sessionId}:step:0:${ip}`);
-
-    // Return sanitized step details with secure gateway URLs instead of raw URLs
-    const stepDetails = stepCheckpoints.map((cp, idx) => ({
-      id: cp.id,
-      title: cp.title,
-      duration_seconds: cp.duration_seconds,
-      order: cp.order,
-      gatewayUrl: `/api/checkpoints/gateway?session=${sessionId}&step=${idx}&token=${signHmac(
-        `${sessionId}:gw:${idx}:${ip}`
-      )}`,
-    }));
+      return {
+        id: cp.id,
+        title: cp.title,
+        duration_seconds: duration,
+        order: cp.order,
+        gatewayUrl,
+        gatewayToken,
+      };
+    });
 
     return {
       sessionId,
-      totalSteps: stepCheckpoints.length,
+      totalSteps,
       currentStep: 0,
       stepDetails,
-      currentStepToken,
       powChallenge,
     };
   },
 
-  getSession(sessionId: string): CheckpointSession | null {
-    return sessions.get(sessionId) || null;
-  },
-
-  registerGatewayVisit(
-    sessionId: string,
-    stepIndex: number,
-    token: string,
-    ip: string
-  ): { success: boolean; targetUrl?: string; error?: string } {
-    const session = sessions.get(sessionId);
-    if (!session) {
-      return { success: false, error: "Session expired or invalid. Please reload the claim page." };
+  resolveGateway(
+    gatewayToken: string,
+    ip?: string
+  ): {
+    success: boolean;
+    targetUrl?: string;
+    error?: string;
+  } {
+    const res = verifySignedToken<GatewayTokenPayload>(gatewayToken);
+    if (!res.valid || !res.payload) {
+      return { success: false, error: res.error || "Invalid task gateway token." };
     }
 
-    if (session.ip !== ip) {
-      return { success: false, error: "IP address mismatch. Checkpoint must be completed on the same network." };
+    const payload = res.payload;
+    if (payload.t !== "gw" || !payload.targetUrl) {
+      return { success: false, error: "Invalid gateway payload or destination URL missing." };
     }
 
-    const expectedToken = signHmac(`${sessionId}:gw:${stepIndex}:${ip}`);
-    if (token !== expectedToken) {
-      return { success: false, error: "Invalid gateway verification signature." };
+    if (ip && !isIpMatching(payload.ip, ip)) {
+      // Allow redirect even if IP changed, destination task is external
     }
-
-    if (stepIndex < 0 || stepIndex >= session.step_checkpoints.length) {
-      return { success: false, error: "Invalid step index." };
-    }
-
-    const step = session.step_checkpoints[stepIndex];
-    step.gateway_visited = true;
-    step.started_at = Date.now();
 
     return {
       success: true,
-      targetUrl: step.url,
+      targetUrl: payload.targetUrl,
+    };
+  },
+
+  // Backwards compatibility for older link formats
+  registerGatewayVisit(
+    session: string,
+    step: number,
+    token: string,
+    ip: string
+  ): { success: boolean; targetUrl?: string; error?: string } {
+    if (token && token.includes(".")) {
+      return this.resolveGateway(token, ip);
+    }
+    return {
+      success: false,
+      error: "Session expired or invalid link. Please reload the claim page.",
+    };
+  },
+
+  startStep(
+    gatewayToken: string,
+    ip: string
+  ): {
+    success: boolean;
+    activeStepToken?: string;
+    targetUrl?: string;
+    duration?: number;
+    stepIndex?: number;
+    powChallenge?: { nonce: string; difficulty: number };
+    error?: string;
+  } {
+    const res = verifySignedToken<GatewayTokenPayload>(gatewayToken);
+    if (!res.valid || !res.payload) {
+      return { success: false, error: res.error || "Invalid task gateway token." };
+    }
+
+    const payload = res.payload;
+    if (payload.t !== "gw") {
+      return { success: false, error: "Invalid token type." };
+    }
+
+    if (!isIpMatching(payload.ip, ip)) {
+      return {
+        success: false,
+        error: "Network mismatch detected: Task must be opened from the claiming IP.",
+      };
+    }
+
+    const powChallenge = generatePoWChallenge(3);
+
+    // Stamp current server clock timestamp for strict temporal verification
+    const activePayload: ActiveStepTokenPayload = {
+      t: "active",
+      sid: payload.sid,
+      step: payload.step,
+      total: payload.total,
+      ip,
+      startedAt: Date.now(),
+      duration: payload.duration,
+      scriptId: payload.scriptId,
+      powNonce: powChallenge.nonce,
+      powDifficulty: powChallenge.difficulty,
+      exp: Date.now() + 45 * 60 * 1000,
+    };
+
+    const activeStepToken = createSignedToken(activePayload);
+
+    return {
+      success: true,
+      activeStepToken,
+      targetUrl: payload.targetUrl,
+      duration: payload.duration,
+      stepIndex: payload.step,
+      powChallenge,
     };
   },
 
   verifyStep(
-    sessionId: string,
-    stepIndex: number,
-    stepToken: string,
+    activeStepToken: string,
     ip: string,
-    powSolution: string
+    powSolution: string,
+    powNonce?: string
   ): {
     success: boolean;
     allCompleted?: boolean;
@@ -199,59 +302,33 @@ export const antiBypassService = {
     bypassDetected?: boolean;
     remainingSeconds?: number;
   } {
-    const session = sessions.get(sessionId);
-    if (!session) {
-      return { success: false, error: "Session expired or invalid. Please reload the claim page." };
-    }
-
-    if (session.ip !== ip) {
+    const res = verifySignedToken<ActiveStepTokenPayload>(activeStepToken);
+    if (!res.valid || !res.payload) {
       return {
         success: false,
         bypassDetected: true,
-        error: "Network mismatch detected: Request originated from a different IP.",
+        error: res.error || "Active step token invalid or expired. Please click 'Visit Task' again.",
       };
     }
 
-    if (session.status !== "in_progress") {
-      return { success: false, error: "This checkpoint session has already been finalized." };
+    const payload = res.payload;
+    if (payload.t !== "active") {
+      return { success: false, bypassDetected: true, error: "Invalid step token type." };
     }
 
-    if (stepIndex !== session.current_step) {
+    if (!isIpMatching(payload.ip, ip)) {
       return {
         success: false,
         bypassDetected: true,
-        error: `Out-of-order execution detected. Please complete step ${session.current_step + 1} first.`,
+        error: "Network mismatch: Verification request originated from an unrecognized IP.",
       };
     }
 
-    const expectedStepToken = signHmac(`${sessionId}:step:${stepIndex}:${ip}`);
-    if (stepToken !== expectedStepToken) {
-      return {
-        success: false,
-        bypassDetected: true,
-        error: "Invalid cryptographic step signature. Tampering detected.",
-      };
-    }
+    // Strict Server-Side Dwell Time Enforcement
+    const elapsedSec = (Date.now() - payload.startedAt) / 1000;
+    const requiredSec = payload.duration;
 
-    const step = session.step_checkpoints[stepIndex];
-    if (!step) {
-      return { success: false, error: "Step not found." };
-    }
-
-    // 1. Gateway visit check: user must actually open the task link
-    if (!step.gateway_visited || !step.started_at) {
-      return {
-        success: false,
-        bypassDetected: true,
-        error: "Task link was not visited. You must click 'Visit Task' to complete this checkpoint.",
-      };
-    }
-
-    // 2. Strict Temporal Dwell Time check (server clock authoritative)
-    const elapsedSec = (Date.now() - step.started_at) / 1000;
-    const requiredSec = step.duration_seconds;
-
-    // Allow a tiny 1-second margin for latency, strictly reject anything faster
+    // Allow 1.0 second tolerance for network latency, strictly block anything faster
     if (elapsedSec < requiredSec - 1.0) {
       const remaining = Math.ceil(requiredSec - elapsedSec);
       return {
@@ -260,32 +337,37 @@ export const antiBypassService = {
         remainingSeconds: remaining,
         error: `Temporal anomaly detected: Task completed unnaturally fast (${Math.floor(
           elapsedSec
-        )}s < ${requiredSec}s). Please wait ${remaining} more seconds on the task page.`,
+        )}s < ${requiredSec}s). Please spend ${remaining} more seconds on the task.`,
       };
     }
 
-    // 3. Proof of Work verification
-    const powValid = verifyPoWSolution(
-      session.pow_challenge.nonce,
-      powSolution,
-      session.pow_challenge.difficulty
-    );
-    if (!powValid) {
-      return {
-        success: false,
-        bypassDetected: true,
-        error: "Anti-bot proof-of-work challenge failed. Automated script detected.",
-      };
+    // Proof-of-Work Challenge Verification
+    const nonceToVerify = payload.powNonce || powNonce || "";
+    const difficultyToVerify = payload.powDifficulty || 3;
+    if (nonceToVerify) {
+      const powValid = verifyPoWSolution(nonceToVerify, powSolution, difficultyToVerify);
+      if (!powValid) {
+        return {
+          success: false,
+          bypassDetected: true,
+          error: "Anti-bot challenge failed. Automated scripts and bypassers are prohibited.",
+        };
+      }
     }
 
-    // Step successfully completed
-    step.completed = true;
-    const isLastStep = stepIndex >= session.total_steps - 1;
+    const isLastStep = payload.step >= payload.total - 1;
 
     if (isLastStep) {
-      session.status = "verified";
-      const claimToken = signHmac(`${sessionId}:CLAIM_PERMIT:${session.script_id}:${ip}:${Date.now()}`);
-      session.claim_token = claimToken;
+      // All checkpoints completed legitimately! Issue cryptographically signed claim token
+      const claimPayload: ClaimTokenPayload = {
+        t: "claim",
+        sid: payload.sid,
+        scriptId: payload.scriptId,
+        ip,
+        completedAt: Date.now(),
+        exp: Date.now() + 15 * 60 * 1000, // 15 minutes to claim
+      };
+      const claimToken = createSignedToken(claimPayload);
 
       return {
         success: true,
@@ -293,17 +375,13 @@ export const antiBypassService = {
         claimToken,
       };
     } else {
-      session.current_step += 1;
-      const nextStepIndex = session.current_step;
-      const nextStepToken = signHmac(`${sessionId}:step:${nextStepIndex}:${ip}`);
+      const nextStepIndex = payload.step + 1;
       const nextPow = generatePoWChallenge(3);
-      session.pow_challenge = nextPow;
 
       return {
         success: true,
         allCompleted: false,
         nextStep: nextStepIndex,
-        nextStepToken,
         nextPowChallenge: nextPow,
       };
     }
@@ -315,35 +393,31 @@ export const antiBypassService = {
     ip: string,
     scriptId: string
   ): { valid: boolean; error?: string } {
-    const session = sessions.get(sessionId);
-    if (!session) {
-      return { valid: false, error: "Checkpoint session not found. Please complete the checkpoints." };
+    const res = verifySignedToken<ClaimTokenPayload>(claimToken);
+    if (!res.valid || !res.payload) {
+      return { valid: false, error: res.error || "Invalid or expired checkpoint authorization token." };
     }
 
-    if (session.status === "claimed") {
-      return { valid: false, error: "This checkpoint claim token has already been consumed. Replay attacks are prohibited." };
+    const payload = res.payload;
+    if (payload.t !== "claim") {
+      return { valid: false, error: "Invalid token type." };
     }
 
-    if (session.status !== "verified") {
-      return { valid: false, error: "Checkpoints have not been verified by the security engine." };
-    }
-
-    if (session.ip !== ip) {
+    if (!isIpMatching(payload.ip, ip)) {
       return { valid: false, error: "Claim IP address does not match verified checkpoint IP." };
     }
 
-    if (session.claim_token !== claimToken) {
-      return { valid: false, error: "Invalid claim authorization token." };
+    // Replay attack check
+    if (consumedClaimTokens.has(claimToken)) {
+      return { valid: false, error: "This claim authorization token has already been consumed." };
     }
 
-    // Check token age (15 minute validity)
-    if (Date.now() - session.created_at > 15 * 60 * 1000) {
-      return { valid: false, error: "Claim token has expired. Checkpoints must be claimed within 15 minutes." };
+    // Prevent token reuse
+    consumedClaimTokens.add(claimToken);
+    if (consumedClaimTokens.size > 5000) {
+      const first = consumedClaimTokens.values().next().value;
+      if (first) consumedClaimTokens.delete(first);
     }
-
-    // Consume session to prevent replay
-    session.status = "claimed";
-    session.claimed_at = Date.now();
 
     return { valid: true };
   },
