@@ -56,21 +56,19 @@ local function loadModule(path)
         end
     end
 
-    -- 3. GitHub / Remote HTTP Fallback
-    if type(game.HttpGet) == "function" then
-        local cacheBuster = tostring(os.time()) .. "_" .. tostring(math.random(100000, 999999))
-        local okTest, testSource = pcall(function()
-            return game:HttpGet(BASE_REPO_URL .. path .. "?v=" .. cacheBuster)
-        end)
-        if okTest and testSource and #testSource > 0 and not testSource:find("404: Not Found") and not testSource:find("<!DOCTYPE") then
-            local compileOk, chunk, compileErr = pcall(loadstring, testSource)
-            if compileOk and chunk then
-                local runOk, runErr = pcall(chunk)
-                if runOk then return true end
-                warn("[Atomware: Rivals] Error running module (" .. path .. "):", runErr)
-            else
-                warn("[Atomware: Rivals] Error compiling module (" .. path .. "):", compileErr)
-            end
+    -- 3. GitHub / Remote HTTP Fallback (Primary direct source with live cache-busting)
+    local cacheBuster = tostring(os.time()) .. "_" .. tostring(math.random(100000, 999999))
+    local okTest, testSource = pcall(function()
+        return game:HttpGet(BASE_REPO_URL .. path .. "?v=" .. cacheBuster)
+    end)
+    if okTest and testSource and #testSource > 0 and not testSource:find("404: Not Found") and not testSource:find("<!DOCTYPE") then
+        local compileOk, chunk, compileErr = pcall(loadstring, testSource)
+        if compileOk and chunk then
+            local runOk, runErr = pcall(chunk)
+            if runOk then return true end
+            warn("[Atomware: Rivals] Error running module (" .. path .. "):", tostring(runErr))
+        else
+            warn("[Atomware: Rivals] Error compiling module (" .. path .. "):", tostring(compileErr))
         end
     end
 
