@@ -23,6 +23,8 @@ export async function GET() {
   if (!isAuthenticated()) {
     return NextResponse.json({ error: "Unauthorized. Admin session required." }, { status: 401 });
   }
+  // Automatically purge any expired keys from the pool
+  await dbService.purgeExpiredKeys();
   const keys = await dbService.getKeys();
   const bannedIps = await dbService.getBannedIps();
   return NextResponse.json({ keys, banned_ips: bannedIps });
@@ -117,6 +119,12 @@ export async function DELETE(req: NextRequest) {
 
   try {
     const { searchParams } = new URL(req.url);
+    const action = searchParams.get("action");
+    if (action === "purge_expired") {
+      const purgedCount = await dbService.purgeExpiredKeys();
+      return NextResponse.json({ success: true, purged: purgedCount });
+    }
+
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 

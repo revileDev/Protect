@@ -456,8 +456,10 @@ export async function POST(req: NextRequest) {
       const expires = new Date(keyRecord.expires_at);
       if (now > expires) {
         await logAndNotifyFailure("Expired Key: License expired.");
+        // Immediately purge the expired key from the pool
+        await dbService.deleteKey(keyRecord.id);
         return NextResponse.json(
-          { error: "Expired Key: Your license key has expired." },
+          { error: "Expired Key: Your license key has expired and has been removed." },
           { status: 403 }
         );
       }

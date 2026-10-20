@@ -19,6 +19,11 @@ import {
   Edit3,
   X,
   FileText,
+  Search,
+  RefreshCw,
+  Flame,
+  UserCheck,
+  Zap,
 } from "lucide-react";
 
 function isStaffReviewKey(k: KeyRecord | null | undefined): boolean {
@@ -44,6 +49,9 @@ export default function KeysPage() {
   const [loading, setLoading] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [purging, setPurging] = useState(false);
+  const [purgeFeedback, setPurgeFeedback] = useState<string | null>(null);
 
   // Generator modal (Regular batch / Lifetime)
   const [showGenModal, setShowGenModal] = useState(false);
@@ -97,6 +105,25 @@ export default function KeysPage() {
       }
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handlePurgeExpired = async () => {
+    setPurging(true);
+    setPurgeFeedback(null);
+    try {
+      const res = await fetch("/api/keys?action=purge_expired", { method: "DELETE" });
+      const data = await res.json();
+      await fetchKeys();
+      const count = data.purged || 0;
+      setPurgeFeedback(count > 0 ? `Purged ${count} expired keys` : "No expired keys found (Pool is clean)");
+      setTimeout(() => setPurgeFeedback(null), 3500);
+    } catch (err) {
+      console.error(err);
+      setPurgeFeedback("Error purging keys");
+      setTimeout(() => setPurgeFeedback(null), 3000);
+    } finally {
+      setPurging(false);
     }
   };
 
@@ -268,12 +295,29 @@ export default function KeysPage() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  // Filter & Search Logic
   const filteredKeys = keys.filter((k) => {
-    if (filterStatus === "all") return true;
-    if (filterStatus === "staff") return isStaffReviewKey(k);
-    if (filterStatus === "lifetime") return isLifetimePaidKey(k);
-    if (isStaffReviewKey(k)) return false;
-    return k.status === filterStatus;
+    // 1. Status Filter
+    if (filterStatus === "staff" && !isStaffReviewKey(k)) return false;
+    if (filterStatus === "lifetime" && !isLifetimePaidKey(k)) return false;
+    if (filterStatus !== "all" && filterStatus !== "staff" && filterStatus !== "lifetime") {
+      if (isStaffReviewKey(k)) return false;
+      if (k.status !== filterStatus) return false;
+    }
+
+    // 2. Search Query Filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      const boundScript = scripts.find((s) => s.id === k.script_id);
+      const matchKey = k.key_string?.toLowerCase().includes(q);
+      const matchNote = k.notes?.toLowerCase().includes(q);
+      const matchDiscord = k.claimed_discord_tag?.toLowerCase().includes(q);
+      const matchIp = k.claimed_ip?.toLowerCase().includes(q);
+      const matchScript = boundScript?.name?.toLowerCase().includes(q);
+      return matchKey || matchNote || matchDiscord || matchIp || matchScript;
+    }
+
+    return true;
   });
 
   const staffCount = keys.filter((k) => isStaffReviewKey(k)).length;
@@ -286,7 +330,7 @@ export default function KeysPage() {
   const renderStatusBadge = (key: KeyRecord) => {
     if (isStaffReviewKey(key)) {
       return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-sm shadow-purple-500/10">
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-purple-500/15 text-purple-300 border border-purple-500/30 shadow-sm shadow-purple-500/10">
           <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
           <span>STAFF REVIEW</span>
         </span>
@@ -295,14 +339,14 @@ export default function KeysPage() {
     if (isLifetimePaidKey(key)) {
       if (key.status === "banned") {
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-rose-500/20 text-rose-400 border border-rose-500/40 shadow-sm shadow-rose-500/10">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-rose-500/15 text-rose-400 border border-rose-500/30">
             <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
             <span>BANNED LIFETIME</span>
           </span>
         );
       }
       return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm shadow-emerald-500/10">
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
           <Sparkles className="w-3 h-3 text-emerald-400" />
           <span>{key.status === "active" ? "ACTIVE LIFETIME" : "PAID LIFETIME"}</span>
         </span>
@@ -311,35 +355,35 @@ export default function KeysPage() {
     switch (key.status) {
       case "unclaimed":
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-amber-500/15 text-amber-400 border border-amber-500/30 shadow-sm shadow-amber-500/10">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-amber-500/10 text-amber-400 border border-amber-500/25">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
             <span>UNCLAIMED</span>
           </span>
         );
       case "claimed":
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-blue-500/15 text-blue-400 border border-blue-500/30 shadow-sm shadow-blue-500/10">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-blue-500/10 text-blue-400 border border-blue-500/25">
             <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
             <span>CLAIMED</span>
           </span>
         );
       case "active":
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm shadow-emerald-500/10">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
             <span>ACTIVE</span>
           </span>
         );
       case "banned":
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-rose-500/20 text-rose-400 border border-rose-500/40 shadow-sm shadow-rose-500/10">
-            <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-            <span>BANNED</span>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-rose-500/15 text-rose-400 border border-rose-500/30">
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+            <span>REVOKED</span>
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-gray-700 text-gray-300">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-zinc-800 text-zinc-400">
             {key.status}
           </span>
         );
@@ -347,179 +391,323 @@ export default function KeysPage() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-6">
+      {/* Fitted Top Header Bar */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-zinc-800/80">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2.5">
-            <Key className="w-6 h-6 text-amber-400" />
-            License Keys Pool
-          </h1>
-          <p className="text-xs sm:text-sm text-gray-400 mt-0.5">
-            Generate and manage keys. Duration timer does not start until a user executes the key in-game for the first time.
-          </p>
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 shadow-sm">
+              <Key className="w-5 h-5" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-white tracking-tight font-mono flex items-center gap-2">
+                Keys Pool & License Control
+                <span className="text-[10px] font-normal px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700/60 font-mono">
+                  {keys.length} Total
+                </span>
+              </h1>
+              <p className="text-xs text-zinc-400 font-mono mt-0.5">
+                Generate, allocate, and monitor license keys. Expired keys are auto-purged every 10m.
+              </p>
+            </div>
+          </div>
         </div>
 
+        {/* Top Header Actions */}
         <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Quick Purge Expired Action */}
+          <button
+            type="button"
+            onClick={handlePurgeExpired}
+            disabled={purging}
+            className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-mono font-medium bg-zinc-900 hover:bg-zinc-850 text-zinc-300 hover:text-white border border-zinc-800 hover:border-zinc-700 transition-all shadow-sm disabled:opacity-50"
+            title="Purge expired keys immediately from database"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${purging ? "animate-spin" : ""}`} />
+            <span>{purging ? "Purging..." : "Purge Expired"}</span>
+          </button>
+
+          {/* Create Staff Key */}
           <button
             type="button"
             onClick={() => setShowStaffModal(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-lg shadow-purple-600/25 transition-all border border-purple-500/30"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-mono font-medium bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 hover:border-purple-500/50 transition-all shadow-sm"
           >
-            <Shield className="w-4 h-4 text-purple-200" />
-            + New Staff Review Key
+            <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
+            <span>+ Staff Key</span>
           </button>
 
+          {/* Batch Generate Keys Button */}
           <button
             type="button"
             onClick={() => setShowGenModal(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-lg shadow-blue-600/20 transition-all"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-mono font-bold bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-black shadow-lg shadow-cyan-500/20 transition-all"
           >
-            <Plus className="w-4 h-4" />
-            Generate Keys Batch
+            <Plus className="w-4 h-4 text-black stroke-[2.5]" />
+            <span>Generate Keys</span>
           </button>
         </div>
       </div>
 
-      {/* Metric Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div className="bg-[#12141d] border border-purple-500/30 p-3.5 rounded-xl shadow-sm">
-          <span className="text-[11px] font-medium text-purple-400 uppercase tracking-wider block">
-            ( Staff Review )
-          </span>
-          <p className="text-xl font-bold text-purple-300 mt-1">{staffCount}</p>
-          <span className="text-[10px] text-gray-500">Infinite • Untracked</span>
+      {/* Purge Feedback Toast Alert */}
+      {purgeFeedback && (
+        <div className="px-4 py-2.5 rounded-xl bg-cyan-950/60 border border-cyan-500/30 text-cyan-300 text-xs font-mono flex items-center justify-between animate-fadeIn">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-cyan-400" />
+            <span>{purgeFeedback}</span>
+          </div>
+          <button type="button" onClick={() => setPurgeFeedback(null)} className="text-zinc-500 hover:text-white">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* 4 Fitted KPI Stat Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <div className="p-4 rounded-2xl bg-[#0D1017] border border-zinc-800/80 shadow-sm relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider">Total Pool</span>
+            <Key className="w-4 h-4 text-amber-400" />
+          </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold font-mono text-white">{keys.length}</span>
+            <span className="text-[10px] text-zinc-500 font-mono">keys issued</span>
+          </div>
+          <div className="mt-2 text-[10px] text-zinc-500 font-mono">
+            Auto-cleaned via <span className="text-zinc-300 font-medium">pg_cron</span>
+          </div>
         </div>
 
-        <div className="bg-[#12141d] border border-emerald-500/30 p-3.5 rounded-xl shadow-sm">
-          <span className="text-[11px] font-medium text-emerald-400 uppercase tracking-wider block flex items-center gap-1">
-            <Sparkles className="w-3 h-3 text-emerald-400" />
-            ( Paid Lifetime )
-          </span>
-          <p className="text-xl font-bold text-emerald-300 mt-1">{lifetimePaidCount}</p>
-          <span className="text-[10px] text-emerald-500/80">Direct buyers • Auto-IP</span>
+        <div className="p-4 rounded-2xl bg-[#0D1017] border border-zinc-800/80 shadow-sm relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider">Active & Bound</span>
+            <Zap className="w-4 h-4 text-emerald-400" />
+          </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold font-mono text-emerald-400">{activatedCount + claimedNotActivatedCount}</span>
+            <span className="text-[10px] text-zinc-500 font-mono">in runtime</span>
+          </div>
+          <div className="mt-2 text-[10px] text-zinc-500 font-mono flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>{activatedCount} active • {claimedNotActivatedCount} ready</span>
+          </div>
         </div>
 
-        <div className="bg-[#12141d] border border-gray-800 p-3.5 rounded-xl">
-          <span className="text-[11px] font-medium text-amber-400 uppercase tracking-wider block">
-            ( Checkpoint Pool )
-          </span>
-          <p className="text-xl font-bold text-amber-300 mt-1">{unclaimedCount}</p>
-          <span className="text-[10px] text-gray-500">Timed keys for /claim</span>
+        <div className="p-4 rounded-2xl bg-[#0D1017] border border-zinc-800/80 shadow-sm relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider">Available Stock</span>
+            <Flame className="w-4 h-4 text-cyan-400" />
+          </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold font-mono text-cyan-400">{unclaimedCount}</span>
+            <span className="text-[10px] text-zinc-500 font-mono">unclaimed</span>
+          </div>
+          <div className="mt-2 text-[10px] text-zinc-500 font-mono">
+            Ready for checkpoint claims
+          </div>
         </div>
 
-        <div className="bg-[#12141d] border border-gray-800 p-3.5 rounded-xl">
-          <span className="text-[11px] font-medium text-blue-400 uppercase tracking-wider block">
-            ( Claimed )
-          </span>
-          <p className="text-xl font-bold text-blue-300 mt-1">{claimedNotActivatedCount}</p>
-          <span className="text-[10px] text-gray-500">Timer not started</span>
-        </div>
-
-        <div className="bg-[#12141d] border border-gray-800 p-3.5 rounded-xl">
-          <span className="text-[11px] font-medium text-cyan-400 uppercase tracking-wider block">
-            ( Activated )
-          </span>
-          <p className="text-xl font-bold text-cyan-300 mt-1">{activatedCount}</p>
-          <span className="text-[10px] text-gray-500">Executed & running</span>
-        </div>
-
-        <div className="bg-[#12141d] border border-gray-800 p-3.5 rounded-xl">
-          <span className="text-[11px] font-medium text-rose-400 uppercase tracking-wider block">
-            ( Banned )
-          </span>
-          <p className="text-xl font-bold text-rose-300 mt-1">{bannedCount}</p>
-          <span className="text-[10px] text-gray-500">Revoked access</span>
+        <div className="p-4 rounded-2xl bg-[#0D1017] border border-zinc-800/80 shadow-sm relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider">Staff & Lifetime</span>
+            <ShieldCheck className="w-4 h-4 text-purple-400" />
+          </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold font-mono text-purple-400">{staffCount + lifetimePaidCount}</span>
+            <span className="text-[10px] text-zinc-500 font-mono">permanent</span>
+          </div>
+          <div className="mt-2 text-[10px] text-zinc-500 font-mono">
+            {staffCount} staff keys • {lifetimePaidCount} lifetime
+          </div>
         </div>
       </div>
 
-      {/* Filter bar */}
-      <div className="flex items-center justify-between border-b border-gray-800 pb-2">
-        <div className="flex items-center gap-2 flex-wrap">
-          <Filter className="w-3.5 h-3.5 text-gray-400" />
-          <span className="text-xs text-gray-400 font-medium">Filter Status:</span>
+      {/* Fitted Search & Filter Control Strip */}
+      <div className="p-3 bg-[#0D1017] border border-zinc-800/80 rounded-2xl flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+        {/* Real-Time Search Box */}
+        <div className="relative flex-1 max-w-md">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search key, script, note, IP or Discord..."
+            className="w-full bg-[#080A0F] border border-zinc-800 rounded-xl pl-9 pr-8 py-2 text-xs font-mono text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-cyan-500/60 transition-all"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Filter Pills */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none font-mono">
           {[
-            { id: "all", label: "All Keys" },
-            { id: "staff", label: "( Staff Review Keys )" },
-            { id: "lifetime", label: "💎 ( Paid Lifetime )" },
-            { id: "unclaimed", label: "( Checkpoint Pool )" },
-            { id: "claimed", label: "( Claimed not activated )" },
-            { id: "active", label: "( Activated )" },
-            { id: "banned", label: "( Banned )" },
+            { id: "all", label: "All", count: keys.length },
+            { id: "unclaimed", label: "Unclaimed", count: unclaimedCount },
+            { id: "active", label: "Active", count: activatedCount },
+            { id: "claimed", label: "Claimed", count: claimedNotActivatedCount },
+            { id: "staff", label: "Staff", count: staffCount },
+            { id: "lifetime", label: "Lifetime", count: lifetimePaidCount },
+            { id: "banned", label: "Revoked", count: bannedCount },
           ].map((st) => (
             <button
               key={st.id}
               type="button"
               onClick={() => setFilterStatus(st.id)}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs whitespace-nowrap transition-all ${
                 filterStatus === st.id
-                  ? "bg-gray-700 text-white shadow-sm"
-                  : "text-gray-400 hover:text-white hover:bg-gray-800"
+                  ? "bg-zinc-800 text-white font-semibold border border-zinc-700 shadow-sm"
+                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/60 border border-transparent"
               }`}
             >
-              {st.label}
+              <span>{st.label}</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                filterStatus === st.id ? "bg-zinc-700 text-white" : "bg-zinc-900 text-zinc-500"
+              }`}>
+                {st.count}
+              </span>
             </button>
           ))}
         </div>
       </div>
 
-      {/* Keys Table */}
-      <div className="bg-[#12141d] border border-gray-800 rounded-xl overflow-hidden shadow-xl">
+      {/* Fitted Keys Table */}
+      <div className="bg-[#0D1017] border border-zinc-800/80 rounded-2xl overflow-hidden shadow-xl">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-[#0b0d14] border-b border-gray-800 text-gray-400 font-semibold uppercase tracking-wider text-[10px]">
+          <table className="w-full text-left text-xs font-mono">
+            <thead className="bg-[#090C12] border-b border-zinc-800/80 text-zinc-400 font-semibold uppercase tracking-wider text-[10px]">
               <tr>
-                <th className="p-3.5">License Key</th>
+                <th className="p-3.5">License Key & Note</th>
                 <th className="p-3.5">Status Badge</th>
-                <th className="p-3.5">Assigned Script</th>
-                <th className="p-3.5">Bound IP Address</th>
-                <th className="p-3.5">Note / Discord</th>
-                <th className="p-3.5">Duration / Expiration Status</th>
+                <th className="p-3.5">Target Script</th>
+                <th className="p-3.5">Bound Identity</th>
+                <th className="p-3.5">Duration / Expiration</th>
                 <th className="p-3.5 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-800/60">
+            <tbody className="divide-y divide-zinc-800/60">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-8 text-gray-500">Loading keys...</td>
+                  <td colSpan={6} className="text-center py-12 text-zinc-500 font-mono">
+                    <div className="flex items-center justify-center gap-2">
+                      <RefreshCw className="w-4 h-4 animate-spin text-cyan-400" />
+                      <span>Loading keys pool...</span>
+                    </div>
+                  </td>
                 </tr>
               ) : filteredKeys.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-10 text-gray-500">
-                    No keys found in this filter.
+                  <td colSpan={6} className="text-center py-12 text-zinc-500 font-mono">
+                    No keys found matching the current filter.
                   </td>
                 </tr>
               ) : (
                 filteredKeys.map((k) => {
                   const boundScript = scripts.find((s) => s.id === k.script_id);
                   const isLifetime = isLifetimePaidKey(k);
+                  const isStaff = isStaffReviewKey(k);
+
                   return (
-                    <tr key={k.id} className="hover:bg-gray-800/30 transition-colors">
+                    <tr key={k.id} className="hover:bg-zinc-850/30 transition-colors">
+                      {/* Key & Notes */}
                       <td className="p-3.5">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-white select-all">{k.key_string}</span>
-                          {isStaffReviewKey(k) && (
-                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">
-                              STAFF
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-white select-all text-xs tracking-wide">
+                              {k.key_string}
                             </span>
-                          )}
-                          {isLifetime && (
-                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                              PAID
-                            </span>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => copyKey(k.id, k.key_string)}
-                            className="text-gray-400 hover:text-white p-1 rounded"
-                            title="Copy Key"
-                          >
-                            {copiedId === k.id ? (
-                              <Check className="w-3.5 h-3.5 text-emerald-400" />
-                            ) : (
-                              <Copy className="w-3.5 h-3.5" />
+                            {isStaff && (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                                STAFF
+                              </span>
                             )}
-                          </button>
+                            {isLifetime && (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                PAID
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => copyKey(k.id, k.key_string)}
+                              className="text-zinc-500 hover:text-white p-1 rounded hover:bg-zinc-800 transition-colors"
+                              title="Copy License Key"
+                            >
+                              {copiedId === k.id ? (
+                                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          </div>
+
+                          {/* Editable Note Row */}
+                          {editingNoteId === k.id ? (
+                            <div className="flex items-center gap-1.5 pt-1">
+                              <input
+                                type="text"
+                                value={editNoteValue}
+                                onChange={(e) => setEditNoteValue(e.target.value)}
+                                placeholder="Buyer name, Discord, order #..."
+                                className="bg-[#080A0F] border border-cyan-500/80 rounded px-2 py-0.5 text-[11px] text-white outline-none"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") handleSaveNote(k.id);
+                                  if (e.key === "Escape") cancelEditNote();
+                                }}
+                              />
+                              <button
+                                type="button"
+                                disabled={savingNote}
+                                onClick={() => handleSaveNote(k.id)}
+                                className="p-1 rounded bg-cyan-600 hover:bg-cyan-500 text-black font-bold"
+                                title="Save Note"
+                              >
+                                <Check className="w-3 h-3" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelEditNote}
+                                className="p-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400"
+                                title="Cancel"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 group">
+                              {k.notes ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-zinc-800 text-zinc-300 border border-zinc-700/60 max-w-[200px]">
+                                  <FileText className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                                  <span className="truncate">{k.notes}</span>
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => startEditNote(k)}
+                                  className="text-[10px] text-zinc-600 hover:text-zinc-400 flex items-center gap-1 border border-dashed border-zinc-800 rounded px-1.5 py-0.2 hover:border-zinc-700 transition-colors"
+                                >
+                                  <Edit3 className="w-2.5 h-2.5" />
+                                  <span>+ Note</span>
+                                </button>
+                              )}
+                              {k.notes && (
+                                <button
+                                  type="button"
+                                  onClick={() => startEditNote(k)}
+                                  className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-500 hover:text-zinc-200 transition-opacity"
+                                  title="Edit Note"
+                                >
+                                  <Edit3 className="w-3 h-3" />
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </td>
 
@@ -531,171 +719,107 @@ export default function KeysPage() {
                       {/* Assigned Script */}
                       <td className="p-3.5 whitespace-nowrap">
                         {k.script_id === "all" ? (
-                          <span className="inline-flex px-2 py-0.5 rounded font-mono text-[10px] bg-purple-500/15 text-purple-300 border border-purple-500/30">
-                            All Scripts (Universal)
+                          <span className="inline-flex px-2 py-0.5 rounded font-mono text-[10px] bg-purple-500/10 text-purple-300 border border-purple-500/25">
+                            Universal (All Scripts)
                           </span>
                         ) : boundScript ? (
-                          <span className="inline-flex px-2 py-0.5 rounded font-mono text-[10px] bg-purple-500/10 text-purple-300 border border-purple-500/20">
+                          <span className="inline-flex px-2 py-0.5 rounded font-mono text-[10px] bg-cyan-500/10 text-cyan-300 border border-cyan-500/25">
                             {boundScript.name}
                           </span>
                         ) : (
-                          <span className="text-gray-500 font-mono text-[10px]">Unassigned</span>
+                          <span className="text-zinc-600 font-mono text-[10px]">Universal</span>
                         )}
                       </td>
 
-                      {/* Bound IP */}
-                      <td className="p-3.5 font-mono text-gray-300 whitespace-nowrap">
-                        {isStaffReviewKey(k) ? (
-                          <span className="text-purple-300 font-sans font-medium text-[11px] flex items-center gap-1">
-                            <span>♾️ Infinite (No Lock)</span>
-                          </span>
-                        ) : k.claimed_ip ? (
-                          <div className="flex items-center gap-2">
-                            <span className={Boolean(bannedIps[k.claimed_ip]) ? "text-rose-400 font-bold line-through" : "text-blue-300"}>
-                              {k.claimed_ip}
+                      {/* Bound Identity (IP + Discord) */}
+                      <td className="p-3.5 whitespace-nowrap">
+                        <div className="space-y-1">
+                          {isStaff ? (
+                            <span className="text-purple-300 text-[11px] flex items-center gap-1">
+                              <span>♾️ Infinite Multi-User</span>
                             </span>
-                            {Boolean(bannedIps[k.claimed_ip]) && (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-600 text-white font-mono text-[9px] font-bold tracking-wider shadow-sm">
-                                [BANNED IP]
+                          ) : k.claimed_ip ? (
+                            <div className="flex items-center gap-2">
+                              <span className={Boolean(bannedIps[k.claimed_ip]) ? "text-rose-400 font-bold line-through" : "text-zinc-300"}>
+                                {k.claimed_ip}
                               </span>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => handleBanIp(k.claimed_ip!)}
-                              className={`px-2 py-0.5 rounded border text-[10px] font-sans font-semibold transition-colors ${
-                                Boolean(bannedIps[k.claimed_ip])
-                                  ? "bg-amber-500/15 hover:bg-amber-500/35 text-amber-300 border-amber-500/30"
-                                  : "bg-rose-500/15 hover:bg-rose-500/35 text-rose-300 border-rose-500/25"
-                              }`}
-                              title={Boolean(bannedIps[k.claimed_ip]) ? `Unban IP ${k.claimed_ip}` : `Ban IP ${k.claimed_ip}`}
-                            >
-                              {Boolean(bannedIps[k.claimed_ip]) ? "Unban IP" : "Ban IP"}
-                            </button>
-                          </div>
-                        ) : isLifetime ? (
-                          <span className="text-emerald-500/80 font-sans text-[11px]">Unbound (Binds on 1st run)</span>
-                        ) : (
-                          <span className="text-gray-600">Unbound</span>
-                        )}
-                      </td>
-
-                      {/* Note & Discord */}
-                      <td className="p-3.5 text-gray-300">
-                        {editingNoteId === k.id ? (
-                          <div className="flex items-center gap-1.5 min-w-[200px]">
-                            <input
-                              type="text"
-                              value={editNoteValue}
-                              onChange={(e) => setEditNoteValue(e.target.value)}
-                              placeholder="Buyer name, Discord, order #..."
-                              className="w-full bg-[#0d0f17] border border-blue-500/80 rounded px-2 py-1 text-[11px] text-white outline-none"
-                              autoFocus
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") handleSaveNote(k.id);
-                                if (e.key === "Escape") cancelEditNote();
-                              }}
-                            />
-                            <button
-                              type="button"
-                              disabled={savingNote}
-                              onClick={() => handleSaveNote(k.id)}
-                              className="p-1 rounded bg-blue-600 hover:bg-blue-500 text-white"
-                              title="Save Note"
-                            >
-                              <Check className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={cancelEditNote}
-                              className="p-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-400"
-                              title="Cancel"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-1.5 group">
-                              {k.notes ? (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-amber-500/10 text-amber-300 border border-amber-500/25 max-w-[180px]">
-                                  <FileText className="w-3 h-3 text-amber-400 shrink-0" />
-                                  <span className="truncate">{k.notes}</span>
+                              {Boolean(bannedIps[k.claimed_ip]) && (
+                                <span className="inline-flex items-center px-1.5 py-0.2 rounded bg-rose-950 text-rose-300 border border-rose-500/40 text-[9px] font-bold">
+                                  BANNED
                                 </span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => startEditNote(k)}
-                                  className="text-[10px] text-gray-500 hover:text-gray-300 flex items-center gap-1 border border-dashed border-gray-700 rounded px-1.5 py-0.5 hover:border-gray-500 transition-colors"
-                                >
-                                  <Edit3 className="w-2.5 h-2.5" />
-                                  + Note
-                                </button>
                               )}
-                              {k.notes && (
-                                <button
-                                  type="button"
-                                  onClick={() => startEditNote(k)}
-                                  className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-white transition-opacity"
-                                  title="Edit Note"
-                                >
-                                  <Edit3 className="w-3 h-3" />
-                                </button>
-                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleBanIp(k.claimed_ip!)}
+                                className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors ${
+                                  Boolean(bannedIps[k.claimed_ip])
+                                    ? "bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                                    : "bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                                }`}
+                                title={Boolean(bannedIps[k.claimed_ip]) ? `Unban IP ${k.claimed_ip}` : `Ban IP ${k.claimed_ip}`}
+                              >
+                                {Boolean(bannedIps[k.claimed_ip]) ? "Unban" : "Ban IP"}
+                              </button>
                             </div>
-                            {k.claimed_discord_tag && (
-                              <div className="text-[10px] text-indigo-400">
-                                @{k.claimed_discord_tag}
-                              </div>
-                            )}
-                          </div>
-                        )}
+                          ) : isLifetime ? (
+                            <span className="text-emerald-400/80 text-[11px]">Binds on 1st execution</span>
+                          ) : (
+                            <span className="text-zinc-600 text-[11px]">Unbound</span>
+                          )}
+
+                          {k.claimed_discord_tag && (
+                            <div className="text-[10px] text-cyan-400 flex items-center gap-1">
+                              <span>@{k.claimed_discord_tag}</span>
+                            </div>
+                          )}
+                        </div>
                       </td>
 
                       {/* Duration / Expiration */}
-                      <td className="p-3.5 text-gray-400 text-[11px]">
-                        {isStaffReviewKey(k) ? (
+                      <td className="p-3.5 text-zinc-400 text-[11px] whitespace-nowrap">
+                        {isStaff ? (
                           <div>
                             <span className="text-purple-300 font-medium flex items-center gap-1">
                               <span>♾️ Permanent Lifetime</span>
                             </span>
-                            <span className="block text-[10px] text-purple-400/90 font-medium">
-                              Zero tracking • No logging
+                            <span className="block text-[10px] text-zinc-500">
+                              Developer bypass active
                             </span>
                           </div>
                         ) : isLifetime ? (
                           <div>
                             <span className="text-emerald-300 font-bold flex items-center gap-1">
                               <Sparkles className="w-3 h-3 text-emerald-400" />
-                              Permanent Lifetime
+                              <span>Lifetime License</span>
                             </span>
-                            <span className="block text-[10px] text-emerald-400/80">
-                              {k.status === "active" ? "Active (Locked to bound IP)" : "Paid key • Auto-binds on 1st run"}
+                            <span className="block text-[10px] text-zinc-500">
+                              {k.status === "active" ? "Active (Locked to hardware)" : "Never expires"}
                             </span>
                           </div>
                         ) : k.status === "unclaimed" ? (
                           <div>
-                            <span className="text-gray-300 font-medium">
+                            <span className="text-zinc-300 font-medium">
                               {k.duration_hours ? `${k.duration_hours}h duration` : "Lifetime"}
                             </span>
-                            <span className="block text-[10px] text-gray-500">Starts on 1st run</span>
+                            <span className="block text-[10px] text-zinc-500">Starts on 1st run</span>
                           </div>
                         ) : k.status === "claimed" ? (
                           <div>
                             <span className="text-blue-300 font-medium">
                               {k.duration_hours ? `${k.duration_hours}h duration` : "Lifetime"}
                             </span>
-                            <span className="block text-[10px] text-blue-400/90 font-medium flex items-center gap-1">
-                              <Clock className="w-3 h-3 inline" /> Timer paused - starts on 1st run
+                            <span className="block text-[10px] text-blue-400/90 flex items-center gap-1">
+                              <Clock className="w-2.5 h-2.5 inline" /> Starts on 1st run
                             </span>
                           </div>
                         ) : k.status === "active" ? (
                           <div>
                             <span className="text-emerald-300 font-medium">
-                              {k.duration_hours ? `${k.duration_hours}h active` : "Lifetime active"}
+                              {k.duration_hours ? `${k.duration_hours}h active` : "Lifetime"}
                             </span>
                             {k.expires_at ? (
-                              <span className="block text-[10px] text-emerald-400 font-mono">
-                                Expires: {new Date(k.expires_at).toLocaleString()}
+                              <span className="block text-[10px] text-zinc-400 font-mono">
+                                Expires: {new Date(k.expires_at).toLocaleDateString()} {new Date(k.expires_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                               </span>
                             ) : (
                               <span className="block text-[10px] text-emerald-400 font-mono">
@@ -710,34 +834,34 @@ export default function KeysPage() {
 
                       {/* Actions */}
                       <td className="p-3.5 text-right whitespace-nowrap">
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-1.5">
                           <button
                             type="button"
                             onClick={() => startEditNote(k)}
-                            className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+                            className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
                             title="Edit Note"
                           >
-                            <Edit3 className="w-4 h-4" />
+                            <Edit3 className="w-3.5 h-3.5" />
                           </button>
                           <button
                             type="button"
                             onClick={() => handleStatusToggle(k)}
-                            className={`p-1.5 rounded transition-colors ${
+                            className={`p-1.5 rounded-lg transition-colors ${
                               k.status === "banned"
                                 ? "text-emerald-400 hover:bg-emerald-500/10"
                                 : "text-amber-400 hover:bg-amber-500/10"
                             }`}
                             title={k.status === "banned" ? "Unban Key" : "Ban Key"}
                           >
-                            {k.status === "banned" ? <ShieldCheck className="w-4 h-4" /> : <Ban className="w-4 h-4" />}
+                            {k.status === "banned" ? <ShieldCheck className="w-3.5 h-3.5" /> : <Ban className="w-3.5 h-3.5" />}
                           </button>
                           <button
                             type="button"
                             onClick={() => handleDelete(k.id)}
-                            className="p-1.5 rounded text-rose-400 hover:bg-rose-500/10 transition-colors"
+                            className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/10 transition-colors"
                             title="Delete Key"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </td>
@@ -750,119 +874,108 @@ export default function KeysPage() {
         </div>
       </div>
 
-      {/* Generator Modal */}
+      {/* Batch Generator Modal */}
       {showGenModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-[#12141f] border border-gray-800 rounded-2xl p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-gray-800 pb-3">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Key className="w-4 h-4 text-blue-400" />
-                Generate License Keys
-              </h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-md bg-[#0D1017] border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-4 font-mono">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-cyan-500/10 text-cyan-400">
+                  <Key className="w-4 h-4" />
+                </div>
+                <h3 className="font-bold text-white text-sm">Generate License Keys</h3>
+              </div>
               <button
                 type="button"
                 onClick={() => setShowGenModal(false)}
-                className="text-gray-400 hover:text-white text-sm"
+                className="text-zinc-500 hover:text-white"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
             <div className="space-y-3.5 text-xs">
               <div>
-                <label className="block text-gray-300 font-semibold mb-1">Target Script</label>
-                <select
-                  value={genScriptId}
-                  onChange={(e) => setGenScriptId(e.target.value)}
-                  className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-lg px-3 py-2 text-white outline-none focus:border-blue-500"
-                >
-                  <option value="all">All Scripts (Universal)</option>
-                  {scripts.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} (/{s.slug})
-                    </option>
-                  ))}
-                </select>
-                <p className="text-[10px] text-gray-500 mt-1">
-                  Keys can be locked to a specific script or universal to all scripts.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-gray-300 font-semibold mb-1">Key Count</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="500"
-                    value={genCount}
-                    onChange={(e) => setGenCount(Number(e.target.value))}
-                    className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-lg px-3 py-2 text-white outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-gray-300 font-semibold mb-1">Prefix</label>
-                  <input
-                    type="text"
-                    value={genPrefix}
-                    onChange={(e) => setGenPrefix(e.target.value.toUpperCase())}
-                    className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-lg px-3 py-2 text-white outline-none focus:border-blue-500 uppercase"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-gray-300 font-semibold mb-1">Duration</label>
-                <select
-                  value={genDuration}
-                  onChange={(e) => setGenDuration(e.target.value)}
-                  className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-lg px-3 py-2 text-white outline-none focus:border-blue-500"
-                >
-                  <option value="lifetime">Lifetime (Permanent - Paid User)</option>
-                  <option value="24h">24 Hours (Checkpoint Pool)</option>
-                  <option value="7d">7 Days (Checkpoint Pool)</option>
-                  <option value="30d">30 Days (Checkpoint Pool)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-gray-300 font-semibold mb-1">
-                  Note / Buyer Label <span className="text-gray-500 font-normal">(Optional, e.g. Discord, order #)</span>
-                </label>
+                <label className="block text-zinc-400 mb-1">Key Prefix</label>
                 <input
                   type="text"
-                  placeholder="e.g. Buyer: JohnDoe#1234, Order #4102"
-                  value={genNotes}
-                  onChange={(e) => setGenNotes(e.target.value)}
-                  className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-lg px-3 py-2 text-white outline-none focus:border-blue-500 placeholder-gray-600"
+                  value={genPrefix}
+                  onChange={(e) => setGenPrefix(e.target.value.toUpperCase())}
+                  placeholder="ATOM"
+                  className="w-full bg-[#080A0F] border border-zinc-800 rounded-xl px-3 py-2 text-white font-mono uppercase focus:border-cyan-500 outline-none"
                 />
               </div>
 
-              {genDuration === "lifetime" ? (
-                <div className="bg-emerald-950/25 border border-emerald-500/30 rounded-xl p-3 text-[11px] text-emerald-200 space-y-1">
-                  <div className="flex items-center gap-1.5 font-bold text-emerald-300">
-                    <Sparkles className="w-3.5 h-3.5" />
-                    Paid Lifetime Key Mode
-                  </div>
-                  <p className="text-emerald-300/80">
-                    • <strong>Excluded from Claim Pool:</strong> Users completing checkpoints on the website will NEVER receive this key.
-                  </p>
-                  <p className="text-emerald-300/80">
-                    • <strong>Direct Execution:</strong> Deliver directly to your paid buyer. It activates and locks to their IP automatically on their first in-game run.
-                  </p>
+              <div>
+                <label className="block text-zinc-400 mb-1">Quantity (1 - 100)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={genCount}
+                  onChange={(e) => setGenCount(Number(e.target.value))}
+                  className="w-full bg-[#080A0F] border border-zinc-800 rounded-xl px-3 py-2 text-white font-mono focus:border-cyan-500 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-zinc-400 mb-1">Duration Preset</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {[
+                    { id: "24h", label: "24 Hours" },
+                    { id: "7d", label: "7 Days" },
+                    { id: "30d", label: "30 Days" },
+                    { id: "lifetime", label: "Lifetime ♾️" },
+                  ].map((dur) => (
+                    <button
+                      key={dur.id}
+                      type="button"
+                      onClick={() => setGenDuration(dur.id)}
+                      className={`py-2 rounded-xl text-center text-xs font-semibold border transition-all ${
+                        genDuration === dur.id
+                          ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/40"
+                          : "bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white"
+                      }`}
+                    >
+                      {dur.label}
+                    </button>
+                  ))}
                 </div>
-              ) : (
-                <p className="text-[10px] text-amber-400 mt-1">
-                  Timed keys enter the checkpoint pool for users claiming keys via website checkpoints.
-                </p>
-              )}
+              </div>
+
+              <div>
+                <label className="block text-zinc-400 mb-1">Assigned Target Script</label>
+                <select
+                  value={genScriptId}
+                  onChange={(e) => setGenScriptId(e.target.value)}
+                  className="w-full bg-[#080A0F] border border-zinc-800 rounded-xl px-3 py-2 text-white font-mono focus:border-cyan-500 outline-none"
+                >
+                  <option value="all">Universal (All Scripts)</option>
+                  {scripts.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.slug})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-zinc-400 mb-1">Note / Tag (Optional)</label>
+                <input
+                  type="text"
+                  value={genNotes}
+                  onChange={(e) => setGenNotes(e.target.value)}
+                  placeholder="e.g. VIP Customer, Discord Promo, Giveaway"
+                  className="w-full bg-[#080A0F] border border-zinc-800 rounded-xl px-3 py-2 text-white font-mono focus:border-cyan-500 outline-none"
+                />
+              </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-800">
+            <div className="pt-2 flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setShowGenModal(false)}
-                className="px-3.5 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold"
+                className="px-4 py-2 rounded-xl text-xs text-zinc-400 hover:text-white bg-zinc-900 border border-zinc-800"
               >
                 Cancel
               </button>
@@ -870,77 +983,50 @@ export default function KeysPage() {
                 type="button"
                 disabled={generating}
                 onClick={handleGenerate}
-                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-lg shadow-blue-600/20 disabled:opacity-50"
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-cyan-500 hover:bg-cyan-400 text-black shadow-lg shadow-cyan-500/20 disabled:opacity-50"
               >
-                {generating ? "Generating..." : "Generate Batch"}
+                {generating ? "Generating..." : `Create ${genCount} Key${genCount > 1 ? "s" : ""}`}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Staff Review Key Form Modal */}
+      {/* Staff Review Key Modal */}
       {showStaffModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-lg bg-[#12141f] border border-purple-500/30 rounded-2xl p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-gray-800 pb-3">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-purple-400" />
-                Staff Review Key Form
-              </h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-md bg-[#0D1017] border border-purple-500/40 rounded-2xl p-6 shadow-2xl space-y-4 font-mono">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-400">
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
+                <h3 className="font-bold text-white text-sm">Create Staff Review Key</h3>
+              </div>
               <button
                 type="button"
                 onClick={() => setShowStaffModal(false)}
-                className="text-gray-400 hover:text-white text-sm"
+                className="text-zinc-500 hover:text-white"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Explanatory Callout */}
-            <div className="bg-purple-950/20 border border-purple-500/25 rounded-xl p-3.5 space-y-2 text-xs">
-              <div className="flex items-center gap-2 text-purple-300 font-bold">
-                <Shield className="w-4 h-4 text-purple-400 shrink-0" />
-                Special Unrestricted Key for Staff Script Reviewers
-              </div>
-              <ul className="text-purple-200/80 text-[11px] space-y-1 list-disc list-inside">
-                <li><strong className="text-white">Completely Lifetime:</strong> Never expires, duration countdown is disabled.</li>
-                <li><strong className="text-white">Zero Logging & Tracking:</strong> No execution logs, no player telemetry, and no Discord notifications.</li>
-                <li><strong className="text-white">Infinite Multi-User:</strong> All staff can share and use this key simultaneously without IP or device locks.</li>
-                <li><strong className="text-white">Always Works:</strong> Activated immediately out-of-the-box (no website claiming required).</li>
-              </ul>
-            </div>
+            <p className="text-xs text-zinc-400">
+              Staff keys bypass IP binding, never expire, and can be used concurrently by multiple testers or admins.
+            </p>
 
             <div className="space-y-3.5 text-xs">
               <div>
-                <label className="block text-gray-300 font-semibold mb-1">Applicable Script</label>
-                <select
-                  value={staffScriptId}
-                  onChange={(e) => setStaffScriptId(e.target.value)}
-                  className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-lg px-3 py-2 text-white outline-none focus:border-purple-500"
-                >
-                  <option value="all">🌟 All Scripts (Universal Staff Review Pass)</option>
-                  {scripts.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} (/{s.slug})
-                    </option>
-                  ))}
-                </select>
-                <p className="text-[10px] text-gray-500 mt-1">
-                  Choose &quot;All Scripts&quot; so reviewers can test all your scripts with this single key.
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-gray-300 font-semibold mb-1.5">Key String Mode</label>
-                <div className="grid grid-cols-2 gap-2 mb-2">
+                <label className="block text-zinc-400 mb-1">Key Generation Mode</label>
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => setStaffKeyMode("auto")}
-                    className={`py-1.5 px-3 rounded-lg text-xs font-semibold border transition-all ${
+                    className={`py-2 rounded-xl text-xs font-semibold border ${
                       staffKeyMode === "auto"
-                        ? "bg-purple-600/20 text-purple-300 border-purple-500"
-                        : "bg-[#0d0f17] text-gray-400 border-gray-800 hover:text-white"
+                        ? "bg-purple-500/20 text-purple-300 border-purple-500/40"
+                        : "bg-zinc-900 text-zinc-400 border-zinc-800"
                     }`}
                   >
                     Auto-Generate
@@ -948,56 +1034,63 @@ export default function KeysPage() {
                   <button
                     type="button"
                     onClick={() => setStaffKeyMode("custom")}
-                    className={`py-1.5 px-3 rounded-lg text-xs font-semibold border transition-all ${
+                    className={`py-2 rounded-xl text-xs font-semibold border ${
                       staffKeyMode === "custom"
-                        ? "bg-purple-600/20 text-purple-300 border-purple-500"
-                        : "bg-[#0d0f17] text-gray-400 border-gray-800 hover:text-white"
+                        ? "bg-purple-500/20 text-purple-300 border-purple-500/40"
+                        : "bg-zinc-900 text-zinc-400 border-zinc-800"
                     }`}
                   >
-                    Custom Key Code
+                    Custom String
                   </button>
                 </div>
+              </div>
 
-                {staffKeyMode === "custom" ? (
-                  <div>
-                    <input
-                      type="text"
-                      placeholder="e.g. STAFF-REVIEW-PASS-2026"
-                      value={staffCustomKey}
-                      onChange={(e) => setStaffCustomKey(e.target.value.toUpperCase())}
-                      className="w-full bg-[#0d0f17] border border-purple-500/50 rounded-lg px-3 py-2 text-white font-mono uppercase outline-none focus:border-purple-400"
-                    />
-                    <p className="text-[10px] text-gray-500 mt-1">
-                      Custom license key code given to the staff reviewers.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="p-2.5 rounded-lg bg-[#0d0f17] border border-gray-800 text-[11px] text-gray-400 font-mono">
-                    Will generate: <span className="text-purple-400 font-bold">STAFF-REV-XXXX-XXXX-XXXX</span>
-                  </div>
-                )}
+              {staffKeyMode === "custom" && (
+                <div>
+                  <label className="block text-zinc-400 mb-1">Custom Key String</label>
+                  <input
+                    type="text"
+                    value={staffCustomKey}
+                    onChange={(e) => setStaffCustomKey(e.target.value.toUpperCase())}
+                    placeholder="STAFF-REVIEW-2026"
+                    className="w-full bg-[#080A0F] border border-zinc-800 rounded-xl px-3 py-2 text-white font-mono uppercase focus:border-purple-500 outline-none"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-zinc-400 mb-1">Script Scope</label>
+                <select
+                  value={staffScriptId}
+                  onChange={(e) => setStaffScriptId(e.target.value)}
+                  className="w-full bg-[#080A0F] border border-zinc-800 rounded-xl px-3 py-2 text-white font-mono focus:border-purple-500 outline-none"
+                >
+                  <option value="all">Universal (All Scripts)</option>
+                  {scripts.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
-                <label className="block text-gray-300 font-semibold mb-1">Staff / Reviewer Note (Optional)</label>
+                <label className="block text-zinc-400 mb-1">Staff Note</label>
                 <input
                   type="text"
-                  placeholder="e.g. ScriptBlox Moderation Team, V3rmillion Mod"
                   value={staffNotes}
                   onChange={(e) => setStaffNotes(e.target.value)}
-                  className="w-full bg-[#0d0f17] border border-gray-700/80 rounded-lg px-3 py-2 text-white outline-none focus:border-purple-500"
+                  placeholder="e.g. ScriptBlox Moderator, Tester #4"
+                  className="w-full bg-[#080A0F] border border-zinc-800 rounded-xl px-3 py-2 text-white font-mono focus:border-purple-500 outline-none"
                 />
-                <p className="text-[10px] text-gray-500 mt-1">
-                  Reference label to identify which staff team or reviewer this key belongs to.
-                </p>
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-800">
+            <div className="pt-2 flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setShowStaffModal(false)}
-                className="px-3.5 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold"
+                className="px-4 py-2 rounded-xl text-xs text-zinc-400 hover:text-white bg-zinc-900 border border-zinc-800"
               >
                 Cancel
               </button>
@@ -1005,10 +1098,9 @@ export default function KeysPage() {
                 type="button"
                 disabled={staffGenerating}
                 onClick={handleCreateStaffReviewKey}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-lg shadow-purple-600/20 disabled:opacity-50"
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-lg shadow-purple-600/20 disabled:opacity-50"
               >
-                <ShieldCheck className="w-4 h-4" />
-                {staffGenerating ? "Creating..." : "Create Staff Review Key"}
+                {staffGenerating ? "Creating..." : "Create Staff Key"}
               </button>
             </div>
           </div>

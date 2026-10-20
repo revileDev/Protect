@@ -1089,6 +1089,48 @@ export const dbService = {
     }
   },
 
+  async purgeExpiredKeys(): Promise<number> {
+    const nowIso = new Date().toISOString();
+    let deletedCount = 0;
+
+    // 1. Purge from Supabase
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from("keys")
+          .delete()
+          .not("expires_at", "is", null)
+          .lt("expires_at", nowIso)
+          .select("id");
+        if (data) {
+          deletedCount = data.length;
+        }
+        if (error) {
+          console.error("Supabase purgeExpiredKeys error:", error);
+        }
+      } catch (err) {
+        console.error("Supabase purgeExpiredKeys error:", err);
+      }
+    }
+
+    // 2. Purge from Local DB
+    const db = readLocalDb();
+    const originalLen = db.keys.length;
+    const nowDate = new Date();
+    db.keys = db.keys.filter((k) => {
+      if (!k.expires_at) return true;
+      return new Date(k.expires_at) >= nowDate;
+    });
+    if (db.keys.length !== originalLen) {
+      writeLocalDb(db);
+      if (deletedCount === 0) {
+        deletedCount = originalLen - db.keys.length;
+      }
+    }
+
+    return deletedCount;
+  },
+
   // Sessions
   async getSessions(): Promise<SessionRecord[]> {
     const local = readLocalDb().sessions;

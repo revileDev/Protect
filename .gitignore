@@ -39,3 +39,10 @@ next-env.d.ts
 
 # local scratch/temp database
 /data/
+assembled_debug.lua
+reproduced_payload.lua
+server_decrypted.lua
+*.txt
+*.db
+fetch_scripts.js
+scraper_app.py
