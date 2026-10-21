@@ -894,6 +894,8 @@ addToggle(espCard, "2D Box ESP", false, "Box ESP")
 addToggle(espCard, "Health Bar", false, "Health Bar")
 addToggle(espCard, "Player Name", false, "Name ESP")
 addToggle(espCard, "Distance Text", false, "Distance ESP")
+addToggle(espCard, "Weapon Text", false, "Weapon ESP")
+addToggle(espCard, "Snaplines", false, "Snaplines")
 addToggle(espCard, "Team Check", false, "Team Check")
 addSlider(espCard, "Max Distance", 100, 2000, 1000, "Max ESP Distance", "m")
 
@@ -922,6 +924,7 @@ addToggle(moveCard, "Speed Multiplier", false, "Speed Multiplier")
 addSlider(moveCard, "WalkSpeed", 16, 60, 24, "WalkSpeed")
 addToggle(moveCard, "Infinite Jump", false, "Infinite Jump")
 addToggle(moveCard, "Bunny Hop", false, "Bunny Hop")
+addToggle(moveCard, "Noclip", false, "Noclip")
 
 -- TAB 4: SETTINGS & CONFIGS
 local settingsPage = getOrCreatePage("Settings", 4)
