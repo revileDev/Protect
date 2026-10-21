@@ -83,10 +83,14 @@ async function lookupIsp(ip: string): Promise<string> {
     return "Localhost / Private Network";
   }
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1200);
     const res = await fetch(`http://ip-api.com/json/${ip}?fields=isp,org`, {
+      signal: controller.signal,
       cache: "force-cache",
       next: { revalidate: 3600 },
     });
+    clearTimeout(timer);
     if (res.ok) {
       const data = await res.json();
       return data.isp || data.org || "Generic ISP";

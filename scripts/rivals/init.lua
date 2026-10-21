@@ -273,18 +273,46 @@ end
 
 -- =========================================================================
 -- Hybrid Secure Module Loader
--- 1. Direct TestFork GitHub loader with dynamic cache-busting
--- 2. In-Memory Virtual File System (Fallback)
--- 3. Virtual require hook
+-- 1. In-Memory Virtual File System (Instant 0ms execution from auth bundle)
+-- 2. Virtual require hook
+-- 3. Fallback: Direct TestFork GitHub loader
 -- =========================================================================
 local function loadModule(path)
     local cleanName = path:gsub("%.lua$", "")
+    local baseName = cleanName:match("([^/]+)$") or cleanName
 
-    -- 1. TestFork GitHub Repository (Primary direct source with live cache-busting)
+    -- 1. In-Memory Virtual File System (Instant 0ms execution)
+    if type(__VFS_MODULES) == "table" then
+        local loader = __VFS_MODULES[path]
+            or __VFS_MODULES[cleanName]
+            or __VFS_MODULES[baseName]
+            or __VFS_MODULES[baseName .. ".lua"]
+            or __VFS_MODULES["rivals/" .. baseName .. ".lua"]
+            or __VFS_MODULES["rivals/" .. baseName]
+        if loader then
+            local ok, err = pcall(loader)
+            if ok then return true end
+            warn("[Atomware Rivals] Failed to execute in-memory module " .. path .. ":", err)
+        end
+    end
+
+    -- 2. Virtual require hook
+    if type(require) == "function" then
+        local ok, res = pcall(require, cleanName)
+        if ok and res ~= nil then
+            return true
+        end
+        local ok2, res2 = pcall(require, baseName)
+        if ok2 and res2 ~= nil then
+            return true
+        end
+    end
+
+    -- 3. Fallback: TestFork GitHub Repository
     local TESTFORK_URL = "https://raw.githubusercontent.com/revileDev/TestFork/main/rivals/"
     local cacheBuster = tostring(os.time()) .. "_" .. tostring(math.random(100000, 999999))
     local okTest, testSource = pcall(function()
-        return game:HttpGet(TESTFORK_URL .. path .. "?v=" .. cacheBuster)
+        return game:HttpGet(TESTFORK_URL .. baseName .. ".lua?v=" .. cacheBuster)
     end)
     if okTest and testSource and #testSource > 0 and not testSource:find("404: Not Found") and not testSource:find("<!DOCTYPE") then
         local compileOk, chunk, compileErr = pcall(loadstring, testSource)
@@ -294,24 +322,6 @@ local function loadModule(path)
             warn("[Atomware Rivals] Error running module from TestFork (" .. path .. "):", runErr)
         else
             warn("[Atomware Rivals] Error compiling module from TestFork (" .. path .. "):", compileErr)
-        end
-    end
-
-    -- 2. In-Memory Virtual File System (Fallback)
-    if type(__VFS_MODULES) == "table" then
-        local loader = __VFS_MODULES[path] or __VFS_MODULES[cleanName]
-        if loader then
-            local ok, err = pcall(loader)
-            if ok then return true end
-            warn("[Atomware Rivals] Failed to execute in-memory module " .. path .. ":", err)
-        end
-    end
-
-    -- 3. Virtual require hook
-    if type(require) == "function" then
-        local ok, res = pcall(require, cleanName)
-        if ok and res ~= nil then
-            return true
         end
     end
 

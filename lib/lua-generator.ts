@@ -211,6 +211,14 @@ if not httpRequest then
     return
 end
 
+-- Fast Hex Byte Lookup Table
+local _hexLookup = {}
+for _b = 0, 255 do
+    local _h = string.format("%02x", _b)
+    _hexLookup[_h] = _b
+    _hexLookup[_h:upper()] = _b
+end
+
 -- Universal In-Memory RC4 Decryptor with Real-Time Progress Yielding
 local function decryptSessionPayload(hexCiphertext, secretKey, onProgress)
     if not hexCiphertext or not secretKey or #secretKey == 0 then return nil end
@@ -240,7 +248,7 @@ local function decryptSessionPayload(hexCiphertext, secretKey, onProgress)
     local _bxor = (bit32 and bit32.bxor) or (bit and bit.bxor)
 
     local lastYield = os.clock()
-    local batchStep = 5000
+    local batchStep = 10000
 
     for k = 1, bytesCount do
         i = (i + 1) % 256
@@ -251,7 +259,7 @@ local function decryptSessionPayload(hexCiphertext, secretKey, onProgress)
 
         local keystreamByte = s[(s[i] + s[j]) % 256]
         local hexByteStr = _string.sub(hexCiphertext, (k - 1) * 2 + 1, (k - 1) * 2 + 2)
-        local encByte = _tonumber(hexByteStr, 16) or 0
+        local encByte = _hexLookup[hexByteStr] or _tonumber(hexByteStr, 16) or 0
         outTbl[k] = _string.char(_bxor(encByte, keystreamByte))
 
         if k % batchStep == 0 or k == bytesCount then
@@ -261,7 +269,7 @@ local function decryptSessionPayload(hexCiphertext, secretKey, onProgress)
                 local kbTotal = _math.floor(bytesCount / 1024)
                 onProgress(0.20 + (fraction * 0.60), "Decrypting Code Stream (" .. kbDone .. " / " .. kbTotal .. " KB)...")
             end
-            if os.clock() - lastYield > 0.025 then
+            if os.clock() - lastYield > 0.035 then
                 task.wait()
                 lastYield = os.clock()
             end
@@ -1538,20 +1546,22 @@ task.spawn(function()
     end)
 
     if cachedKey and #cachedKey >= 6 then
-        -- Hide GUI initially to execute 100% silently if valid
-        ScreenGui.Enabled = false
-        local ok = performVerify(cachedKey, true)
-        if not ok then
-            -- Delete invalid or expired cached key and reveal GUI
-            pcall(function()
-                if delfile and isfile("AtomProtect/" .. SCRIPT_SLUG .. "_key.txt") then
-                    delfile("AtomProtect/" .. SCRIPT_SLUG .. "_key.txt")
-                end
-            end)
-            ScreenGui.Enabled = true
-            StatusLabel.TextColor3 = Color3.fromRGB(240, 180, 50)
-            StatusLabel.Text = "${config.status_expired || "Saved key expired. Please enter a key."}"
-        end
+        ScreenGui.Enabled = true
+        KeyBox.Text = cachedKey
+        StatusLabel.TextColor3 = Color3.fromRGB(50, 200, 255)
+        StatusLabel.Text = "Saved key detected! Verifying..."
+        task.spawn(function()
+            local ok = performVerify(cachedKey, false)
+            if not ok then
+                pcall(function()
+                    if delfile and isfile("AtomProtect/" .. SCRIPT_SLUG .. "_key.txt") then
+                        delfile("AtomProtect/" .. SCRIPT_SLUG .. "_key.txt")
+                    end
+                end)
+                StatusLabel.TextColor3 = Color3.fromRGB(240, 180, 50)
+                StatusLabel.Text = "${config.status_expired || "Saved key expired. Please enter a key."}"
+            end
+        end)
     else
         ScreenGui.Enabled = true
     end

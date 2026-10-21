@@ -118,27 +118,16 @@ export function obfuscateLuau(code: string, options: ObfuscateOptions = {}): str
           : new TextEncoder().encode(rawText);
 
       const bytes = Array.from(rawBytes);
-      const algo = Math.floor(Math.random() * 3);
       const key = Math.floor(Math.random() * 240) + 10;
       const offset = Math.floor(Math.random() * 25) + 5;
 
-      if (algo === 0) {
-        // Type A: In-line Byte array with Additive Offset + XOR Mask
-        const masked = bytes.map((b) => (b ^ key) + offset);
-        return `(function() local _b={${masked.join(",")}} local _r={} for _i=1,#_b do _r[_i]=string.char(bit32.bxor(_b[_i]-${offset},${key})) end return table.concat(_r) end)()`;
-      } else if (algo === 1) {
-        // Type B: In-line Hex stream with nibble extraction + XOR Mask
-        let hex = "";
-        for (const b of bytes) {
-          const enc = (b ^ key) & 255;
-          hex += enc.toString(16).padStart(2, "0");
-        }
-        return `(function() local _h="${hex}" local _r={} local _c=1 for _i=1,#_h,2 do _r[_c]=string.char(bit32.bxor(tonumber(_h:sub(_i,_i+1),16) or 0,${key})) _c=_c+1 end return table.concat(_r) end)()`;
-      } else {
-        // Type C: In-line Bitwise Byte Array
-        const masked = bytes.map((b) => b ^ key);
-        return `(function() local _b={${masked.join(",")}} local _r={} for _i=1,#_b do _r[_i]=string.char(bit32.bxor(_b[_i],${key})) end return table.concat(_r) end)()`;
+      // Compact polymorphic hex-stream inline decryptor (fast compile, low memory)
+      let hex = "";
+      for (const b of bytes) {
+        const enc = (b ^ key) & 255;
+        hex += enc.toString(16).padStart(2, "0");
       }
+      return `(function() local _h="${hex}" local _r={} local _c=1 for _i=1,#_h,2 do _r[_c]=string.char(bit32.bxor(tonumber(_h:sub(_i,_i+1),16) or 0,${key})) _c=_c+1 end return table.concat(_r) end)()`;
     });
   }
 
@@ -188,11 +177,17 @@ export function obfuscateLuau(code: string, options: ObfuscateOptions = {}): str
       }
     }
 
-    // C. Substitute declared local variables, strictly ensuring not preceded by . or : (properties / methods)
-    declaredLocals.forEach((mangled, orig) => {
-      const tokenRegex = new RegExp(`(?<![.:0-9a-zA-Z_])\\b${orig}\\b(?![0-9a-zA-Z_])`, "g");
-      transformed = transformed.replace(tokenRegex, mangled);
-    });
+    // C. Substitute declared local variables efficiently in batched single-pass regex
+    if (declaredLocals.size > 0) {
+      const allKeys = Array.from(declaredLocals.keys());
+      const BATCH_SIZE = 400;
+      for (let i = 0; i < allKeys.length; i += BATCH_SIZE) {
+        const batch = allKeys.slice(i, i + BATCH_SIZE);
+        const escaped = batch.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+        const batchRegex = new RegExp(`(?<![.:0-9a-zA-Z_])\\b(${escaped.join("|")})\\b(?![0-9a-zA-Z_])`, "g");
+        transformed = transformed.replace(batchRegex, (match) => declaredLocals.get(match) || match);
+      }
+    }
   }
 
   // 5. Anti-Analysis Mathematical Invariants

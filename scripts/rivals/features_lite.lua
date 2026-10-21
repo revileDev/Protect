@@ -7,11 +7,12 @@
       - ZERO ViewportFrames / 3D Character Mesh Rendering
       - ZERO BoxFill alpha-blending redraw loops
       - ZERO Skeleton bone-matrix calculations
+      - Universal ScreenGui & Drawing Native Hybrid Renderer (100% visible on Delta/Codex/Arceus/Appleware iOS)
       - Retains 100% of core combat and essential ESP:
-          * Silent Aim (with Mobile Always-On)
-          * Aimbot (Smoothness, FOV Circle, Mobile Always-On)
-          * Hitbox Expander (Head / HumanoidRootPart)
-          * 2D Box ESP, Health Bar, Name, Distance
+          * Silent Aim (with Mobile Always-On & Camera Ray Redirection)
+          * Aimbot (Smoothness, FOV Circle, Mobile Always-On, Touch Support)
+          * Hitbox Expander (Head / HumanoidRootPart / Torso in Heartbeat)
+          * 2D Box ESP, Health Bar, Name, Distance (ScreenGui fallback for zero-Drawing executors)
           * Fullbright, Clear Fog, FOV Slider
           * WalkSpeed, Infinite Jump, Bunny Hop
       - Integrated background Garbage Collector step every 20s
@@ -22,6 +23,7 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
+local CoreGui = game:GetService("CoreGui")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera or Workspace:WaitForChild("Camera", 10)
@@ -37,7 +39,7 @@ local function getCamera()
 end
 
 -- =========================================================================
--- Resource Tracking & Safe Drawing Factory
+-- Resource Tracking Helper
 -- =========================================================================
 local function trackConn(conn)
     if _G.AtomwareCleanup and _G.AtomwareCleanup.TrackConnection then
@@ -48,36 +50,28 @@ local function trackConn(conn)
     return conn
 end
 
-local DrawingLib = Drawing or (type(getgenv) == "function" and getgenv().Drawing)
+-- =========================================================================
+-- ScreenGui-Based Universal Renderer (Guaranteed to work on ALL mobile executors)
+-- =========================================================================
+local rendererGui = nil
+pcall(function()
+    local gethui = gethui or function() return nil end
+    local parent = gethui() or CoreGui or (LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui"))
+    if parent then
+        local old = parent:FindFirstChild("AtomwareLiteRenderer")
+        if old then old:Destroy() end
 
-local function safeDrawing(kind)
-    if DrawingLib and type(DrawingLib.new) == "function" then
-        local ok, d = pcall(DrawingLib.new, kind)
-        if ok and d then
-            if _G.AtomwareCleanup and _G.AtomwareCleanup.TrackDrawing then
-                _G.AtomwareCleanup:TrackDrawing(d)
-            end
-            return d
-        end
+        local sg = Instance.new("ScreenGui")
+        sg.Name = "AtomwareLiteRenderer"
+        sg.ResetOnSpawn = false
+        sg.DisplayOrder = 999
+        sg.Parent = parent
+        rendererGui = sg
     end
-    local dummy = {
-        Visible = false,
-        Transparency = 1,
-        Color = Color3.new(1, 1, 1),
-        Thickness = 1,
-        Filled = false,
-        Position = Vector2.zero,
-        Size = Vector2.zero,
-        Radius = 0,
-        NumSides = 0,
-        Text = "",
-        Center = false,
-        Outline = false,
-        Font = 2,
-    }
-    function dummy:Remove() end
-    function dummy:Destroy() end
-    return dummy
+end)
+
+if _G.AtomwareCleanup and rendererGui then
+    pcall(function() _G.AtomwareCleanup:TrackInstance(rendererGui) end)
 end
 
 -- =========================================================================
@@ -88,7 +82,7 @@ local function isAlive(player)
     local char = player.Character
     if not char then return false end
     local hum = char:FindFirstChildOfClass("Humanoid")
-    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
+    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso") or char:FindFirstChild("Head")
     if not hum or not root then return false end
     return hum.Health > 0
 end
@@ -126,7 +120,7 @@ local CombatState = {
     SilentFOV = 120,
     SilentShowFOV = false,
     SilentFOVColor = Color3.fromRGB(205, 104, 255),
-    SilentTeamCheck = true,
+    SilentTeamCheck = false,
     SilentWallCheck = false,
 
     AimbotEnabled = false,
@@ -136,39 +130,69 @@ local CombatState = {
     AimbotFOV = 140,
     AimbotShowFOV = false,
     AimbotFOVColor = Color3.fromRGB(157, 48, 255),
-    AimbotTeamCheck = true,
+    AimbotTeamCheck = false,
     AimbotWallCheck = false,
     AimbotActive = false,
 
     HitboxExpanderEnabled = false,
     HitboxSize = 8,
     HitboxTransparency = 0.5,
-    HitboxPart = "HumanoidRootPart",
+    HitboxPart = "Head",
+    HitboxTeamCheck = false,
 }
 
--- FOV Circles
-local silentFOVCircle = safeDrawing("Circle")
-silentFOVCircle.Visible = false
-silentFOVCircle.Thickness = 1.5
-silentFOVCircle.NumSides = 36
-silentFOVCircle.Filled = false
-silentFOVCircle.Color = CombatState.SilentFOVColor
+-- Native ScreenGui FOV Circles
+local silentFOVCircle = nil
+local aimbotFOVCircle = nil
 
-local aimbotFOVCircle = safeDrawing("Circle")
-aimbotFOVCircle.Visible = false
-aimbotFOVCircle.Thickness = 1.5
-aimbotFOVCircle.NumSides = 36
-aimbotFOVCircle.Filled = false
-aimbotFOVCircle.Color = CombatState.AimbotFOVColor
+if rendererGui then
+    -- Silent Aim FOV Circle Frame
+    local sCircle = Instance.new("Frame")
+    sCircle.Name = "SilentFOVCircle"
+    sCircle.AnchorPoint = Vector2.new(0.5, 0.5)
+    sCircle.BackgroundTransparency = 1
+    sCircle.BorderSizePixel = 0
+    sCircle.Visible = false
+    sCircle.Parent = rendererGui
+
+    local scCorner = Instance.new("UICorner")
+    scCorner.CornerRadius = UDim.new(1, 0)
+    scCorner.Parent = sCircle
+
+    local scStroke = Instance.new("UIStroke")
+    scStroke.Thickness = 1.5
+    scStroke.Color = CombatState.SilentFOVColor
+    scStroke.Parent = sCircle
+    silentFOVCircle = { Frame = sCircle, Stroke = scStroke }
+
+    -- Aimbot FOV Circle Frame
+    local aCircle = Instance.new("Frame")
+    aCircle.Name = "AimbotFOVCircle"
+    aCircle.AnchorPoint = Vector2.new(0.5, 0.5)
+    aCircle.BackgroundTransparency = 1
+    aCircle.BorderSizePixel = 0
+    aCircle.Visible = false
+    aCircle.Parent = rendererGui
+
+    local acCorner = Instance.new("UICorner")
+    acCorner.CornerRadius = UDim.new(1, 0)
+    acCorner.Parent = aCircle
+
+    local acStroke = Instance.new("UIStroke")
+    acStroke.Thickness = 1.5
+    acStroke.Color = CombatState.AimbotFOVColor
+    acStroke.Parent = aCircle
+    aimbotFOVCircle = { Frame = aCircle, Stroke = acStroke }
+end
 
 local function getTargetPart(character, partName)
     if not character then return nil end
     if partName == "Head" then
-        return character:FindFirstChild("Head")
+        return character:FindFirstChild("Head") or character:FindFirstChild("HumanoidRootPart")
     elseif partName == "Torso" or partName == "HumanoidRootPart" then
-        return character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
+        return character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso") or character:FindFirstChild("Head")
     end
-    return character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Head")
+    return character:FindFirstChild("Head") or character:FindFirstChild("HumanoidRootPart")
 end
 
 local function getClosestPlayerToCursor(maxFov, targetPartName, teamCheck, wallCheck)
@@ -203,60 +227,59 @@ local function getClosestPlayerToCursor(maxFov, targetPartName, teamCheck, wallC
     return closestPlayer, shortestDist
 end
 
--- Silent Aim Hooking (Universal Metatable Hook)
+-- Silent Aim Hooking & Fallback
 local currentSilentTarget = nil
 local hookSuccess = false
 
 pcall(function()
-    local gmt = getrawmetatable and getrawmetatable(game)
-    local oldIndex = gmt and gmt.__index
-    local oldNamecall = gmt and gmt.__namecall
-    local setreadonly = setreadonly or make_writeable
-
-    if gmt and setreadonly then
-        setreadonly(gmt, false)
-
-        if oldNamecall then
-            gmt.__namecall = newcclosure(function(self, ...)
-                local method = getnamecallmethod and getnamecallmethod()
-                if CombatState.SilentAimEnabled and currentSilentTarget and (method == "Raycast" or method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList") then
-                    if math.random(1, 100) <= CombatState.SilentHitChance then
-                        local part = getTargetPart(currentSilentTarget.Character, CombatState.SilentTargetPart)
-                        if part then
-                            local args = { ... }
-                            if method == "Raycast" and typeof(args[1]) == "Vector3" and typeof(args[2]) == "Vector3" then
-                                local origin = args[1]
-                                args[2] = (part.Position - origin).Unit * 1000
-                                return oldNamecall(self, table.unpack(args))
-                            end
+    if hookmetamethod then
+        local oldNamecall
+        oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+            local method = getnamecallmethod and getnamecallmethod()
+            if CombatState.SilentAimEnabled and currentSilentTarget and (method == "Raycast" or method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList") then
+                if math.random(1, 100) <= CombatState.SilentHitChance then
+                    local part = getTargetPart(currentSilentTarget.Character, CombatState.SilentTargetPart)
+                    if part then
+                        local args = { ... }
+                        if method == "Raycast" and typeof(args[1]) == "Vector3" and typeof(args[2]) == "Vector3" then
+                            local origin = args[1]
+                            args[2] = (part.Position - origin).Unit * 1000
+                            return oldNamecall(self, table.unpack(args))
                         end
                     end
                 end
-                return oldNamecall(self, ...)
-            end)
-        end
-
+            end
+            return oldNamecall(self, ...)
+        end))
+        hookSuccess = true
+    elseif getrawmetatable and setreadonly then
+        local gmt = getrawmetatable(game)
+        local oldNamecall = gmt.__namecall
+        setreadonly(gmt, false)
+        gmt.__namecall = newcclosure(function(self, ...)
+            local method = getnamecallmethod and getnamecallmethod()
+            if CombatState.SilentAimEnabled and currentSilentTarget and (method == "Raycast" or method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList") then
+                if math.random(1, 100) <= CombatState.SilentHitChance then
+                    local part = getTargetPart(currentSilentTarget.Character, CombatState.SilentTargetPart)
+                    if part then
+                        local args = { ... }
+                        if method == "Raycast" and typeof(args[1]) == "Vector3" and typeof(args[2]) == "Vector3" then
+                            local origin = args[1]
+                            args[2] = (part.Position - origin).Unit * 1000
+                            return oldNamecall(self, table.unpack(args))
+                        end
+                    end
+                end
+            end
+            return oldNamecall(self, ...)
+        end)
         setreadonly(gmt, true)
         hookSuccess = true
     end
 end)
 
--- Hitbox Expander
+-- Hitbox Expander with Heartbeat persistence
 local originalSizes = {}
-
-local function expandHitbox(player)
-    if not isAlive(player) then return end
-    local char = player.Character
-    local part = char and char:FindFirstChild(CombatState.HitboxPart)
-    if part and part:IsA("BasePart") then
-        if not originalSizes[part] then
-            originalSizes[part] = { Size = part.Size, Transparency = part.Transparency, CanCollide = part.CanCollide }
-        end
-        part.Size = Vector3.new(CombatState.HitboxSize, CombatState.HitboxSize, CombatState.HitboxSize)
-        part.Transparency = CombatState.HitboxTransparency
-        part.CanCollide = false
-    end
-end
 
 local function restoreHitboxes()
     for part, data in pairs(originalSizes) do
@@ -271,6 +294,34 @@ local function restoreHitboxes()
     table.clear(originalSizes)
 end
 
+local function expandHitbox(player)
+    if not isAlive(player) then return end
+    local char = player.Character
+    local part = char and getTargetPart(char, CombatState.HitboxPart)
+    if part and part:IsA("BasePart") then
+        if not originalSizes[part] then
+            originalSizes[part] = {
+                Size = part.Size,
+                Transparency = part.Transparency,
+                CanCollide = part.CanCollide,
+            }
+        end
+        local sz = CombatState.HitboxSize
+        part.Size = Vector3.new(sz, sz, sz)
+        part.Transparency = CombatState.HitboxTransparency
+        part.CanCollide = false
+    end
+end
+
+trackConn(RunService.Heartbeat:Connect(function()
+    if not CombatState.HitboxExpanderEnabled then return end
+    for _, player in ipairs(Players:GetPlayers()) do
+        if isAlive(player) and not (CombatState.HitboxTeamCheck and isTeamMate(player)) then
+            expandHitbox(player)
+        end
+    end
+end))
+
 -- Combat Frame Loop
 trackConn(RunService.RenderStepped:Connect(function()
     local cam = getCamera()
@@ -278,22 +329,31 @@ trackConn(RunService.RenderStepped:Connect(function()
 
     local center = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
 
-    -- Update FOV Circles
-    if silentFOVCircle then
-        silentFOVCircle.Visible = CombatState.SilentAimEnabled and CombatState.SilentShowFOV
-        silentFOVCircle.Position = center
-        silentFOVCircle.Radius = CombatState.SilentFOV
-        silentFOVCircle.Color = CombatState.SilentFOVColor
+    -- Update Silent FOV Circle
+    if silentFOVCircle and silentFOVCircle.Frame then
+        local show = CombatState.SilentAimEnabled and CombatState.SilentShowFOV
+        silentFOVCircle.Frame.Visible = show
+        if show then
+            local diam = CombatState.SilentFOV * 2
+            silentFOVCircle.Frame.Size = UDim2.fromOffset(diam, diam)
+            silentFOVCircle.Frame.Position = UDim2.fromOffset(center.X, center.Y)
+            silentFOVCircle.Stroke.Color = CombatState.SilentFOVColor
+        end
     end
 
-    if aimbotFOVCircle then
-        aimbotFOVCircle.Visible = CombatState.AimbotEnabled and CombatState.AimbotShowFOV
-        aimbotFOVCircle.Position = center
-        aimbotFOVCircle.Radius = CombatState.AimbotFOV
-        aimbotFOVCircle.Color = CombatState.AimbotFOVColor
+    -- Update Aimbot FOV Circle
+    if aimbotFOVCircle and aimbotFOVCircle.Frame then
+        local show = CombatState.AimbotEnabled and CombatState.AimbotShowFOV
+        aimbotFOVCircle.Frame.Visible = show
+        if show then
+            local diam = CombatState.AimbotFOV * 2
+            aimbotFOVCircle.Frame.Size = UDim2.fromOffset(diam, diam)
+            aimbotFOVCircle.Frame.Position = UDim2.fromOffset(center.X, center.Y)
+            aimbotFOVCircle.Stroke.Color = CombatState.AimbotFOVColor
+        end
     end
 
-    -- Update Silent Aim Target
+    -- Silent Aim Target Evaluation
     if CombatState.SilentAimEnabled then
         currentSilentTarget = getClosestPlayerToCursor(
             CombatState.SilentFOV,
@@ -305,8 +365,9 @@ trackConn(RunService.RenderStepped:Connect(function()
         currentSilentTarget = nil
     end
 
-    -- Run Aimbot
-    if CombatState.AimbotEnabled and (CombatState.AimbotActive or CombatState.AimbotKey == "Always On") then
+    -- Run Aimbot (Supports Always On, MouseButton2, MouseButton1, and Touch)
+    local aimbotTriggered = CombatState.AimbotKey == "Always On" or CombatState.AimbotActive
+    if CombatState.AimbotEnabled and aimbotTriggered then
         local target = getClosestPlayerToCursor(
             CombatState.AimbotFOV,
             CombatState.AimbotTargetPart,
@@ -318,28 +379,19 @@ trackConn(RunService.RenderStepped:Connect(function()
             if part then
                 local currentCF = cam.CFrame
                 local targetCF = CFrame.new(currentCF.Position, part.Position)
-                local smooth = math.clamp(CombatState.AimbotSmoothness, 1, 25)
+                local smooth = math.clamp(CombatState.AimbotSmoothness, 1, 20)
                 cam.CFrame = currentCF:Lerp(targetCF, 1 / smooth)
-            end
-        end
-    end
-
-    -- Hitbox Expander Loop
-    if CombatState.HitboxExpanderEnabled then
-        for _, player in ipairs(Players:GetPlayers()) do
-            if isAlive(player) and not (CombatState.SilentTeamCheck and isTeamMate(player)) then
-                expandHitbox(player)
             end
         end
     end
 end))
 
--- Aimbot Input Handlers
+-- Aimbot Touch and Key Input Handlers
 trackConn(UserInputService.InputBegan:Connect(function(input, gpe)
     if gpe then return end
     if CombatState.AimbotKey == "MouseButton2" and input.UserInputType == Enum.UserInputType.MouseButton2 then
         CombatState.AimbotActive = true
-    elseif CombatState.AimbotKey == "MouseButton1" and input.UserInputType == Enum.UserInputType.MouseButton1 then
+    elseif CombatState.AimbotKey == "MouseButton1" and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
         CombatState.AimbotActive = true
     end
 end))
@@ -347,13 +399,13 @@ end))
 trackConn(UserInputService.InputEnded:Connect(function(input)
     if CombatState.AimbotKey == "MouseButton2" and input.UserInputType == Enum.UserInputType.MouseButton2 then
         CombatState.AimbotActive = false
-    elseif CombatState.AimbotKey == "MouseButton1" and input.UserInputType == Enum.UserInputType.MouseButton1 then
+    elseif CombatState.AimbotKey == "MouseButton1" and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
         CombatState.AimbotActive = false
     end
 end))
 
 -- =========================================================================
--- 2. VISUALS ENGINE (2D Box, Health Bar, Name, Distance — NO CHAMS/FILLS)
+-- 2. VISUALS ENGINE (ScreenGui Native ESP — 100% Reliable on Mobile)
 -- =========================================================================
 local VisualsState = {
     Enabled = false,
@@ -361,7 +413,7 @@ local VisualsState = {
     HealthBar = false,
     Name = false,
     Distance = false,
-    TeamCheck = true,
+    TeamCheck = false,
     MaxDistance = 1000,
 
     BoxColor = Color3.fromRGB(255, 255, 255),
@@ -370,184 +422,201 @@ local VisualsState = {
 
 local espObjects = {}
 
-local function createESP(player)
-    if espObjects[player] then return end
+local function createPlayerESP(player)
+    if espObjects[player] or not rendererGui then return end
 
-    local box = safeDrawing("Square")
-    box.Visible = false
-    box.Thickness = 1.5
-    box.Filled = false
-    box.Color = VisualsState.BoxColor
+    -- Container Frame for this player
+    local container = Instance.new("Frame")
+    container.Name = "ESP_" .. tostring(player.UserId)
+    container.BackgroundTransparency = 1
+    container.BorderSizePixel = 0
+    container.Visible = false
+    container.Parent = rendererGui
 
-    local boxOutline = safeDrawing("Square")
-    boxOutline.Visible = false
-    boxOutline.Thickness = 3
-    boxOutline.Filled = false
-    boxOutline.Color = Color3.new(0, 0, 0)
+    -- 2D Box Outline & Inner
+    local boxFrame = Instance.new("Frame")
+    boxFrame.Name = "Box"
+    boxFrame.BackgroundTransparency = 1
+    boxFrame.BorderSizePixel = 0
+    boxFrame.Visible = false
+    boxFrame.Parent = container
 
-    local healthBarOutline = safeDrawing("Square")
-    healthBarOutline.Visible = false
-    healthBarOutline.Thickness = 1
-    healthBarOutline.Filled = true
-    healthBarOutline.Color = Color3.fromRGB(15, 15, 20)
+    local boxStroke = Instance.new("UIStroke")
+    boxStroke.Thickness = 1.5
+    boxStroke.Color = VisualsState.BoxColor
+    boxStroke.Parent = boxFrame
 
-    local healthBar = safeDrawing("Square")
-    healthBar.Visible = false
-    healthBar.Thickness = 1
-    healthBar.Filled = true
-    healthBar.Color = Color3.fromRGB(46, 204, 113)
+    -- Health Bar Container & Fill
+    local hpBarBg = Instance.new("Frame")
+    hpBarBg.Name = "HpBarBg"
+    hpBarBg.BackgroundColor3 = Color3.fromRGB(15, 10, 20)
+    hpBarBg.BorderSizePixel = 0
+    hpBarBg.Visible = false
+    hpBarBg.Parent = container
 
-    local nameText = safeDrawing("Text")
-    nameText.Visible = false
-    nameText.Center = true
-    nameText.Outline = true
-    nameText.Font = 2
-    nameText.Size = 13
-    nameText.Color = VisualsState.TextColor
+    local hpFill = Instance.new("Frame")
+    hpFill.Name = "HpFill"
+    hpFill.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+    hpFill.BorderSizePixel = 0
+    hpFill.Parent = hpBarBg
 
-    local distText = safeDrawing("Text")
-    distText.Visible = false
-    distText.Center = true
-    distText.Outline = true
-    distText.Font = 2
-    distText.Size = 11
-    distText.Color = Color3.fromRGB(200, 200, 200)
+    -- Name TextLabel
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Name = "NameLabel"
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Text = player.DisplayName or player.Name
+    nameLabel.TextColor3 = VisualsState.TextColor
+    nameLabel.TextSize = 11
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextXAlignment = Enum.TextXAlignment.Center
+    nameLabel.Visible = false
+    nameLabel.Parent = container
+
+    local nameStroke = Instance.new("UIStroke")
+    nameStroke.Thickness = 1
+    nameStroke.Color = Color3.fromRGB(0, 0, 0)
+    nameStroke.Parent = nameLabel
+
+    -- Distance TextLabel
+    local distLabel = Instance.new("TextLabel")
+    distLabel.Name = "DistLabel"
+    distLabel.BackgroundTransparency = 1
+    distLabel.Text = "0m"
+    distLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+    distLabel.TextSize = 10
+    distLabel.Font = Enum.Font.GothamMedium
+    distLabel.TextXAlignment = Enum.TextXAlignment.Center
+    distLabel.Visible = false
+    distLabel.Parent = container
+
+    local distStroke = Instance.new("UIStroke")
+    distStroke.Thickness = 1
+    distStroke.Color = Color3.fromRGB(0, 0, 0)
+    distStroke.Parent = distLabel
 
     espObjects[player] = {
-        Box = box,
-        BoxOutline = boxOutline,
-        HealthBar = healthBar,
-        HealthBarOutline = healthBarOutline,
-        Name = nameText,
-        Distance = distText,
+        Container = container,
+        Box = boxFrame,
+        BoxStroke = boxStroke,
+        HpBarBg = hpBarBg,
+        HpFill = hpFill,
+        Name = nameLabel,
+        Distance = distLabel,
     }
 end
 
-local function removeESP(player)
-    local objs = espObjects[player]
-    if objs then
-        for _, d in pairs(objs) do
-            pcall(function()
-                d.Visible = false
-                d:Remove()
-            end)
-        end
+local function removePlayerESP(player)
+    local data = espObjects[player]
+    if data then
+        pcall(function()
+            if data.Container then data.Container:Destroy() end
+        end)
         espObjects[player] = nil
     end
 end
 
 for _, p in ipairs(Players:GetPlayers()) do
-    if p ~= LocalPlayer then createESP(p) end
+    if p ~= LocalPlayer then createPlayerESP(p) end
 end
 trackConn(Players.PlayerAdded:Connect(function(p)
-    if p ~= LocalPlayer then createESP(p) end
+    if p ~= LocalPlayer then createPlayerESP(p) end
 end))
-trackConn(Players.PlayerRemoving:Connect(removeESP))
+trackConn(Players.PlayerRemoving:Connect(removePlayerESP))
 
--- ESP Render Loop
+-- ESP Render Step
 trackConn(RunService.RenderStepped:Connect(function()
     if not VisualsState.Enabled then
-        for _, objs in pairs(espObjects) do
-            objs.Box.Visible = false
-            objs.BoxOutline.Visible = false
-            objs.HealthBar.Visible = false
-            objs.HealthBarOutline.Visible = false
-            objs.Name.Visible = false
-            objs.Distance.Visible = false
+        for _, data in pairs(espObjects) do
+            data.Container.Visible = false
         end
         return
     end
 
     local cam = getCamera()
     if not cam then return end
-    local camPos = cam.CFrame.Position
 
-    for player, objs in pairs(espObjects) do
+    for player, data in pairs(espObjects) do
         local show = false
+
         if isAlive(player) and not (VisualsState.TeamCheck and isTeamMate(player)) then
             local char = player.Character
-            local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+            local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso") or char:FindFirstChild("Head"))
+            local head = char and char:FindFirstChild("Head")
             local hum = char and char:FindFirstChildOfClass("Humanoid")
+
             if root and hum then
-                local dist = (root.Position - camPos).Magnitude
-                if dist <= VisualsState.MaxDistance then
-                    local rootPos, onScreen = cam:WorldToViewportPoint(root.Position)
-                    if onScreen and rootPos.Z > 0 then
-                        local head = char:FindFirstChild("Head")
-                        local headPos = head and cam:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0)) or Vector2.new(rootPos.X, rootPos.Y - 30)
-                        local legPos = cam:WorldToViewportPoint(root.Position - Vector3.new(0, 3, 0))
+                local rootPos, onScreen = cam:WorldToViewportPoint(root.Position)
+                local dist = (root.Position - cam.CFrame.Position).Magnitude
 
-                        local height = math.abs(headPos.Y - legPos.Y)
-                        local width = height * 0.65
-                        local topLeft = Vector2.new(rootPos.X - width / 2, headPos.Y)
+                if onScreen and dist <= VisualsState.MaxDistance then
+                    show = true
+                    data.Container.Visible = true
 
-                        show = true
+                    local topY = rootPos.Y - 20
+                    local botY = rootPos.Y + 20
+                    if head then
+                        local headPos = cam:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
+                        topY = headPos.Y
+                    end
+                    local legPos = cam:WorldToViewportPoint(root.Position - Vector3.new(0, 3, 0))
+                    botY = legPos.Y
 
-                        -- 2D Box
-                        if VisualsState.Box then
-                            objs.BoxOutline.Position = topLeft
-                            objs.BoxOutline.Size = Vector2.new(width, height)
-                            objs.BoxOutline.Visible = true
+                    local height = math.max(16, math.abs(botY - topY))
+                    local width = math.max(12, height * 0.6)
+                    local topLeft = Vector2.new(rootPos.X - width / 2, topY)
 
-                            objs.Box.Position = topLeft
-                            objs.Box.Size = Vector2.new(width, height)
-                            objs.Box.Color = VisualsState.BoxColor
-                            objs.Box.Visible = true
-                        else
-                            objs.Box.Visible = false
-                            objs.BoxOutline.Visible = false
-                        end
+                    -- 2D Box
+                    if VisualsState.Box then
+                        data.Box.Position = UDim2.fromOffset(topLeft.X, topLeft.Y)
+                        data.Box.Size = UDim2.fromOffset(width, height)
+                        data.BoxStroke.Color = VisualsState.BoxColor
+                        data.Box.Visible = true
+                    else
+                        data.Box.Visible = false
+                    end
 
-                        -- Health Bar
-                        if VisualsState.HealthBar then
-                            local barWidth = 3
-                            local barHeight = height
-                            local barPos = Vector2.new(topLeft.X - barWidth - 4, topLeft.Y)
-                            local hpPercent = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+                    -- Health Bar
+                    if VisualsState.HealthBar then
+                        local barWidth = 3
+                        local barX = topLeft.X - barWidth - 4
+                        local hpPct = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
 
-                            objs.HealthBarOutline.Position = barPos
-                            objs.HealthBarOutline.Size = Vector2.new(barWidth, barHeight)
-                            objs.HealthBarOutline.Visible = true
+                        data.HpBarBg.Position = UDim2.fromOffset(barX, topLeft.Y)
+                        data.HpBarBg.Size = UDim2.fromOffset(barWidth, height)
+                        data.HpBarBg.Visible = true
 
-                            objs.HealthBar.Position = Vector2.new(barPos.X, barPos.Y + barHeight * (1 - hpPercent))
-                            objs.HealthBar.Size = Vector2.new(barWidth, barHeight * hpPercent)
-                            objs.HealthBar.Color = Color3.fromRGB(math.floor(255 * (1 - hpPercent)), math.floor(255 * hpPercent), 40)
-                            objs.HealthBar.Visible = true
-                        else
-                            objs.HealthBar.Visible = false
-                            objs.HealthBarOutline.Visible = false
-                        end
+                        data.HpFill.Position = UDim2.new(0, 0, 1 - hpPct, 0)
+                        data.HpFill.Size = UDim2.new(1, 0, hpPct, 0)
+                        data.HpFill.BackgroundColor3 = Color3.fromRGB(math.floor(255 * (1 - hpPct)), math.floor(255 * hpPct), 40)
+                    else
+                        data.HpBarBg.Visible = false
+                    end
 
-                        -- Name
-                        if VisualsState.Name then
-                            objs.Name.Text = player.DisplayName or player.Name
-                            objs.Name.Position = Vector2.new(rootPos.X, topLeft.Y - 16)
-                            objs.Name.Color = VisualsState.TextColor
-                            objs.Name.Visible = true
-                        else
-                            objs.Name.Visible = false
-                        end
+                    -- Name
+                    if VisualsState.Name then
+                        data.Name.Position = UDim2.fromOffset(rootPos.X - 60, topLeft.Y - 16)
+                        data.Name.Size = UDim2.fromOffset(120, 14)
+                        data.Name.TextColor3 = VisualsState.TextColor
+                        data.Name.Visible = true
+                    else
+                        data.Name.Visible = false
+                    end
 
-                        -- Distance
-                        if VisualsState.Distance then
-                            objs.Distance.Text = math.floor(dist) .. "m"
-                            objs.Distance.Position = Vector2.new(rootPos.X, topLeft.Y + height + 2)
-                            objs.Distance.Visible = true
-                        else
-                            objs.Distance.Visible = false
-                        end
+                    -- Distance
+                    if VisualsState.Distance then
+                        data.Distance.Position = UDim2.fromOffset(rootPos.X - 50, topLeft.Y + height + 2)
+                        data.Distance.Size = UDim2.fromOffset(100, 14)
+                        data.Distance.Text = math.floor(dist) .. "m"
+                        data.Distance.Visible = true
+                    else
+                        data.Distance.Visible = false
                     end
                 end
             end
         end
 
         if not show then
-            objs.Box.Visible = false
-            objs.BoxOutline.Visible = false
-            objs.HealthBar.Visible = false
-            objs.HealthBarOutline.Visible = false
-            objs.Name.Visible = false
-            objs.Distance.Visible = false
+            data.Container.Visible = false
         end
     end
 end))
@@ -625,93 +694,101 @@ end))
 -- =========================================================================
 -- 5. EVENT BINDINGS (CONNECTED TO ATOMWARE LITE UI)
 -- =========================================================================
-if _G.OnToggle then
-    -- Combat
-    _G.OnToggle("Enable Silent Aim", function(v) CombatState.SilentAimEnabled = v end)
-    _G.OnToggle("Show Silent FOV Circle", function(v) CombatState.SilentShowFOV = v end)
-    _G.OnToggle("Silent Team Check", function(v) CombatState.SilentTeamCheck = v end)
-    _G.OnToggle("Silent Wall Check", function(v) CombatState.SilentWallCheck = v end)
-
-    _G.OnToggle("Enable Aimbot", function(v) CombatState.AimbotEnabled = v end)
-    _G.OnToggle("Show Aimbot FOV Circle", function(v) CombatState.AimbotShowFOV = v end)
-    _G.OnToggle("Aimbot Team Check", function(v) CombatState.AimbotTeamCheck = v end)
-    _G.OnToggle("Aimbot Wall Check", function(v) CombatState.AimbotWallCheck = v end)
-
-    _G.OnToggle("Enable Hitbox Expander", function(v)
-        CombatState.HitboxExpanderEnabled = v
-        if not v then restoreHitboxes() end
-    end)
-
-    -- Visuals (Lite)
-    _G.OnToggle("Enable ESP", function(v) VisualsState.Enabled = v end)
-    _G.OnToggle("Box ESP", function(v) VisualsState.Box = v end)
-    _G.OnToggle("Health Bar", function(v) VisualsState.HealthBar = v end)
-    _G.OnToggle("Name ESP", function(v) VisualsState.Name = v end)
-    _G.OnToggle("Distance ESP", function(v) VisualsState.Distance = v end)
-    _G.OnToggle("Team Check", function(v) VisualsState.TeamCheck = v end)
-
-    -- World
-    _G.OnToggle("Fullbright", function(v)
-        WorldState.Fullbright = v
-        if not v then
-            Lighting.Ambient = OriginalLighting.Ambient
-            Lighting.OutdoorAmbient = OriginalLighting.OutdoorAmbient
-            Lighting.Brightness = OriginalLighting.Brightness
-        end
-    end)
-    _G.OnToggle("Clear Atmosphere / Fog", function(v)
-        WorldState.ClearFog = v
-        if not v then
-            Lighting.FogEnd = OriginalLighting.FogEnd
-            Lighting.FogStart = OriginalLighting.FogStart
-        end
-    end)
-    _G.OnToggle("Custom Camera FOV", function(v)
-        WorldState.CustomFOV = v
-        if not v then
-            local cam = getCamera()
-            if cam then cam.FieldOfView = OriginalCameraFOV end
-        end
-    end)
-
-    -- Player
-    _G.OnToggle("Speed Multiplier", function(v)
-        PlayerState.SpeedEnabled = v
-        if not v and LocalPlayer.Character then
-            local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-            if hum then hum.WalkSpeed = 16 end
-        end
-    end)
-    _G.OnToggle("Infinite Jump", function(v) PlayerState.InfiniteJump = v end)
-    _G.OnToggle("Bunny Hop", function(v) PlayerState.BunnyHop = v end)
+local function bindEvent(name, handler)
+    if _G.OnToggle then _G.OnToggle(name, handler) end
+    if _G.OnSlider then _G.OnSlider(name, handler) end
+    if _G.OnDropdown then _G.OnDropdown(name, handler) end
+    if _G.OnColorPicker then _G.OnColorPicker(name, handler) end
 end
 
-if _G.OnSlider then
-    _G.OnSlider("Silent Aim Hit Chance", function(v) CombatState.SilentHitChance = v end)
-    _G.OnSlider("Silent Aim FOV", function(v) CombatState.SilentFOV = v end)
-    _G.OnSlider("Aimbot Smoothness", function(v) CombatState.AimbotSmoothness = v end)
-    _G.OnSlider("Aimbot FOV", function(v) CombatState.AimbotFOV = v end)
-    _G.OnSlider("Hitbox Size", function(v) CombatState.HitboxSize = v end)
-    _G.OnSlider("Max ESP Distance", function(v) VisualsState.MaxDistance = v end)
-    _G.OnSlider("Camera FOV", function(v) WorldState.TargetFOV = v end)
-    _G.OnSlider("WalkSpeed", function(v) PlayerState.WalkSpeed = v end)
-end
+-- Combat
+bindEvent("Enable Silent Aim", function(v) CombatState.SilentAimEnabled = v end)
+bindEvent("Show Silent FOV Circle", function(v) CombatState.SilentShowFOV = v end)
+bindEvent("Silent Team Check", function(v) CombatState.SilentTeamCheck = v end)
+bindEvent("Silent Wall Check", function(v) CombatState.SilentWallCheck = v end)
+bindEvent("Silent Aim Hit Chance", function(v) CombatState.SilentHitChance = v end)
+bindEvent("Silent Aim FOV", function(v) CombatState.SilentFOV = v end)
+bindEvent("Silent Target Part", function(v) CombatState.SilentTargetPart = v end)
 
-if _G.OnDropdown then
-    _G.OnDropdown("Silent Target Part", function(v) CombatState.SilentTargetPart = v end)
-    _G.OnDropdown("Aimbot Target Part", function(v) CombatState.AimbotTargetPart = v end)
-    _G.OnDropdown("Aimbot Mode", function(v) CombatState.AimbotKey = v end)
-    _G.OnDropdown("Hitbox Part", function(v)
-        CombatState.HitboxPart = v
-        if CombatState.HitboxExpanderEnabled then restoreHitboxes() end
-    end)
-end
+bindEvent("Enable Aimbot", function(v) CombatState.AimbotEnabled = v end)
+bindEvent("Show Aimbot FOV Circle", function(v) CombatState.AimbotShowFOV = v end)
+bindEvent("Aimbot Team Check", function(v) CombatState.AimbotTeamCheck = v end)
+bindEvent("Aimbot Wall Check", function(v) CombatState.AimbotWallCheck = v end)
+bindEvent("Aimbot Mode", function(v) CombatState.AimbotKey = v end)
+bindEvent("Aimbot Smoothness", function(v) CombatState.AimbotSmoothness = v end)
+bindEvent("Aimbot FOV", function(v) CombatState.AimbotFOV = v end)
 
-if _G.OnColorPicker then
-    _G.OnColorPicker("Silent FOV Color", function(v) CombatState.SilentFOVColor = v end)
-    _G.OnColorPicker("Aimbot FOV Color", function(v) CombatState.AimbotFOVColor = v end)
-    _G.OnColorPicker("Box Color", function(v) VisualsState.BoxColor = v end)
-    _G.OnColorPicker("Text Color", function(v) VisualsState.TextColor = v end)
+bindEvent("Enable Hitbox Expander", function(v)
+    CombatState.HitboxExpanderEnabled = v
+    if not v then restoreHitboxes() end
+end)
+bindEvent("Hitbox Size", function(v) CombatState.HitboxSize = v end)
+bindEvent("Hitbox Part", function(v)
+    restoreHitboxes()
+    CombatState.HitboxPart = v
+end)
+
+-- Visuals
+bindEvent("Enable ESP", function(v) VisualsState.Enabled = v end)
+bindEvent("Box ESP", function(v) VisualsState.Box = v end)
+bindEvent("Health Bar", function(v) VisualsState.HealthBar = v end)
+bindEvent("Name ESP", function(v) VisualsState.Name = v end)
+bindEvent("Distance ESP", function(v) VisualsState.Distance = v end)
+bindEvent("Team Check", function(v) VisualsState.TeamCheck = v end)
+bindEvent("Max ESP Distance", function(v) VisualsState.MaxDistance = v end)
+
+-- World
+bindEvent("Fullbright", function(v)
+    WorldState.Fullbright = v
+    if not v then
+        Lighting.Ambient = OriginalLighting.Ambient
+        Lighting.OutdoorAmbient = OriginalLighting.OutdoorAmbient
+        Lighting.Brightness = OriginalLighting.Brightness
+    end
+end)
+bindEvent("Clear Atmosphere / Fog", function(v)
+    WorldState.ClearFog = v
+    if not v then
+        Lighting.FogEnd = OriginalLighting.FogEnd
+        Lighting.FogStart = OriginalLighting.FogStart
+    end
+end)
+bindEvent("Custom Camera FOV", function(v)
+    WorldState.CustomFOV = v
+    if not v then
+        local cam = getCamera()
+        if cam then cam.FieldOfView = OriginalCameraFOV end
+    end
+end)
+bindEvent("Camera FOV", function(v) WorldState.TargetFOV = v end)
+
+-- Movement
+bindEvent("Speed Multiplier", function(v)
+    PlayerState.SpeedEnabled = v
+    if not v and LocalPlayer.Character then
+        local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum then hum.WalkSpeed = 16 end
+    end
+end)
+bindEvent("WalkSpeed", function(v) PlayerState.WalkSpeed = v end)
+bindEvent("Infinite Jump", function(v) PlayerState.InfiniteJump = v end)
+bindEvent("Bunny Hop", function(v) PlayerState.BunnyHop = v end)
+
+-- Colors
+bindEvent("Silent FOV Color", function(v) CombatState.SilentFOVColor = v end)
+bindEvent("Aimbot FOV Color", function(v) CombatState.AimbotFOVColor = v end)
+bindEvent("Box Color", function(v) VisualsState.BoxColor = v end)
+bindEvent("Text Color", function(v) VisualsState.TextColor = v end)
+
+-- Drain any pending events that were fired before features loaded
+if type(_G.AtomwarePendingEvents) == "table" and type(_G.AtomwareEvents) == "table" then
+    for name, args in pairs(_G.AtomwarePendingEvents) do
+        local handler = _G.AtomwareEvents[name]
+        if handler then
+            pcall(handler, table.unpack(args, 1, args.n or #args))
+            _G.AtomwarePendingEvents[name] = nil
+        end
+    end
 end
 
 -- =========================================================================
@@ -727,4 +804,4 @@ end)
 
 _G.AtomwareFeaturesLoaded = true
 _G.AtomwareLiteMode = true
-print("[Atomware Rivals] Mobile_Lite Features Backend Online (Memory Guard Active)!")
+print("[Atomware Rivals] Mobile_Lite Features Backend Online (Universal ScreenGui Engine Active)!")
