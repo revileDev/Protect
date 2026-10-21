@@ -267,7 +267,7 @@ local function decryptSessionPayload(hexCiphertext, secretKey, onProgress)
             if onProgress then
                 local kbDone = _math.floor(k / 1024)
                 local kbTotal = _math.floor(bytesCount / 1024)
-                onProgress(0.20 + (fraction * 0.60), "Decrypting Code Stream (" .. kbDone .. " / " .. kbTotal .. " KB)...")
+                onProgress(0.50 + (fraction * 0.30), "Decrypting Code Stream (" .. kbDone .. " / " .. kbTotal .. " KB)...")
             end
             if os.clock() - lastYield > 0.035 then
                 task.wait()
@@ -750,6 +750,14 @@ local function updateProgress(fraction, statusText)
     if statusText then
         ProgressLabel.Text = tostring(statusText)
     end
+end
+
+local function hideProgress()
+    if ProgressContainer then ProgressContainer.Visible = false end
+    if VerifyBtn then VerifyBtn.Visible = true end
+    if PasteBtn then PasteBtn.Visible = true end
+    if KeyBox then KeyBox.Visible = true end
+    if ClaimBtn then ClaimBtn.Visible = true end
 end
 ${
   showDiscord
@@ -1275,7 +1283,7 @@ ${
     end)
 
     if updateProgress then
-        updateProgress(0.55, "Decrypting Dynamic Security Stream...")
+        updateProgress(0.50, "Decrypting Dynamic Security Stream...")
         task.wait(0.08)
     end
 
@@ -1301,7 +1309,7 @@ ${
     end
 
     if updateProgress then
-        updateProgress(0.75, "Compiling Luau Runtime...")
+        updateProgress(0.85, "Compiling Luau Runtime...")
         task.wait(0.08)
     end
 
@@ -1325,7 +1333,7 @@ ${
 
     if runPayload then
         if updateProgress then
-            updateProgress(0.90, "Mounting Virtual File System & Assets...")
+            updateProgress(0.95, "Mounting Virtual File System & Assets...")
             task.wait(0.12)
             updateProgress(1.0, "Ready! Launching Atomware Hub...")
             task.wait(0.35)
@@ -1445,6 +1453,7 @@ local function performVerify(rawKey, isSilent)
     local key = tostring(rawKey or ""):gsub("^%s*(.-)%s*$", "%1")
     if key == "" then
         if not isSilent then
+            hideProgress()
             StatusLabel.TextColor3 = Color3.fromRGB(240, 80, 80)
             StatusLabel.Text = "Please enter your key."
         end
@@ -1454,6 +1463,10 @@ local function performVerify(rawKey, isSilent)
     if not isSilent then
         StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
         StatusLabel.Text = "${config.status_verifying || "Verifying key with server..."}"
+    end
+
+    if updateProgress then
+        updateProgress(0.08, "Verifying license with security gateway...")
     end
 
     local verifyUrl = BASE_URL .. "/api/auth/verify"
@@ -1486,6 +1499,7 @@ local function performVerify(rawKey, isSilent)
     end)
 
     if not success or not response then
+        hideProgress()
         if not isSilent then
             StatusLabel.TextColor3 = Color3.fromRGB(240, 80, 80)
             StatusLabel.Text = "Connection error. Please try again."
@@ -1521,15 +1535,16 @@ local function performVerify(rawKey, isSilent)
         end
 
         if updateProgress then
-            updateProgress(0.15, "Connecting to Security Gateway...")
+            updateProgress(0.20, "Key Validated! Connecting to Stream...")
             task.wait(0.12)
-            updateProgress(0.35, "Receiving Encrypted Security Stream...")
+            updateProgress(0.40, "Receiving Encrypted Security Stream (1.2 MB)...")
             task.wait(0.10)
         end
 
         startProtectedRuntime(data.session_token, data, isAdmin, data.remaining_seconds, data.nonce, key)
         return true
     else
+        hideProgress()
         local err = (data and (data.error or data.message)) or ("Auth failed (HTTP " .. tostring(statusCode) .. ")")
         local isBanned = statusCode == 403 and (
             err:lower():find("banned") or err:lower():find("blacklist") or err:lower():find("denied") or err:lower():find("violation")
@@ -1570,9 +1585,13 @@ task.spawn(function()
         KeyBox.Text = cachedKey
         StatusLabel.TextColor3 = Color3.fromRGB(50, 200, 255)
         StatusLabel.Text = "Saved key detected! Verifying..."
+        if updateProgress then
+            updateProgress(0.08, "Autoload: Verifying saved license key...")
+        end
         task.spawn(function()
             local ok = performVerify(cachedKey, false)
             if not ok then
+                hideProgress()
                 pcall(function()
                     if delfile and isfile("AtomProtect/" .. SCRIPT_SLUG .. "_key.txt") then
                         delfile("AtomProtect/" .. SCRIPT_SLUG .. "_key.txt")

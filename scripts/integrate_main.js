@@ -184,12 +184,13 @@ const exposedBridgeCode = [
 	'\tDrawingBridge.Movement = Movement',
 	'\tDrawingBridge.Exploits = Exploits',
 	'\tpcall(function()',
-	'\t\t(_G :: any).__sonata_bridge = DrawingBridge',
-	'\t\t(_G :: any).__sonata_aim = Aim',
-	'\t\t(_G :: any).__sonata_silent = Silent',
-	'\t\t(_G :: any).__sonata_esp = DrawingBridge.Esp',
-	'\t\t(_G :: any).__sonata_movement = Movement',
-	'\t\t(_G :: any).__sonata_exploits = Exploits',
+	'\t\tlocal g = _G :: any',
+	'\t\tg.__sonata_bridge = DrawingBridge',
+	'\t\tg.__sonata_aim = Aim',
+	'\t\tg.__sonata_silent = Silent',
+	'\t\tg.__sonata_esp = DrawingBridge.Esp',
+	'\t\tg.__sonata_movement = Movement',
+	'\t\tg.__sonata_exploits = Exploits',
 	'\tend)'
 ];
 
@@ -509,22 +510,41 @@ _G.AtomwareFeaturesLoaded = true
 print("[Atomware Rivals] Authoritative Features Backend Loaded Successfully (PC, Mobile, and Lite Compatible)!")
 `;
 
-// Fix all Luau ambiguous syntax statements starting with '('
-let semicolonFixCount = 0;
-for (let i = 0; i < lines.length; i++) {
-	const trimmed = lines[i].trim();
-	if (trimmed.startsWith('(')) {
-		if (/^\([a-zA-Z0-9_.]+\s*::/.test(trimmed) || /^\([a-zA-Z0-9_.]+\s*\)/.test(trimmed)) {
-			const indent = lines[i].match(/^\s*/)[0];
-			lines[i] = indent + ';' + trimmed;
-			semicolonFixCount++;
-		}
-	}
-}
-console.log('Fixed Luau ambiguous statements starting with (:', semicolonFixCount);
+
 
 const newline = isCRLF ? '\r\n' : '\n';
-const outputContent = lines.join(newline) + newline + tailCode;
+let outputContent = lines.join(newline) + newline + tailCode;
+
+// Universal Duel Fallbacks for Casual, Lobby, FFA, and Shooting Range
+// Ensures ESP, Aimbot, and Silent Aim target living players even when not in an active 1v1 duel
+const nl = newline;
+const r1Old = `\t\tDrawingBridge.inGameMatch = false${nl}\t\treturn false`;
+const r1New = `\t\tif lp and lp.Character and lp.Character:FindFirstChild("Humanoid") then${nl}\t\t\tinGameMatchCached = true${nl}\t\t\tDrawingBridge.inGameMatch = true${nl}\t\t\treturn true${nl}\t\tend${nl}\t\tDrawingBridge.inGameMatch = false${nl}\t\treturn false`;
+if (outputContent.includes(r1Old)) {
+	outputContent = outputContent.replace(r1Old, r1New);
+	console.log('Applied isInGameMatch Character fallback');
+}
+
+const r2Old = `\t\t\tsilentInMatch = duel ~= nil${nl}\t\t\tif not duel then${nl}\t\t\t\treturn false${nl}\t\t\tend`;
+const r2New = `\t\t\tsilentInMatch = duel ~= nil${nl}\t\t\tif not duel then${nl}\t\t\t\tfor _, player in ipairs(Players:GetPlayers()) do${nl}\t\t\t\t\tif player ~= lp then${nl}\t\t\t\t\t\tsilentEnemyOf[player] = true${nl}\t\t\t\t\tend${nl}\t\t\t\tend${nl}\t\t\t\treturn true${nl}\t\t\tend`;
+if (outputContent.includes(r2Old)) {
+	outputContent = outputContent.replace(r2Old, r2New);
+	console.log('Applied refreshSilentRoster all-player fallback');
+}
+
+const r3Old = `\t\t\tif not duel then${nl}\t\t\t\treturn nil, nil${nl}\t\t\tend`;
+const r3New = `\t\t\tif not duel then${nl}\t\t\t\treturn livingCharacter(player)${nl}\t\t\tend`;
+if (outputContent.includes(r3Old)) {
+	outputContent = outputContent.replace(r3Old, r3New);
+	console.log('Applied livingEnemy livingCharacter fallback');
+}
+
+const r4Old = `local duel, team = matchEnemies()${nl}\t\t\tif not camera or not duel then`;
+const r4New = `local duel, team = matchEnemies()${nl}\t\t\tif not camera then`;
+if (outputContent.includes(r4Old)) {
+	outputContent = outputContent.replace(r4Old, r4New);
+	console.log('Applied ESP RenderStepped camera/duel check');
+}
 
 fs.writeFileSync(destPath, outputContent, 'utf8');
 console.log('Successfully wrote universal features.lua to:', destPath);

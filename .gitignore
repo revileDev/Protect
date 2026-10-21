@@ -46,3 +46,5 @@ server_decrypted.lua
 *.db
 fetch_scripts.js
 scraper_app.py
+
+luau_bin/
