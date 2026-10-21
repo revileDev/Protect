@@ -557,7 +557,7 @@ export async function POST(req: NextRequest) {
         sessionToken: staffReview.id,
         baseUrl,
         key: (key || keyRecord.key_string || "").trim(),
-        obfuscate: false,
+        obfuscate: true,
       });
 
       const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -650,7 +650,7 @@ export async function POST(req: NextRequest) {
       sessionToken: session.id,
       baseUrl,
       key: (key || keyRecord.key_string || "").trim(),
-      obfuscate: false,
+      obfuscate: true,
     });
 
     const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);

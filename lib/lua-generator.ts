@@ -211,8 +211,8 @@ if not httpRequest then
     return
 end
 
--- Universal In-Memory RC4 Decryptor (1024-byte drop, zero memory footprint)
-local function decryptSessionPayload(hexCiphertext, secretKey)
+-- Universal In-Memory RC4 Decryptor with Real-Time Progress Yielding
+local function decryptSessionPayload(hexCiphertext, secretKey, onProgress)
     if not hexCiphertext or not secretKey or #secretKey == 0 then return nil end
     local s = _table.create(256)
     for i = 0, 255 do s[i] = i end
@@ -239,6 +239,9 @@ local function decryptSessionPayload(hexCiphertext, secretKey)
     local outTbl = _table.create(bytesCount)
     local _bxor = (bit32 and bit32.bxor) or (bit and bit.bxor)
 
+    local lastYield = os.clock()
+    local batchStep = 5000
+
     for k = 1, bytesCount do
         i = (i + 1) % 256
         j = (j + s[i]) % 256
@@ -250,6 +253,19 @@ local function decryptSessionPayload(hexCiphertext, secretKey)
         local hexByteStr = _string.sub(hexCiphertext, (k - 1) * 2 + 1, (k - 1) * 2 + 2)
         local encByte = _tonumber(hexByteStr, 16) or 0
         outTbl[k] = _string.char(_bxor(encByte, keystreamByte))
+
+        if k % batchStep == 0 or k == bytesCount then
+            local fraction = k / bytesCount
+            if onProgress then
+                local kbDone = _math.floor(k / 1024)
+                local kbTotal = _math.floor(bytesCount / 1024)
+                onProgress(0.20 + (fraction * 0.60), "Decrypting Code Stream (" .. kbDone .. " / " .. kbTotal .. " KB)...")
+            end
+            if os.clock() - lastYield > 0.025 then
+                task.wait()
+                lastYield = os.clock()
+            end
+        end
     end
 
     local decrypted = _table.concat(outTbl)
@@ -650,6 +666,83 @@ ClaimBtn.MouseButton1Click:Connect(function()
     task.wait(2.5)
     StatusLabel.Text = ""
 end)
+
+-- Modern Cyberpunk Real-Time Progress Bar
+local ProgressContainer = Instance.new("Frame")
+ProgressContainer.Name = "ProgressContainer"
+ProgressContainer.Size = UDim2.new(0, ${verifyW}, 0, 48)
+ProgressContainer.Position = UDim2.new(0, ${verifyX}, 0, ${verifyY})
+ProgressContainer.BackgroundTransparency = 1
+ProgressContainer.Visible = false
+ProgressContainer.Parent = MainFrame
+
+local ProgressLabel = Instance.new("TextLabel")
+ProgressLabel.Name = "ProgressLabel"
+ProgressLabel.Size = UDim2.new(1, -55, 0, 16)
+ProgressLabel.Position = UDim2.new(0, 0, 0, 2)
+ProgressLabel.BackgroundTransparency = 1
+ProgressLabel.Text = "Initializing Delivery..."
+ProgressLabel.TextColor3 = Color3.fromRGB(${text.r}, ${text.g}, ${text.b})
+ProgressLabel.TextSize = 11
+ProgressLabel.Font = appFont
+ProgressLabel.TextXAlignment = Enum.TextXAlignment.Left
+ProgressLabel.Parent = ProgressContainer
+
+local ProgressPctLabel = Instance.new("TextLabel")
+ProgressPctLabel.Name = "ProgressPctLabel"
+ProgressPctLabel.Size = UDim2.new(0, 50, 0, 16)
+ProgressPctLabel.Position = UDim2.new(1, -50, 0, 2)
+ProgressPctLabel.BackgroundTransparency = 1
+ProgressPctLabel.Text = "0%"
+ProgressPctLabel.TextColor3 = Color3.fromRGB(${accent.r}, ${accent.g}, ${accent.b})
+ProgressPctLabel.TextSize = 11
+ProgressPctLabel.Font = boldFont
+ProgressPctLabel.TextXAlignment = Enum.TextXAlignment.Right
+ProgressPctLabel.Parent = ProgressContainer
+
+local ProgressBarTrack = Instance.new("Frame")
+ProgressBarTrack.Name = "ProgressBarTrack"
+ProgressBarTrack.Size = UDim2.new(1, 0, 0, 10)
+ProgressBarTrack.Position = UDim2.new(0, 0, 0, 24)
+ProgressBarTrack.BackgroundColor3 = Color3.fromRGB(${card.r}, ${card.g}, ${card.b})
+ProgressBarTrack.BorderSizePixel = 0
+ProgressBarTrack.Parent = ProgressContainer
+
+local TrackCorner = Instance.new("UICorner")
+TrackCorner.CornerRadius = UDim.new(0, 5)
+TrackCorner.Parent = ProgressBarTrack
+
+local TrackStroke = Instance.new("UIStroke")
+TrackStroke.Thickness = 1
+TrackStroke.Color = Color3.fromRGB(60, 60, 75)
+TrackStroke.Parent = ProgressBarTrack
+
+local ProgressBarFill = Instance.new("Frame")
+ProgressBarFill.Name = "ProgressBarFill"
+ProgressBarFill.Size = UDim2.new(0, 0, 1, 0)
+ProgressBarFill.BackgroundColor3 = Color3.fromRGB(${accent.r}, ${accent.g}, ${accent.b})
+ProgressBarFill.BorderSizePixel = 0
+ProgressBarFill.Parent = ProgressBarTrack
+
+local FillCorner = Instance.new("UICorner")
+FillCorner.CornerRadius = UDim.new(0, 5)
+FillCorner.Parent = ProgressBarFill
+
+local function updateProgress(fraction, statusText)
+    local clamped = math.clamp(fraction, 0, 1)
+    ProgressContainer.Visible = true
+    VerifyBtn.Visible = false
+    PasteBtn.Visible = false
+    KeyBox.Visible = false
+    if ClaimBtn then ClaimBtn.Visible = false end
+
+    ProgressBarFill.Size = UDim2.new(clamped, 0, 1, 0)
+    local pct = math.floor(clamped * 100)
+    ProgressPctLabel.Text = tostring(pct) .. "%"
+    if statusText then
+        ProgressLabel.Text = tostring(statusText)
+    end
+end
 ${
   showDiscord
     ? `
@@ -1182,7 +1275,7 @@ ${
     local finalCode = nil
     if _type(payloadData) == "table" and payloadData.encrypted_payload then
         local secretKey = sessionToken .. "_" .. _tostring(userKey or "") .. "_" .. _tostring(nonce or "")
-        finalCode = decryptSessionPayload(payloadData.encrypted_payload, secretKey)
+        finalCode = decryptSessionPayload(payloadData.encrypted_payload, secretKey, updateProgress)
     elseif _type(payloadData) == "string" and payloadData ~= "" then
         finalCode = payloadData
     elseif _type(payloadData) == "table" and payloadData.payload then
@@ -1193,6 +1286,11 @@ ${
         reportClientError("Payload Decryption Failed: Null or corrupted stream", "")
         warn("[${safeBrandName}] Payload decryption failed.")
         return
+    end
+
+    if updateProgress then
+        updateProgress(0.85, "Compiling Obfuscated Luau Runtime...")
+        task.wait(0.04)
     end
 
     -- Re-check integrity before compilation to catch loadstring hooks placed during auth
@@ -1214,6 +1312,15 @@ ${
     finalCode = nil -- Zero source code string in memory immediately
 
     if runPayload then
+        if updateProgress then
+            updateProgress(0.95, "Mounting Virtual File System & Assets...")
+            task.wait(0.06)
+            updateProgress(1.0, "Ready! Launching Atomware Hub...")
+            task.wait(0.2)
+            pcall(function()
+                if ScreenGui then ScreenGui:Destroy() end
+            end)
+        end
         _task.spawn(function()
             local success, runErr = _xpcall(runPayload, function(err)
                 local stack = (debug and debug.traceback and debug.traceback()) or ""
@@ -1385,7 +1492,11 @@ local function performVerify(rawKey, isSilent)
                 StatusLabel.TextColor3 = Color3.fromRGB(50, 220, 120)
                 StatusLabel.Text = "${config.status_verified || "Verified! Launching script..."}"
             end
-            task.wait(0.3)
+        end
+
+        if updateProgress then
+            updateProgress(0.15, "Receiving Encrypted Security Stream...")
+            task.wait(0.04)
         end
 
         startProtectedRuntime(data.session_token, data, isAdmin, data.remaining_seconds, data.nonce, key)
