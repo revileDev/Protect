@@ -795,7 +795,7 @@ local function createCosmetics(): CosmeticsApi
 			for _, descendant in model:GetDescendants() do
 				if descendant:HasTag("CharmLeaderboardRank") then
 					pcall(function()
-						(descendant :: any).Text = text
+						;(descendant :: any).Text = text
 					end)
 				end
 			end
@@ -1175,7 +1175,7 @@ local function createCosmetics(): CosmeticsApi
 						return
 					end
 					pcall(function()
-						(part :: Instance).LocalTransparencyModifier = maxT
+						;(part :: Instance).LocalTransparencyModifier = maxT
 						for _, descendant in (part :: Instance):GetDescendants() do
 							if descendant:IsA("Texture")
 								or descendant:IsA("Beam")
@@ -10164,7 +10164,7 @@ export type Window = {
 		},
 	}
 	pcall(function()
-		(_G :: any).__sonata_bridge = DrawingBridge
+		;(_G :: any).__sonata_bridge = DrawingBridge
 	end)
 	local DKit: any = createDrawingKit(DrawingBridge)
 
@@ -12242,7 +12242,7 @@ Bitstream Vera
 			gui.DisplayOrder = 999999
 			gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 			pcall(function()
-				(gui :: any).OnTopOfCoreBlur = true
+				;(gui :: any).OnTopOfCoreBlur = true
 			end)
 			local parent: Instance? = fsGethui()
 			if not parent then
@@ -15234,12 +15234,12 @@ Bitstream Vera
 	DrawingBridge.Movement = Movement
 	DrawingBridge.Exploits = Exploits
 	pcall(function()
-		(_G :: any).__sonata_bridge = DrawingBridge
-		(_G :: any).__sonata_aim = Aim
-		(_G :: any).__sonata_silent = Silent
-		(_G :: any).__sonata_esp = DrawingBridge.Esp
-		(_G :: any).__sonata_movement = Movement
-		(_G :: any).__sonata_exploits = Exploits
+		;(_G :: any).__sonata_bridge = DrawingBridge
+		;(_G :: any).__sonata_aim = Aim
+		;(_G :: any).__sonata_silent = Silent
+		;(_G :: any).__sonata_esp = DrawingBridge.Esp
+		;(_G :: any).__sonata_movement = Movement
+		;(_G :: any).__sonata_exploits = Exploits
 	end)
 
 	local RAGE_SLOT_NUMBERS = {
@@ -17872,19 +17872,19 @@ Bitstream Vera
 				return
 			end
 			pcall(function()
-				(useItem :: RemoteEvent):FireServer(objectId, startEnum, cameradata, nil)
+				;(useItem :: RemoteEvent):FireServer(objectId, startEnum, cameradata, nil)
 			end)
 			if finishShot then
 				task.defer(function()
 					if stopEnum then
 						pcall(function()
-							(useItem :: RemoteEvent):FireServer(objectId, stopEnum, cameradata, nil)
+							;(useItem :: RemoteEvent):FireServer(objectId, stopEnum, cameradata, nil)
 						end)
 					end
 					task.wait(0.03)
 					if reloadEnum then
 						pcall(function()
-							(useItem :: RemoteEvent):FireServer(objectId, reloadEnum, nil, nil)
+							;(useItem :: RemoteEvent):FireServer(objectId, reloadEnum, nil, nil)
 						end)
 					end
 					callAsGame(function()
@@ -22015,7 +22015,7 @@ Bitstream Vera
 						local nextVel = Vector3.new(dir.X * target, vel.Y, dir.Z * target)
 						root.AssemblyLinearVelocity = nextVel
 						pcall(function()
-							(root :: any).Velocity = nextVel
+							;(root :: any).Velocity = nextVel
 						end)
 					end
 					forceStopSlide(mech)
@@ -23329,7 +23329,7 @@ Bitstream Vera
 			for label, rec in aliasWritten do
 				pcall(function()
 					if label.Parent and (label :: TextLabel).Text == rec.written then
-						(label :: TextLabel).Text = rec.original
+						;(label :: TextLabel).Text = rec.original
 					end
 				end)
 			end
@@ -23359,7 +23359,7 @@ Bitstream Vera
 					if nextText ~= text then
 						aliasWritten[label] = { original = text, written = nextText }
 						pcall(function()
-							(label :: TextLabel).Text = nextText
+							;(label :: TextLabel).Text = nextText
 						end)
 					end
 				end
@@ -25890,7 +25890,7 @@ Bitstream Vera
 			bag[prop] = current
 		end
 		pcall(function()
-			(inst :: any)[prop] = blank
+			;(inst :: any)[prop] = blank
 		end)
 	end
 
@@ -25906,7 +25906,7 @@ Bitstream Vera
 		for inst, bag in worldUndo.texProps do
 			for prop, value in bag do
 				pcall(function()
-					(inst :: any)[prop] = value
+					;(inst :: any)[prop] = value
 				end)
 			end
 		end
@@ -26136,7 +26136,7 @@ Bitstream Vera
 			return
 		end
 		pcall(function()
-			(inst :: any).Enabled = on
+			;(inst :: any).Enabled = on
 		end)
 	end
 
@@ -26157,7 +26157,7 @@ Bitstream Vera
 		end
 		if current ~= value then
 			pcall(function()
-				(inst :: any)[prop] = value
+				;(inst :: any)[prop] = value
 			end)
 		end
 	end
@@ -26179,14 +26179,14 @@ Bitstream Vera
 		for inst, bag in worldUndo.props do
 			for prop, value in bag do
 				pcall(function()
-					(inst :: any)[prop] = value
+					;(inst :: any)[prop] = value
 				end)
 			end
 		end
 		table.clear(worldUndo.props)
 		if worldUndo.atmosphere then
 			pcall(function()
-				(worldUndo.atmosphere :: Instance):Destroy()
+				;(worldUndo.atmosphere :: Instance):Destroy()
 			end)
 			worldUndo.atmosphere = nil
 		end
@@ -27353,7 +27353,7 @@ Bitstream Vera
 				local mm = remotes and remotes:FindFirstChild("Matchmaking")
 				local joinQueue = mm and mm:FindFirstChild("JoinQueue")
 				if joinQueue and (joinQueue:IsA("RemoteFunction") or type((joinQueue :: any).InvokeServer) == "function") then
-					(joinQueue :: any):InvokeServer(AutoQueue.match or "1v1")
+					;(joinQueue :: any):InvokeServer(AutoQueue.match or "1v1")
 				end
 			end)
 			autoQueueInvoking = false
@@ -29108,7 +29108,7 @@ Bitstream Vera
 			end
 
 			local function setSlotNum(field: string, val: number)
-				(ClientFx :: any)["customChar" .. field] = val
+				;(ClientFx :: any)["customChar" .. field] = val
 				customRefresh()
 			end
 
@@ -29322,10 +29322,10 @@ Bitstream Vera
 		end
 		local function stampAdornmentColor(inst: Instance, c: Color3)
 			pcall(function()
-				(inst :: any).Color3 = c
+				;(inst :: any).Color3 = c
 			end)
 			pcall(function()
-				(inst :: any).Color = c
+				;(inst :: any).Color = c
 			end)
 		end
 		local function stampEffectColor(inst: Instance, c: Color3)
@@ -30745,7 +30745,7 @@ Bitstream Vera
 				end
 			end
 			pcall(function()
-				(part :: any).MaterialVariant = ""
+				;(part :: any).MaterialVariant = ""
 			end)
 		end
 

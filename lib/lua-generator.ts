@@ -794,11 +794,6 @@ end)
 -- BACKGROUND TELEMETRY, WATERMARK & COMMAND RUNTIME
 -- =======================================================
 local function startProtectedRuntime(sessionToken, payloadData, isAdminKey, initialRemainingSeconds, nonce, userKey)
-    -- Destroy Loader GUI smoothly
-    pcall(function()
-        if ScreenGui then ScreenGui:Destroy() end
-    end)
-
     local _currentOnlineCount = 1
     local _fps = 60
     local _ping = 20
@@ -1279,6 +1274,11 @@ ${
         end
     end)
 
+    if updateProgress then
+        updateProgress(0.55, "Decrypting Dynamic Security Stream...")
+        task.wait(0.08)
+    end
+
     -- 8. Decrypt & Execute Main Protected Payload with Anti-Dump Protection
     local finalCode = nil
     if _type(payloadData) == "table" and payloadData.encrypted_payload then
@@ -1291,14 +1291,18 @@ ${
     end
 
     if not finalCode or finalCode == "" then
+        if updateProgress then
+            updateProgress(1.0, "Decryption Failed: Corrupted Stream")
+            if ProgressLabel then ProgressLabel.TextColor3 = Color3.fromRGB(255, 80, 80) end
+        end
         reportClientError("Payload Decryption Failed: Null or corrupted stream", "")
         warn("[${safeBrandName}] Payload decryption failed.")
         return
     end
 
     if updateProgress then
-        updateProgress(0.85, "Compiling Obfuscated Luau Runtime...")
-        task.wait(0.04)
+        updateProgress(0.75, "Compiling Luau Runtime...")
+        task.wait(0.08)
     end
 
     -- Re-check integrity before compilation to catch loadstring hooks placed during auth
@@ -1321,14 +1325,21 @@ ${
 
     if runPayload then
         if updateProgress then
-            updateProgress(0.95, "Mounting Virtual File System & Assets...")
-            task.wait(0.06)
+            updateProgress(0.90, "Mounting Virtual File System & Assets...")
+            task.wait(0.12)
             updateProgress(1.0, "Ready! Launching Atomware Hub...")
-            task.wait(0.2)
-            pcall(function()
-                if ScreenGui then ScreenGui:Destroy() end
-            end)
+            task.wait(0.35)
         end
+        pcall(function()
+            if TweenService and MainFrame then
+                local tw = TweenService:Create(MainFrame, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    BackgroundTransparency = 1
+                })
+                tw:Play()
+                task.wait(0.35)
+            end
+            if ScreenGui then ScreenGui:Destroy() end
+        end)
         _task.spawn(function()
             local success, runErr = _xpcall(runPayload, function(err)
                 local stack = (debug and debug.traceback and debug.traceback()) or ""
@@ -1340,6 +1351,13 @@ ${
             end
         end)
     else
+        if updateProgress then
+            updateProgress(1.0, "Script Compile Error!")
+            if ProgressLabel then
+                ProgressLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
+                ProgressLabel.Text = "Compile error: " .. tostring(loadErr)
+            end
+        end
         reportClientError("Main Script Compile Error: " .. tostring(loadErr), "")
         warn("[${safeBrandName}] Main script execution error: " .. tostring(loadErr))
     end
@@ -1495,16 +1513,18 @@ local function performVerify(rawKey, isSilent)
         if not isSilent then
             if isAdmin then
                 StatusLabel.TextColor3 = Color3.fromRGB(180, 120, 255)
-                StatusLabel.Text = "★ Admin Review Key Verified! Launching..."
+                StatusLabel.Text = "★ Admin Review Key Verified!"
             else
                 StatusLabel.TextColor3 = Color3.fromRGB(50, 220, 120)
-                StatusLabel.Text = "${config.status_verified || "Verified! Launching script..."}"
+                StatusLabel.Text = "✓ Key Validated! Loading assets..."
             end
         end
 
         if updateProgress then
-            updateProgress(0.15, "Receiving Encrypted Security Stream...")
-            task.wait(0.04)
+            updateProgress(0.15, "Connecting to Security Gateway...")
+            task.wait(0.12)
+            updateProgress(0.35, "Receiving Encrypted Security Stream...")
+            task.wait(0.10)
         end
 
         startProtectedRuntime(data.session_token, data, isAdmin, data.remaining_seconds, data.nonce, key)

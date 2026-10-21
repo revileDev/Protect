@@ -509,6 +509,20 @@ _G.AtomwareFeaturesLoaded = true
 print("[Atomware Rivals] Authoritative Features Backend Loaded Successfully (PC, Mobile, and Lite Compatible)!")
 `;
 
+// Fix all Luau ambiguous syntax statements starting with '('
+let semicolonFixCount = 0;
+for (let i = 0; i < lines.length; i++) {
+	const trimmed = lines[i].trim();
+	if (trimmed.startsWith('(')) {
+		if (/^\([a-zA-Z0-9_.]+\s*::/.test(trimmed) || /^\([a-zA-Z0-9_.]+\s*\)/.test(trimmed)) {
+			const indent = lines[i].match(/^\s*/)[0];
+			lines[i] = indent + ';' + trimmed;
+			semicolonFixCount++;
+		}
+	}
+}
+console.log('Fixed Luau ambiguous statements starting with (:', semicolonFixCount);
+
 const newline = isCRLF ? '\r\n' : '\n';
 const outputContent = lines.join(newline) + newline + tailCode;
 

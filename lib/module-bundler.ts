@@ -41,11 +41,13 @@ export function bundleModularScript(bundle: ModuleBundle): string {
     Object.values(files)[0] ||
     "";
 
-  // Prepare modules table
-  const moduleEntries: string[] = [];
+  // Prepare modules table with shared function pointers (prevents duplicate compilation and saves memory)
+  const moduleDefs: string[] = [];
+  const moduleRegistrations: string[] = [];
   const registeredKeys = new Set<string>();
+  const contentToVarMap = new Map<string, string>();
+  let modIdx = 0;
 
-  // Always embed all non-entry modules directly into the in-memory virtual file system
   for (const [filePath, content] of Object.entries(files)) {
     if (filePath === entryFile || filePath === cleanEntry) continue;
 
@@ -54,14 +56,17 @@ export function bundleModularScript(bundle: ModuleBundle): string {
     const baseName = cleanKey.split("/").pop() || cleanKey;
     const baseNameWithoutExt = baseName.replace(/\.lua$/i, "");
 
-    const escapedContent = `function()
-${content}
-end`;
+    let modVar = contentToVarMap.get(content);
+    if (!modVar) {
+      modVar = `__mod_${modIdx++}`;
+      contentToVarMap.set(content, modVar);
+      moduleDefs.push(`local ${modVar} = function()\n${content}\nend\n`);
+    }
 
     const registerKey = (k: string) => {
       if (!registeredKeys.has(k)) {
         registeredKeys.add(k);
-        moduleEntries.push(`    ["${k}"] = ${escapedContent}`);
+        moduleRegistrations.push(`__VFS_MODULES["${k}"] = ${modVar}`);
       }
     };
 
@@ -70,8 +75,6 @@ end`;
     if (baseName !== cleanKey) registerKey(baseName);
     if (baseNameWithoutExt !== keyWithoutExt && baseNameWithoutExt !== baseName) registerKey(baseNameWithoutExt);
   }
-
-  const modulesTable = moduleEntries.join(",\n");
 
   const streamingRequireLogic = dynamicStreaming && slug && sessionToken
     ? `
@@ -110,9 +113,9 @@ end`;
   Protected In-Memory Virtual File System
   =======================================================
 ]]--
-local __VFS_MODULES = {
-${modulesTable}
-}
+local __VFS_MODULES = {}
+${moduleDefs.join("\n")}
+${moduleRegistrations.join("\n")}
 
 local __VFS_CACHE = {}
 
@@ -154,7 +157,14 @@ end
 
   if (obfuscate) {
     try {
-      return obfuscateLuau(assembledBundle);
+      // Safe, verified Luau obfuscation (string virtualization + invariants, zero ambiguous syntax)
+      return obfuscateLuau(assembledBundle, {
+        encryptStrings: true,
+        mangleNumbers: false,
+        stripComments: true,
+        injectOpaquePredicates: true,
+        mangleIdentifiers: false, // Keep identifiers clean for giant modules to ensure property compatibility
+      });
     } catch {
       return assembledBundle;
     }

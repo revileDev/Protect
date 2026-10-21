@@ -3,9 +3,9 @@
  * Production-Grade Multi-Layer Obfuscation & Virtualization Engine for Roblox Luau
  * 
  * Capabilities:
- * - In-Line Multi-Layer Polymorphic String Virtualization (zero central decryptor helpers)
- * - Integer Constant Mutation & Bitwise Scrambling
- * - Lexical Local & Parameter Identifier Mangling (Homoglyphs)
+ * - Central Polymorphic Keystream String Virtualization (clean identifier calls, zero ambiguous syntax)
+ * - Protected Multi-Line String & Bytecode Escaping
+ * - Safe Homoglyph Lexical Variable Mangling
  * - Anti-Analysis Mathematical Invariant Injection
  * - Strict Roblox Luau AST Compatibility across all Mobile and PC Executors
  */
@@ -51,7 +51,7 @@ function randomHomoglyph(index: number): string {
 export function obfuscateLuau(code: string, options: ObfuscateOptions = {}): string {
   const {
     encryptStrings = true,
-    mangleNumbers = true,
+    mangleNumbers = false, // Keep numbers clean by default to prevent Luau ambiguous syntax
     stripComments = true,
     injectOpaquePredicates = true,
     mangleIdentifiers = true,
@@ -59,7 +59,15 @@ export function obfuscateLuau(code: string, options: ObfuscateOptions = {}): str
 
   let transformed = code;
 
-  // 1. Strip comments while safely preserving string contents
+  // 1. Protect multi-line bracket strings ([=[ ... ]=], [[ ... ]]) before comment stripping
+  const bracketStrings: string[] = [];
+  transformed = transformed.replace(/\[(=*)\[[\s\S]*?\]\1\]/g, (match) => {
+    const idx = bracketStrings.length;
+    bracketStrings.push(match);
+    return `__BRACKET_STR_${idx}__`;
+  });
+
+  // 2. Strip single-line comments safely
   if (stripComments) {
     transformed = transformed.replace(/--\[\[[\s\S]*?\]\]/g, "");
     const lines = transformed.split("\n");
@@ -94,10 +102,22 @@ export function obfuscateLuau(code: string, options: ObfuscateOptions = {}): str
     transformed = cleanedLines.join("\n");
   }
 
-  // 2. In-Line Multi-Layer Polymorphic String Virtualization (No central decryptor helper)
+  // Restore bracket strings
+  transformed = transformed.replace(/__BRACKET_STR_(\d+)__/g, (_, idx) => {
+    return bracketStrings[parseInt(idx, 10)] || "";
+  });
+
+  // 3. Central Polymorphic String Virtualization Helper
+  // Using a single helper function avoids creating thousands of nested IIFE closures
+  // and eliminates Luau "Ambiguous syntax" errors because function calls don't start with '('
+  const decHelperName = `_sdec_${Math.floor(Math.random() * 899999 + 100000).toString(36)}`;
+  let didEncryptAnyString = false;
+
   if (encryptStrings) {
-    transformed = transformed.replace(/(["'])((\\{2}|\\\1|[\s\S])*?)\1/g, (match, quote, strContent) => {
-      if (strContent.length <= 1) return match;
+    // Only encrypt simple single-line string literals (len 2..300)
+    transformed = transformed.replace(/(["'])((\\{2}|\\\1|[^\r\n\\])*?)\1/g, (match, quote, strContent) => {
+      if (strContent.length <= 1 || strContent.length > 300) return match;
+      if (strContent.includes("%") || strContent.startsWith("rbxasset")) return match;
 
       let rawText = strContent;
       try {
@@ -109,7 +129,7 @@ export function obfuscateLuau(code: string, options: ObfuscateOptions = {}): str
           .replace(/\\'/g, "'")
           .replace(/\\\\/g, "\\");
       } catch {
-        // fallback
+        return match;
       }
 
       const rawBytes: Uint8Array =
@@ -119,73 +139,48 @@ export function obfuscateLuau(code: string, options: ObfuscateOptions = {}): str
 
       const bytes = Array.from(rawBytes);
       const key = Math.floor(Math.random() * 240) + 10;
-      const offset = Math.floor(Math.random() * 25) + 5;
 
-      // Compact polymorphic hex-stream inline decryptor (fast compile, low memory)
       let hex = "";
       for (const b of bytes) {
         const enc = (b ^ key) & 255;
         hex += enc.toString(16).padStart(2, "0");
       }
-      return `(function() local _h="${hex}" local _r={} local _c=1 for _i=1,#_h,2 do _r[_c]=string.char(bit32.bxor(tonumber(_h:sub(_i,_i+1),16) or 0,${key})) _c=_c+1 end return table.concat(_r) end)()`;
+
+      didEncryptAnyString = true;
+      return `${decHelperName}("${hex}", ${key})`;
     });
   }
 
-  // 3. Integer Constant Arithmetic Scrambling
-  if (mangleNumbers) {
-    transformed = transformed.replace(/(?<![0-9a-zA-Z_."'`])([2-9]|[1-9]\d{1,3})(?![0-9a-zA-Z_."'`])/g, (match, numStr) => {
-      const num = parseInt(numStr, 10);
-      if (isNaN(num) || num > 9999 || num < 2) return match;
-      const r = Math.floor(Math.random() * 15) + 1;
-      const choice = Math.floor(Math.random() * 3);
-      if (choice === 0) {
-        return `(${num + r} - ${r})`;
-      } else if (choice === 1) {
-        return `(bit32.bxor(${num ^ r}, ${r}))`;
-      } else {
-        return `(${num * 2} / 2)`;
-      }
-    });
+  // Prepend string decryption helper if strings were virtualized
+  if (didEncryptAnyString) {
+    const helperCode = `local function ${decHelperName}(h, k) local b32 = bit32 or bit local bx = b32.bxor local sc = string.char local sn = tonumber local ss = string.sub local r = {} local c = 1 for i = 1, #h, 2 do r[c] = sc(bx(sn(ss(h, i, i+1), 16) or 0, k)) c = c + 1 end return table.concat(r) end\n`;
+    transformed = helperCode + transformed;
   }
 
-  // 4. Lexical Local & Parameter Identifier Mangling (Homoglyphs)
-  if (mangleIdentifiers) {
+  // 4. Safe Identifier Mangling (Local scope only)
+  if (mangleIdentifiers && code.length < 500000) {
     const declaredLocals = new Map<string, string>();
     let identCounter = 0;
 
-    // A. Match local declarations: "local var1, var2"
-    const localDeclRegex = /local\s+(?:function\s+)?([a-zA-Z_][a-zA-Z0-9_]*(?:\s*,\s*[a-zA-Z_][a-zA-Z0-9_]*)*)/g;
+    const localDeclRegex = /local\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\s*,\s*[a-zA-Z_][a-zA-Z0-9_]*)*)\s*=/g;
     let declMatch;
     while ((declMatch = localDeclRegex.exec(transformed)) !== null) {
       const vars = declMatch[1].split(",").map((v) => v.trim());
       for (const v of vars) {
-        if (!LUAU_KEYWORDS.has(v) && !PRESERVED_GLOBALS.has(v) && !declaredLocals.has(v) && v.length >= 2) {
+        if (!LUAU_KEYWORDS.has(v) && !PRESERVED_GLOBALS.has(v) && !declaredLocals.has(v) && v.length >= 3 && !v.startsWith("__")) {
           declaredLocals.set(v, randomHomoglyph(identCounter++));
         }
       }
     }
 
-    // B. Match function parameter declarations: "function(param1, param2)"
-    const paramRegex = /function\s*(?:[a-zA-Z0-9_]*\s*)?\(([^)]*)\)/g;
-    let pMatch;
-    while ((pMatch = paramRegex.exec(transformed)) !== null) {
-      const params = pMatch[1].split(",").map((p) => p.trim());
-      for (const p of params) {
-        if (p && !LUAU_KEYWORDS.has(p) && !PRESERVED_GLOBALS.has(p) && !declaredLocals.has(p) && p.length >= 2) {
-          declaredLocals.set(p, randomHomoglyph(identCounter++));
-        }
-      }
-    }
-
-    // C. Substitute declared local variables efficiently in batched single-pass regex
     if (declaredLocals.size > 0) {
       const allKeys = Array.from(declaredLocals.keys());
-      const BATCH_SIZE = 400;
+      const BATCH_SIZE = 300;
       for (let i = 0; i < allKeys.length; i += BATCH_SIZE) {
         const batch = allKeys.slice(i, i + BATCH_SIZE);
         const escaped = batch.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
         const batchRegex = new RegExp(`(?<![.:0-9a-zA-Z_])\\b(${escaped.join("|")})\\b(?![0-9a-zA-Z_])`, "g");
-        transformed = transformed.replace(batchRegex, (match) => declaredLocals.get(match) || match);
+        transformed = transformed.replace(batchRegex, (m) => declaredLocals.get(m) || m);
       }
     }
   }
