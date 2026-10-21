@@ -50,13 +50,18 @@ async function main() {
   console.log(`Found script: "${script.name}" (ID: ${script.id})`);
   console.log('Current entry file:', script.entry_file);
   console.log('Current modules count:', Object.keys(script.modules || {}).length);
-  console.log('Current module keys:', Object.keys(script.modules || {}));
 
   // Read local files
   const rivalsDir = path.join(__dirname, 'rivals');
   const initCode = fs.readFileSync(path.join(rivalsDir, 'init.lua'), 'utf8');
   const featuresCode = fs.readFileSync(path.join(rivalsDir, 'features.lua'), 'utf8');
   const mobileLiteUiCode = fs.readFileSync(path.join(rivalsDir, 'mobile_lite_ui.lua'), 'utf8');
+  const mobileUiCode = fs.existsSync(path.join(rivalsDir, 'mobile_ui.lua'))
+    ? fs.readFileSync(path.join(rivalsDir, 'mobile_ui.lua'), 'utf8')
+    : null;
+  const mainUiCode = fs.existsSync(path.join(rivalsDir, 'main_ui.lua'))
+    ? fs.readFileSync(path.join(rivalsDir, 'main_ui.lua'), 'utf8')
+    : null;
   const featuresLiteCode = fs.readFileSync(path.join(rivalsDir, 'features_lite.lua'), 'utf8');
 
   const updatedModules = Object.assign({}, script.modules || {}, {
@@ -70,7 +75,16 @@ async function main() {
     'rivals/features_lite.lua': featuresLiteCode,
   });
 
-  console.log('Updating script with authoritative features.lua (lines:', featuresCode.split(/\r?\n/).length, ')');
+  if (mainUiCode) {
+    updatedModules['main_ui.lua'] = mainUiCode;
+    updatedModules['rivals/main_ui.lua'] = mainUiCode;
+  }
+  if (mobileUiCode) {
+    updatedModules['mobile_ui.lua'] = mobileUiCode;
+    updatedModules['rivals/mobile_ui.lua'] = mobileUiCode;
+  }
+
+  console.log('Updating script with universal features.lua (lines:', featuresCode.split(/\r?\n/).length, ')');
 
   const { error: updateError } = await supabase
     .from('scripts')

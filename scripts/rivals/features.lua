@@ -9320,7 +9320,7 @@ return library
 ]=]
 
 local function loadDrawingLibrary(): any
-	if _G.AtomwareLiteMode == true then
+	if _G.AtomwareLiteMode == true or _G.AtomwareWindow ~= nil or _G.AtomwareUILoaded == true then
 		local function createMockSection(name)
 			local sec = { text = name }
 			function sec:AddToggle(opts)
@@ -9398,7 +9398,7 @@ local function loadDrawingLibrary(): any
 			SetOpen = function(self, val) self.open = val end,
 			SelectTheme = function(self) end,
 			SetTheme = function(self) end,
-			SendNotification = function(self, msg) print("[Atomware Lite]", msg) end,
+			SendNotification = function(self, msg) print("[Atomware]", msg) end,
 			CreateSettingsTab = function(self, menu)
 				local sTab = createMockTab("settings")
 				sTab.UpdateSections = function() end
@@ -33864,7 +33864,9 @@ end
 Window({ title = "sonata" })
 
 --//==================================================
---// ATOMWARE RIVALS - MOBILE LITE EVENT ADAPTER
+--// ATOMWARE RIVALS - UNIVERSAL UI EVENT ADAPTER
+--// Supports PC UI (main_ui.lua), Mobile UI (mobile_ui.lua),
+--// and Mobile Lite UI (mobile_lite_ui.lua)
 --//==================================================
 do
 	local Players = game:GetService("Players")
@@ -33884,12 +33886,14 @@ do
 	_G.__HitboxExpanderEnabled = false
 	_G.__HitboxSize = 8
 	_G.__HitboxTargetPart = "Head"
+	_G.__HitboxTransparency = 0.5
 	local originalSizes = {}
 
 	RunService.Heartbeat:Connect(function()
 		if not _G.__HitboxExpanderEnabled then return end
 		local targetPartName = _G.__HitboxTargetPart or "Head"
 		local size = _G.__HitboxSize or 8
+		local trans = _G.__HitboxTransparency or 0.5
 		for _, player in ipairs(Players:GetPlayers()) do
 			if player ~= LocalPlayer and player.Character then
 				local part = player.Character:FindFirstChild(targetPartName)
@@ -33898,7 +33902,7 @@ do
 						originalSizes[part] = part.Size
 					end
 					part.Size = Vector3.new(size, size, size)
-					part.Transparency = 0.5
+					part.Transparency = trans
 					part.CanCollide = false
 				end
 			end
@@ -33917,9 +33921,11 @@ do
 		table.clear(originalSizes)
 	end
 
-	-- Connect Mobile Lite UI Events
+	-- Connect UI Events across all PC & Mobile UI Frameworks
 	if _G.OnToggle then
-		-- Combat: Silent Aim
+		-- =========================================================
+		-- COMBAT: SILENT AIM
+		-- =========================================================
 		_G.OnToggle("Enable Silent Aim", function(v)
 			if Silent then Silent.enabled = (v == true) end
 		end)
@@ -33947,8 +33953,15 @@ do
 				end
 			end
 		end)
+		if _G.OnColorPicker then
+			_G.OnColorPicker("Silent FOV Color", function(c3)
+				if Silent then Silent.fovColor1 = c3 end
+			end)
+		end
 
-		-- Combat: Aimbot
+		-- =========================================================
+		-- COMBAT: AIMBOT
+		-- =========================================================
 		_G.OnToggle("Enable Aimbot", function(v)
 			if Aim then Aim.enabled = (v == true) end
 		end)
@@ -33969,15 +33982,54 @@ do
 		end)
 		_G.OnDropdown("Aimbot Mode", function(v)
 			if Aim then
-				if v == "Always On" then
+				if v == "Always On" or v == "Always" then
 					Aim.keyName = "None"
 				else
 					Aim.keyName = v
 				end
 			end
 		end)
+		_G.OnDropdown("Aimbot Target Part", function(v)
+			if Aim then
+				Aim.hitboxes = {
+					Head = (v == "Head" or v == "Closest"),
+					Torso = (v == "Torso"),
+					UpperTorso = (v == "Torso"),
+					LowerTorso = (v == "Torso"),
+					HumanoidRootPart = false,
+				}
+			end
+		end)
+		if _G.OnKeybind then
+			_G.OnKeybind("Aimbot Key", function(k)
+				if Aim then Aim.keyName = tostring(k) end
+			end)
+		end
+		if _G.OnColorPicker then
+			_G.OnColorPicker("Aimbot FOV Color", function(c3)
+				if Aim then Aim.fovColor1 = c3 end
+			end)
+		end
 
-		-- Combat: Hitbox Expander
+		-- =========================================================
+		-- COMBAT: TRIGGERBOT
+		-- =========================================================
+		_G.OnToggle("Enable Triggerbot", function(v)
+			if Trigger then Trigger.enabled = (v == true) end
+		end)
+		_G.OnSlider("Triggerbot Delay", function(v)
+			if Trigger then Trigger.delay = (tonumber(v) or 50) / 1000 end
+		end)
+		_G.OnToggle("Triggerbot Team Check", function(v)
+			if Trigger then Trigger.teamCheck = (v == true) end
+		end)
+		_G.OnToggle("Triggerbot Headshot Only", function(v)
+			if Trigger then Trigger.headOnly = (v == true) end
+		end)
+
+		-- =========================================================
+		-- COMBAT: HITBOX EXPANDER
+		-- =========================================================
 		_G.OnToggle("Enable Hitbox Expander", function(v)
 			_G.__HitboxExpanderEnabled = (v == true)
 			if not v then resetHitboxes() end
@@ -33985,16 +34037,27 @@ do
 		_G.OnSlider("Hitbox Size", function(v)
 			_G.__HitboxSize = tonumber(v) or 8
 		end)
+		_G.OnSlider("Hitbox Transparency", function(v)
+			_G.__HitboxTransparency = (tonumber(v) or 50) / 100
+		end)
 		_G.OnDropdown("Hitbox Target", function(v)
 			_G.__HitboxTargetPart = v or "Head"
 		end)
+		_G.OnDropdown("Hitbox Part", function(v)
+			_G.__HitboxTargetPart = v or "Head"
+		end)
 
-		-- Visuals: ESP
+		-- =========================================================
+		-- VISUALS: ESP
+		-- =========================================================
 		_G.OnToggle("Enable ESP", function(v)
 			if Esp then Esp.master = (v == true) end
 		end)
 		_G.OnToggle("Box ESP", function(v)
 			if Esp then Esp.box = (v == true) end
+		end)
+		_G.OnToggle("Box Fill", function(v)
+			if Esp then Esp.boxFill = (v == true) end
 		end)
 		_G.OnToggle("Health Bar", function(v)
 			if Esp then Esp.health = (v == true) end
@@ -34008,8 +34071,14 @@ do
 		_G.OnToggle("Weapon ESP", function(v)
 			if Esp then Esp.weapon = (v == true) end
 		end)
+		_G.OnToggle("Skeleton ESP", function(v)
+			if Esp then Esp.skeleton = (v == true) end
+		end)
 		_G.OnToggle("Snaplines", function(v)
 			if Esp then Esp.snaplines = (v == true) end
+		end)
+		_G.OnToggle("Chams / Highlights", function(v)
+			if Esp then Esp.chams = (v == true) end
 		end)
 		_G.OnToggle("Team Check", function(v)
 			if Esp then Esp.enemyOnly = (v == true) end
@@ -34017,8 +34086,23 @@ do
 		_G.OnSlider("Max ESP Distance", function(v)
 			if Esp then Esp.maxDistance = tonumber(v) or 1000 end
 		end)
+		if _G.OnColorPicker then
+			_G.OnColorPicker("Box Color", function(c3) if Esp then Esp.boxColor = c3 end end)
+			_G.OnColorPicker("Box Fill Color", function(c3) if Esp then Esp.boxFillColor = c3 end end)
+			_G.OnColorPicker("Skeleton Color", function(c3) if Esp then Esp.skeletonColor = c3 end end)
+			_G.OnColorPicker("Snapline Color", function(c3) if Esp then Esp.snaplinesColor = c3 end end)
+			_G.OnColorPicker("Text Color", function(c3)
+				if Esp then
+					Esp.namesColor = c3
+					Esp.distanceColor = c3
+					Esp.weaponColor = c3
+				end
+			end)
+		end
 
-		-- World & Movement
+		-- =========================================================
+		-- WORLD & LIGHTING
+		-- =========================================================
 		_G.OnToggle("Fullbright", function(v)
 			if v then
 				Lighting.Brightness = 2
@@ -34026,6 +34110,12 @@ do
 				Lighting.GlobalShadows = false
 				Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
 			end
+		end)
+		_G.OnSlider("Brightness", function(v)
+			Lighting.Brightness = tonumber(v) or 2
+		end)
+		_G.OnToggle("Remove Shadows", function(v)
+			Lighting.GlobalShadows = not v
 		end)
 		_G.OnToggle("Clear Atmosphere / Fog", function(v)
 			if v then
@@ -34036,6 +34126,9 @@ do
 					end
 				end
 			end
+		end)
+		_G.OnSlider("World Time of Day", function(v)
+			Lighting.ClockTime = tonumber(v) or 14
 		end)
 		_G.OnToggle("Custom Camera FOV", function(v)
 			_G.__CustomFovEnabled = (v == true)
@@ -34050,6 +34143,9 @@ do
 			end
 		end)
 
+		-- =========================================================
+		-- PLAYER & MOVEMENT
+		-- =========================================================
 		_G.OnToggle("Speed Multiplier", function(v)
 			if Movement then Movement.speed = (v == true) end
 		end)
@@ -34062,6 +34158,12 @@ do
 		_G.OnToggle("Bunny Hop", function(v)
 			if Movement then Movement.bhop = (v == true) end
 		end)
+		_G.OnToggle("Fly", function(v)
+			if Movement then Movement.fly = (v == true) end
+		end)
+		_G.OnSlider("Fly Speed", function(v)
+			if Movement then Movement.flySpeed = tonumber(v) or 50 end
+		end)
 		_G.OnToggle("Noclip", function(v)
 			if Movement then Movement.noclip = (v == true) end
 		end)
@@ -34069,4 +34171,4 @@ do
 end
 
 _G.AtomwareFeaturesLoaded = true
-print("[Atomware Rivals] Authoritative Features Backend Loaded Successfully (Lite & Full Compatible)!")
+print("[Atomware Rivals] Authoritative Features Backend Loaded Successfully (PC, Mobile, and Lite Compatible)!")
