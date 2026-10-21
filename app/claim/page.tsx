@@ -211,6 +211,7 @@ export default function ClaimKeyPage() {
   const [activeCpIndex, setActiveCpIndex] = useState(0);
   const [completedCpIds, setCompletedCpIds] = useState<string[]>([]);
   const [currentTimer, setCurrentTimer] = useState<number | null>(null);
+  const [stepEndTime, setStepEndTime] = useState<number | null>(null);
   const [timerRunning, setTimerRunning] = useState(false);
 
   // Anti-Bypass Security Session State
@@ -221,6 +222,20 @@ export default function ClaimKeyPage() {
   const [stepGatewayTokens, setStepGatewayTokens] = useState<string[]>([]);
   const [claimToken, setClaimToken] = useState<string | null>(null);
   const [verifyingStep, setVerifyingStep] = useState(false);
+
+  // Refs for timer and background tab callbacks
+  const currentStepTokenRef = useRef<string | null>(null);
+  currentStepTokenRef.current = currentStepToken;
+  const activeCpIndexRef = useRef(0);
+  activeCpIndexRef.current = activeCpIndex;
+  const checkpointsRef = useRef<CheckpointItem[]>([]);
+  checkpointsRef.current = checkpoints;
+  const powChallengeRef = useRef<{ nonce: string; difficulty: number } | null>(null);
+  powChallengeRef.current = powChallenge;
+  const targetScriptRef = useRef<{ id: string; name: string; slug: string } | null>(null);
+  targetScriptRef.current = targetScript;
+  const claimIdRef = useRef("");
+  claimIdRef.current = claimId;
 
   // Creator Profile
   const [profile, setProfile] = useState<CreatorProfile>({
@@ -444,22 +459,95 @@ export default function ClaimKeyPage() {
     }
   }, []);
 
-  // Timer Countdown Handler
+  // Save checkpoint progress to sessionStorage so mobile background reloads retain state
   useEffect(() => {
-    if (!timerRunning || currentTimer === null) return;
-
-    if (currentTimer <= 0) {
-      setTimerRunning(false);
-      handleVerifyCurrentStep();
-      return;
+    if (typeof window === "undefined") return;
+    const key = `atom_cp_progress_${scriptSlug || "default"}`;
+    if (completedCpIds.length > 0 || claimToken || sessionId) {
+      try {
+        sessionStorage.setItem(
+          key,
+          JSON.stringify({
+            completedCpIds,
+            activeCpIndex,
+            claimToken,
+            sessionId,
+            stepEndTime,
+            currentStepToken,
+          })
+        );
+      } catch {}
     }
+  }, [completedCpIds, activeCpIndex, claimToken, sessionId, stepEndTime, currentStepToken, scriptSlug]);
 
-    const interval = setInterval(() => {
-      setCurrentTimer((t) => (t !== null && t > 0 ? t - 1 : 0));
-    }, 1000);
+  // Restore checkpoint progress from sessionStorage on load/reload
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const key = `atom_cp_progress_${scriptSlug || "default"}`;
+    try {
+      const raw = sessionStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed.completedCpIds) && parsed.completedCpIds.length > 0) {
+          setCompletedCpIds(parsed.completedCpIds);
+        }
+        if (typeof parsed.activeCpIndex === "number") {
+          setActiveCpIndex(parsed.activeCpIndex);
+        }
+        if (parsed.claimToken) {
+          setClaimToken(parsed.claimToken);
+        }
+        if (parsed.sessionId) {
+          setSessionId(parsed.sessionId);
+        }
+        if (parsed.currentStepToken) {
+          setCurrentStepToken(parsed.currentStepToken);
+        }
+        if (parsed.stepEndTime && parsed.stepEndTime > Date.now()) {
+          const rem = Math.ceil((parsed.stepEndTime - Date.now()) / 1000);
+          setStepEndTime(parsed.stepEndTime);
+          setCurrentTimer(rem);
+          setTimerRunning(true);
+        } else if (parsed.stepEndTime && parsed.currentStepToken) {
+          setCurrentTimer(0);
+          setTimerRunning(false);
+        }
+      }
+    } catch {}
+  }, [scriptSlug]);
 
-    return () => clearInterval(interval);
-  }, [timerRunning, currentTimer]);
+  // Timer Countdown Handler with wall-clock calculation & visibility/focus listener
+  useEffect(() => {
+    if (!timerRunning || !stepEndTime) return;
+
+    const updateCountdown = () => {
+      const remaining = Math.max(0, Math.ceil((stepEndTime - Date.now()) / 1000));
+      setCurrentTimer(remaining);
+      if (remaining <= 0) {
+        setTimerRunning(false);
+        setStepEndTime(null);
+        handleVerifyCurrentStep();
+      }
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        updateCountdown();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [timerRunning, stepEndTime]);
 
   // Click handler: opens secure gateway link and starts timer
   const handleStartCheckpoint = async (cp: CheckpointItem, index: number) => {
@@ -474,12 +562,43 @@ export default function ClaimKeyPage() {
       return;
     }
 
-    const gatewayToken = stepGatewayTokens[index] || (cp as any).gatewayToken;
-    const gatewayUrl = stepGatewayUrls[index] || cp.url;
+    let gatewayToken = stepGatewayTokens[index] || (cp as any).gatewayToken;
+    let gatewayUrl = stepGatewayUrls[index] || cp.url;
+
+    // Fallback: If session not yet initialized or token missing, initialize now
+    if (!gatewayToken) {
+      try {
+        const initRes = await fetch("/api/checkpoints/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "start",
+            script_slug: scriptSlug || targetScript?.slug || "",
+            hwid: claimId,
+          }),
+        });
+        const initData = await initRes.json();
+        if (initData.success && initData.stepDetails && initData.stepDetails[index]) {
+          gatewayToken = initData.stepDetails[index].gatewayToken;
+          gatewayUrl = initData.stepDetails[index].gatewayUrl;
+          setSessionId(initData.sessionId);
+          setPowChallenge(initData.powChallenge);
+          setStepGatewayUrls(initData.stepDetails.map((s: any) => s.gatewayUrl));
+          setStepGatewayTokens(initData.stepDetails.map((s: any) => s.gatewayToken));
+        }
+      } catch (err) {
+        console.error("Init session fallback error:", err);
+      }
+    }
 
     // Open target task in new tab synchronously to avoid browser popup blockers
     if (gatewayUrl) {
       window.open(gatewayUrl, "_blank", "noopener,noreferrer");
+    }
+
+    if (!gatewayToken) {
+      setError("Unable to initialize secure task gateway. Please refresh and try again.");
+      return;
     }
 
     // Call server to stamp start time on the server clock and get active step token
@@ -500,6 +619,8 @@ export default function ClaimKeyPage() {
           setPowChallenge(data.powChallenge);
         }
         const dur = data.duration || cp.duration_seconds || 5;
+        const endTime = Date.now() + dur * 1000;
+        setStepEndTime(endTime);
         setCurrentTimer(dur);
         setTimerRunning(true);
       } else {
@@ -512,9 +633,11 @@ export default function ClaimKeyPage() {
   };
 
   // Verify step completion with server
-  const handleVerifyCurrentStep = async () => {
-    const activeCp = checkpoints[activeCpIndex];
-    if (!activeCp || !currentStepToken) return;
+  const handleVerifyCurrentStep = async (tokenOverride?: string, indexOverride?: number) => {
+    const activeToken = tokenOverride || currentStepTokenRef.current;
+    const activeIndex = indexOverride !== undefined ? indexOverride : activeCpIndexRef.current;
+    const activeCp = checkpointsRef.current[activeIndex];
+    if (!activeCp || !activeToken) return;
 
     setVerifyingStep(true);
     setError(null);
@@ -522,8 +645,9 @@ export default function ClaimKeyPage() {
     try {
       // Compute proof of work in background
       let powSolution = "";
-      if (powChallenge) {
-        powSolution = await solvePoW(powChallenge.nonce, powChallenge.difficulty);
+      const curPow = powChallengeRef.current;
+      if (curPow) {
+        powSolution = await solvePoW(curPow.nonce, curPow.difficulty);
       }
 
       const res = await fetch("/api/checkpoints/session", {
@@ -531,12 +655,12 @@ export default function ClaimKeyPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "verify_step",
-          activeStepToken: currentStepToken,
+          activeStepToken: activeToken,
           powSolution,
-          powNonce: powChallenge?.nonce || "",
-          hwid: claimId,
-          stepIndex: activeCpIndex,
-          script_id: targetScript?.id,
+          powNonce: curPow?.nonce || "",
+          hwid: claimIdRef.current,
+          stepIndex: activeIndex,
+          script_id: targetScriptRef.current?.id,
         }),
       });
 
@@ -553,6 +677,8 @@ export default function ClaimKeyPage() {
             data.error ||
               `Task dwell time not reached. Please wait ${data.remainingSeconds}s on the destination page.`
           );
+          const endTime = Date.now() + data.remainingSeconds * 1000;
+          setStepEndTime(endTime);
           setCurrentTimer(data.remainingSeconds);
           setTimerRunning(true);
         } else {
@@ -563,6 +689,7 @@ export default function ClaimKeyPage() {
 
       // Step successfully verified on server!
       setCompletedCpIds((prev) => [...prev, activeCp.id]);
+      setStepEndTime(null);
 
       if (data.allCompleted && data.claimToken) {
         setClaimToken(data.claimToken);
@@ -645,6 +772,9 @@ export default function ClaimKeyPage() {
       setExpiresAt(data.expires_at);
       setAlreadyClaimed(data.already_claimed || false);
       setStep("claimed");
+      try {
+        sessionStorage.removeItem(`atom_cp_progress_${scriptSlug || "default"}`);
+      } catch {}
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error claiming key";
       setError(msg);
@@ -1040,6 +1170,15 @@ export default function ClaimKeyPage() {
                                     <Clock className="w-3.5 h-3.5 animate-spin text-zinc-400" />
                                     <span>{currentTimer}s</span>
                                   </div>
+                                ) : currentStepToken ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleVerifyCurrentStep()}
+                                    className="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-semibold text-xs transition-all flex items-center gap-1.5 shadow-sm active:scale-95"
+                                  >
+                                    <Check className="w-3.5 h-3.5" />
+                                    <span>Verify Task</span>
+                                  </button>
                                 ) : (
                                   <button
                                     type="button"

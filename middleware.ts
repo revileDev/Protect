@@ -24,7 +24,8 @@ export function middleware(request: NextRequest) {
     pathname.startsWith("/api/analytics") ||
     (pathname.startsWith("/api/scripts") && request.method !== "GET") ||
     (pathname.startsWith("/api/settings") && request.method !== "GET") ||
-    (pathname.startsWith("/api/checkpoints") && request.method !== "GET") ||
+    (pathname === "/api/checkpoints" && request.method !== "GET") ||
+    (pathname.startsWith("/api/checkpoints/bypass-attempts") && request.method === "GET") ||
     (pathname.startsWith("/api/creator-profile") && request.method !== "GET");
 
   if (isProtectedApi && !isAuthed) {
