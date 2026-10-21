@@ -46,6 +46,27 @@ local function trackInst(inst)
     return inst
 end
 
+local fallbackRendererGui = nil
+local function getFallbackGui()
+    if fallbackRendererGui and fallbackRendererGui.Parent then return fallbackRendererGui end
+    pcall(function()
+        local gethui = gethui or function() return nil end
+        local parent = gethui() or game:GetService("CoreGui") or (LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui"))
+        if parent then
+            local old = parent:FindFirstChild("AtomwareDrawingFallback")
+            if old then old:Destroy() end
+            local sg = Instance.new("ScreenGui")
+            sg.Name = "AtomwareDrawingFallback"
+            sg.ResetOnSpawn = false
+            sg.DisplayOrder = 999
+            sg.Parent = parent
+            fallbackRendererGui = sg
+            trackInst(sg)
+        end
+    end)
+    return fallbackRendererGui
+end
+
 local DrawingLib = Drawing or (type(getgenv) == "function" and getgenv().Drawing)
 
 local function safeDrawing(kind)
@@ -58,30 +79,194 @@ local function safeDrawing(kind)
             return d
         end
     end
-    -- Fallback dummy object if executor lacks Drawing library
-    local dummy = {
-        Visible = false,
-        Transparency = 1,
-        Color = Color3.new(1, 1, 1),
-        Thickness = 1,
-        Filled = false,
-        Position = Vector2.zero,
-        Size = Vector2.zero,
-        From = Vector2.zero,
-        To = Vector2.zero,
-        PointA = Vector2.zero,
-        PointB = Vector2.zero,
-        PointC = Vector2.zero,
-        Radius = 0,
-        NumSides = 0,
-        Text = "",
-        Center = false,
-        Outline = false,
-        Font = 2,
-    }
-    function dummy:Remove() end
-    function dummy:Destroy() end
-    return dummy
+
+    -- Universal Drawing-compatible ScreenGui proxy (ensures 100% visibility on executors lacking Drawing)
+    local sg = getFallbackGui()
+    if not sg then
+        local dummy = {
+            Visible = false, Transparency = 1, Color = Color3.new(1, 1, 1),
+            Thickness = 1, Filled = false, Position = Vector2.zero, Size = Vector2.zero,
+            From = Vector2.zero, To = Vector2.zero, PointA = Vector2.zero, PointB = Vector2.zero, PointC = Vector2.zero,
+            Radius = 0, NumSides = 0, Text = "", Center = false, Outline = false, Font = 2,
+        }
+        function dummy:Remove() end
+        function dummy:Destroy() end
+        return dummy
+    end
+
+    local proxy = {}
+    local inst = nil
+
+    if kind == "Square" then
+        local f = Instance.new("Frame")
+        f.BorderSizePixel = 0
+        f.BackgroundTransparency = 1
+        f.Visible = false
+        f.Parent = sg
+        local stroke = Instance.new("UIStroke")
+        stroke.Thickness = 1
+        stroke.Color = Color3.new(1, 1, 1)
+        stroke.Parent = f
+        inst = f
+
+        local filled = false
+        proxy = {
+            Visible = false, Thickness = 1, Filled = false,
+            Color = Color3.new(1, 1, 1), Transparency = 1,
+            Position = Vector2.zero, Size = Vector2.zero,
+        }
+        local mt = {
+            __newindex = function(_, k, v)
+                proxy[k] = v
+                if k == "Visible" then f.Visible = v
+                elseif k == "Position" then f.Position = UDim2.fromOffset(v.X, v.Y)
+                elseif k == "Size" then f.Size = UDim2.fromOffset(v.X, v.Y)
+                elseif k == "Color" then
+                    stroke.Color = v
+                    if filled then f.BackgroundColor3 = v end
+                elseif k == "Thickness" then stroke.Thickness = v
+                elseif k == "Filled" then
+                    filled = v
+                    if filled then
+                        f.BackgroundTransparency = 0
+                        f.BackgroundColor3 = proxy.Color or Color3.new(1, 1, 1)
+                        stroke.Enabled = false
+                    else
+                        f.BackgroundTransparency = 1
+                        stroke.Enabled = true
+                    end
+                elseif k == "Transparency" then f.Transparency = 1 - v
+                end
+            end,
+            __index = proxy,
+        }
+        setmetatable(proxy, mt)
+    elseif kind == "Circle" then
+        local f = Instance.new("Frame")
+        f.AnchorPoint = Vector2.new(0.5, 0.5)
+        f.BorderSizePixel = 0
+        f.BackgroundTransparency = 1
+        f.Visible = false
+        f.Parent = sg
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(1, 0)
+        corner.Parent = f
+        local stroke = Instance.new("UIStroke")
+        stroke.Thickness = 1.5
+        stroke.Color = Color3.new(1, 1, 1)
+        stroke.Parent = f
+        inst = f
+
+        proxy = {
+            Visible = false, Thickness = 1.5, Filled = false,
+            Color = Color3.new(1, 1, 1), Radius = 0, Position = Vector2.zero, NumSides = 64,
+        }
+        local mt = {
+            __newindex = function(_, k, v)
+                proxy[k] = v
+                if k == "Visible" then f.Visible = v
+                elseif k == "Position" then f.Position = UDim2.fromOffset(v.X, v.Y)
+                elseif k == "Radius" then f.Size = UDim2.fromOffset(v * 2, v * 2)
+                elseif k == "Color" then stroke.Color = v
+                elseif k == "Thickness" then stroke.Thickness = v
+                end
+            end,
+            __index = proxy,
+        }
+        setmetatable(proxy, mt)
+    elseif kind == "Text" then
+        local lbl = Instance.new("TextLabel")
+        lbl.BackgroundTransparency = 1
+        lbl.Text = ""
+        lbl.TextSize = 12
+        lbl.Font = Enum.Font.GothamMedium
+        lbl.TextColor3 = Color3.new(1, 1, 1)
+        lbl.Visible = false
+        lbl.Parent = sg
+        local stroke = Instance.new("UIStroke")
+        stroke.Thickness = 1
+        stroke.Color = Color3.new(0, 0, 0)
+        stroke.Parent = lbl
+        inst = lbl
+
+        proxy = {
+            Visible = false, Text = "", Size = 12, Color = Color3.new(1, 1, 1),
+            Position = Vector2.zero, Center = false, Outline = true,
+        }
+        local mt = {
+            __newindex = function(_, k, v)
+                proxy[k] = v
+                if k == "Visible" then lbl.Visible = v
+                elseif k == "Text" then lbl.Text = tostring(v)
+                elseif k == "Size" then lbl.TextSize = math.clamp(v, 9, 24)
+                elseif k == "Color" then lbl.TextColor3 = v
+                elseif k == "Position" then
+                    local offX = proxy.Center and -100 or 0
+                    lbl.Position = UDim2.fromOffset(v.X + offX, v.Y)
+                    lbl.Size = UDim2.fromOffset(200, 16)
+                    lbl.TextXAlignment = proxy.Center and Enum.TextXAlignment.Center or Enum.TextXAlignment.Left
+                elseif k == "Center" then
+                    local offX = v and -100 or 0
+                    lbl.Position = UDim2.fromOffset(proxy.Position.X + offX, proxy.Position.Y)
+                    lbl.TextXAlignment = v and Enum.TextXAlignment.Center or Enum.TextXAlignment.Left
+                elseif k == "Outline" then stroke.Enabled = v
+                end
+            end,
+            __index = proxy,
+        }
+        setmetatable(proxy, mt)
+    elseif kind == "Line" then
+        local line = Instance.new("Frame")
+        line.BorderSizePixel = 0
+        line.BackgroundColor3 = Color3.new(1, 1, 1)
+        line.Visible = false
+        line.Parent = sg
+        inst = line
+
+        proxy = {
+            Visible = false, From = Vector2.zero, To = Vector2.zero,
+            Color = Color3.new(1, 1, 1), Thickness = 1, Transparency = 1,
+        }
+        local function updateLine()
+            local from, to = proxy.From, proxy.To
+            local dist = (to - from).Magnitude
+            local angle = math.atan2(to.Y - from.Y, to.X - from.X)
+            line.Size = UDim2.fromOffset(dist, proxy.Thickness or 1)
+            line.Position = UDim2.fromOffset((from.X + to.X) / 2, (from.Y + to.Y) / 2)
+            line.Rotation = math.deg(angle)
+            line.AnchorPoint = Vector2.new(0.5, 0.5)
+        end
+        local mt = {
+            __newindex = function(_, k, v)
+                proxy[k] = v
+                if k == "Visible" then line.Visible = v
+                elseif k == "Color" then line.BackgroundColor3 = v
+                elseif k == "Thickness" then line.Size = UDim2.fromOffset(line.Size.X.Offset, v)
+                elseif k == "From" or k == "To" then updateLine()
+                elseif k == "Transparency" then line.BackgroundTransparency = 1 - v
+                end
+            end,
+            __index = proxy,
+        }
+        setmetatable(proxy, mt)
+    else
+        inst = Instance.new("Frame")
+        inst.Visible = false
+        inst.Parent = sg
+        proxy = { Visible = false }
+    end
+
+    function proxy:Remove()
+        if inst and inst.Parent then pcall(function() inst:Destroy() end) end
+    end
+    function proxy:Destroy()
+        proxy:Remove()
+    end
+
+    if _G.AtomwareCleanup and _G.AtomwareCleanup.TrackDrawing then
+        _G.AtomwareCleanup:TrackDrawing(proxy)
+    end
+    return proxy
 end
 
 -- =========================================================================
@@ -176,6 +361,9 @@ local function getClosestPlayer(maxFov, partName, checkTeam, checkWall)
     local cam = getCamera()
     if not cam then return nil, nil, maxFov end
     local mousePos = UserInputService:GetMouseLocation()
+    if (mousePos.X == 0 and mousePos.Y == 0) or UserInputService.TouchEnabled then
+        mousePos = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
+    end
     local bestTarget = nil
     local bestPart = nil
     local minDistance = maxFov
@@ -233,6 +421,9 @@ end
 trackConn(RunService.RenderStepped:Connect(function()
     local mousePos = UserInputService:GetMouseLocation()
     local cam = getCamera()
+    if ((mousePos.X == 0 and mousePos.Y == 0) or UserInputService.TouchEnabled) and cam then
+        mousePos = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
+    end
 
     if CombatState.SilentShowFOV and CombatState.SilentAimEnabled then
         silentCircle.Visible = true
@@ -252,7 +443,8 @@ trackConn(RunService.RenderStepped:Connect(function()
         aimbotCircle.Visible = false
     end
 
-    if CombatState.AimbotEnabled and CombatState.AimbotActive and cam then
+    local isAimActive = CombatState.AimbotActive or CombatState.AimbotKey == "Always On"
+    if CombatState.AimbotEnabled and isAimActive and cam then
         local _, targetPart = getClosestPlayer(
             CombatState.AimbotFOV,
             CombatState.AimbotTargetPart,
@@ -268,6 +460,33 @@ trackConn(RunService.RenderStepped:Connect(function()
         end
     end
 end))
+
+-- Silent Aim Raycast Hook
+pcall(function()
+    if hookmetamethod then
+        local oldNamecall
+        oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+            local method = getnamecallmethod and getnamecallmethod()
+            if CombatState.SilentAimEnabled and (method == "Raycast" or method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList") then
+                local _, targetPart = getClosestPlayer(
+                    CombatState.SilentFOV,
+                    CombatState.SilentTargetPart,
+                    CombatState.SilentTeamCheck,
+                    CombatState.SilentWallCheck
+                )
+                if targetPart and (math.random(1, 100) <= CombatState.SilentHitChance) then
+                    local args = { ... }
+                    if method == "Raycast" and typeof(args[1]) == "Vector3" and typeof(args[2]) == "Vector3" then
+                        local origin = args[1]
+                        args[2] = (targetPart.Position - origin).Unit * 1000
+                        return oldNamecall(self, table.unpack(args))
+                    end
+                end
+            end
+            return oldNamecall(self, ...)
+        end))
+    end
+end)
 
 -- Triggerbot Heartbeat
 trackConn(RunService.Heartbeat:Connect(function()
@@ -337,7 +556,8 @@ end))
 -- Keybind input listener for Aimbot
 local function isInputMatching(input, bindName)
     if not bindName or bindName == "None" then return false end
-    if input.UserInputType == Enum.UserInputType.MouseButton1 and bindName == "MouseButton1" then return true end
+    if bindName == "Always On" then return true end
+    if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and bindName == "MouseButton1" then return true end
     if input.UserInputType == Enum.UserInputType.MouseButton2 and bindName == "MouseButton2" then return true end
     if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode.Name == bindName then return true end
     return false
@@ -1157,6 +1377,17 @@ if _G.AtomwareConfig then
             if hum then hum.WalkSpeed = 16 end
         end
     end)
+end
+
+-- Drain any pending events that fired before features loaded
+if type(_G.AtomwarePendingEvents) == "table" and type(_G.AtomwareEvents) == "table" then
+    for name, args in pairs(_G.AtomwarePendingEvents) do
+        local handler = _G.AtomwareEvents[name]
+        if handler then
+            pcall(handler, table.unpack(args, 1, args.n or #args))
+            _G.AtomwarePendingEvents[name] = nil
+        end
+    end
 end
 
 _G.AtomwareFeaturesLoaded = true

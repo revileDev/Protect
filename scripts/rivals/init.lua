@@ -254,7 +254,7 @@ if IS_MOBILE then
         if choice == "lite" then
             isLiteMode = true
             targetUIFile = "mobile_lite_ui.lua"
-            targetFeaturesFile = "features_lite.lua"
+            targetFeaturesFile = "features.lua"
         else
             isLiteMode = false
             targetUIFile = "mobile_ui.lua"
