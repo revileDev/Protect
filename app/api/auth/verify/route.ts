@@ -557,7 +557,7 @@ export async function POST(req: NextRequest) {
         sessionToken: staffReview.id,
         baseUrl,
         key: (key || keyRecord.key_string || "").trim(),
-        obfuscate: true,
+        obfuscate: false,
       });
 
       const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -627,7 +627,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (webhookEnabled && webhookUrl) {
-      await sendExecutionWebhook({
+      sendExecutionWebhook({
         webhookUrl,
         scriptName: script.name,
         robloxUsername: robloxUser,
@@ -638,7 +638,7 @@ export async function POST(req: NextRequest) {
         executor: detectedExecutor,
         keyLast4,
         success: true,
-      });
+      }).catch((e) => console.error("Webhook dispatch error:", e));
     }
 
     // Assemble protected modular virtual bundle with Dynamic Zero-Knowledge Streaming
@@ -650,7 +650,7 @@ export async function POST(req: NextRequest) {
       sessionToken: session.id,
       baseUrl,
       key: (key || keyRecord.key_string || "").trim(),
-      obfuscate: true,
+      obfuscate: false,
     });
 
     const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
