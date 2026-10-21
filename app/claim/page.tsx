@@ -320,9 +320,9 @@ export default function ClaimKeyPage() {
         return;
       }
       if (data.success) {
-        setSessionId(data.sessionId);
+        setSessionId(data.sessionId || data.sessionToken);
         setPowChallenge(data.powChallenge);
-        if (data.stepDetails && Array.isArray(data.stepDetails)) {
+        if (data.stepDetails && Array.isArray(data.stepDetails) && data.stepDetails.length > 0) {
           setCheckpoints(
             data.stepDetails.map((s: any) => ({
               id: s.id,
@@ -349,7 +349,7 @@ export default function ClaimKeyPage() {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const slug = params.get("script") || "";
-    const cid = params.get("hwid") || params.get("claim_id") || "";
+    const cid = params.get("hwid") || params.get("claim_id") || params.get("id") || "";
 
     setScriptSlug(slug);
     setClaimId(cid);
@@ -360,8 +360,9 @@ export default function ClaimKeyPage() {
     fetch("/api/settings")
       .then((r) => r.json())
       .then((s) => {
-        if (s.claim_method) setClaimMethod(s.claim_method);
-        if (s.discord_invite_url) setDiscordInvite(s.discord_invite_url);
+        const actual = s?.settings || s;
+        if (actual?.claim_method) setClaimMethod(actual.claim_method);
+        if (actual?.discord_invite_url) setDiscordInvite(actual.discord_invite_url);
       })
       .catch(() => {});
 
@@ -393,9 +394,10 @@ export default function ClaimKeyPage() {
           target =
             activeOnly.find(
               (sc: { id: string; name: string; slug: string }) =>
-                sc.slug === "atomware-hub" || sc.name.toLowerCase().includes("atom")
+                sc.slug === "rivals" || sc.slug === "atomware-hub" || sc.name.toLowerCase().includes("atom")
             ) ||
             activeOnly[activeOnly.length - 1] ||
+            activeOnly[0] ||
             null;
         }
         if (target) {
@@ -424,6 +426,9 @@ export default function ClaimKeyPage() {
       })
       .then((data) => {
         if (data.profile) setProfile(data.profile);
+        if (data.checkpoints && Array.isArray(data.checkpoints) && data.checkpoints.length > 0) {
+          setCheckpoints(data.checkpoints);
+        }
         if (data.script) {
           setTargetScript(data.script);
           if (!slug && data.script.slug) {
@@ -433,8 +438,10 @@ export default function ClaimKeyPage() {
       })
       .catch(() => {});
 
-    // Initialize anti-bypass session
-    initCheckpointSession(slug || "atomware-hub", cid);
+    // Initialize anti-bypass session if slug present
+    if (slug) {
+      initCheckpointSession(slug, cid);
+    }
   }, []);
 
   // Timer Countdown Handler
@@ -866,6 +873,14 @@ export default function ClaimKeyPage() {
                             setError(null);
                             checkAlreadyClaimed(s.slug);
                             initCheckpointSession(s.slug);
+                            fetch(`/api/checkpoints?script_slug=${encodeURIComponent(s.slug)}`)
+                              .then((r) => r.json())
+                              .then((data) => {
+                                if (data.checkpoints && Array.isArray(data.checkpoints) && data.checkpoints.length > 0) {
+                                  setCheckpoints(data.checkpoints);
+                                }
+                              })
+                              .catch(() => {});
                           }}
                           className="p-3 rounded-xl border border-obsidian-700 bg-obsidian-800/60 hover:border-zinc-400 text-left transition-all flex items-center justify-between group"
                         >

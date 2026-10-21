@@ -629,13 +629,15 @@ export const dbService = {
     if (!slug) return null;
     const clean = slug.trim();
     const normalized = clean.toLowerCase();
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clean);
+
     const local = readLocalDb().scripts.find(
       (s) => s.slug.toLowerCase() === normalized || s.name.toLowerCase() === normalized || s.id === clean
     ) || null;
 
     if (isSupabaseConfigured && supabase) {
       try {
-        const { data, error } = await supabase.from("scripts").select("*").eq("slug", clean).maybeSingle();
+        const { data, error } = await supabase.from("scripts").select("*").ilike("slug", normalized).maybeSingle();
         if (data && !error) {
           return {
             ...local,
@@ -646,11 +648,14 @@ export const dbService = {
           };
         }
 
-        // Case-insensitive / slug or name or ID lookup
-        const { data: list } = await supabase
-          .from("scripts")
-          .select("*")
-          .or(`slug.ilike.${normalized},name.ilike.${normalized},id.eq.${clean}`);
+        // Case-insensitive name lookup or UUID lookup
+        let query = supabase.from("scripts").select("*");
+        if (isUuid) {
+          query = query.or(`slug.ilike.${normalized},name.ilike.${normalized},id.eq.${clean}`);
+        } else {
+          query = query.or(`slug.ilike.${normalized},name.ilike.${normalized}`);
+        }
+        const { data: list } = await query;
         if (list && list.length > 0) {
           const matched = list[0];
           return {
@@ -2460,26 +2465,29 @@ export const dbService = {
   // Checkpoints Management
   async getCheckpoints(scriptId?: string): Promise<CheckpointItem[]> {
     const all = await this.getAllCheckpoints();
-    if (scriptId === "all") {
+    if (all.length === 0) return [];
+    if (!scriptId || scriptId === "all") {
       return all;
     }
-    if (scriptId) {
-      return all.filter((cp) => cp.script_id === scriptId || cp.script_id === "all" || !cp.script_id);
-    }
 
-    // If no scriptId provided, resolve the active project to prevent leaking checkpoints from other projects
+    const clean = scriptId.trim().toLowerCase();
     const scripts = await this.getScripts();
-    const active = scripts.filter((s) => s.is_active !== false);
-    const preferred =
-      active.find((s) => s.slug === "atomware-hub" || s.name.toLowerCase().includes("atom")) ||
-      active[active.length - 1] ||
-      active[0];
+    const matchedScript = scripts.find(
+      (s) => s.id.toLowerCase() === clean || s.slug.toLowerCase() === clean || s.name.toLowerCase() === clean
+    );
+    const targetId = matchedScript ? matchedScript.id : scriptId;
 
-    if (preferred) {
-      return all.filter((cp) => cp.script_id === preferred.id || cp.script_id === "all" || !cp.script_id);
-    }
+    const filtered = all.filter(
+      (cp) =>
+        cp.script_id === targetId ||
+        cp.script_id === clean ||
+        (matchedScript && cp.script_id === matchedScript.slug) ||
+        cp.script_id === "all" ||
+        !cp.script_id
+    );
 
-    return all.filter((cp) => cp.script_id === "all" || !cp.script_id);
+    // If script-specific checkpoints exist, return them; otherwise if any checkpoints exist, return all
+    return filtered.length > 0 ? filtered : all;
   },
 
   async getAllCheckpoints(): Promise<CheckpointItem[]> {

@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
         const allScripts = await dbService.getScripts();
         const active = allScripts.filter((s) => s.is_active !== false);
         const preferred =
-          active.find((s) => s.slug === "atomware-hub" || s.name.toLowerCase().includes("atom")) ||
+          active.find((s) => s.slug === "rivals" || s.slug === "atomware-hub" || s.name.toLowerCase().includes("atom")) ||
           active[active.length - 1] ||
           active[0];
         if (preferred) targetScriptId = preferred.id;
