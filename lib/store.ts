@@ -1222,16 +1222,30 @@ export const dbService = {
 
   // Sessions
   async getSessions(): Promise<SessionRecord[]> {
-    const local = readLocalDb().sessions;
+    const db = readLocalDb();
+    let remote: SessionRecord[] = [];
     if (isSupabaseConfigured && supabase) {
       try {
-        const { data, error } = await supabase.from("sessions").select("*").order("session_started", { ascending: false });
-        if (data && !error && data.length > 0) return data;
+        const { data, error } = await supabase
+          .from("sessions")
+          .select("*")
+          .order("session_started", { ascending: false })
+          .limit(1000);
+        if (data && !error && data.length > 0) {
+          remote = data as SessionRecord[];
+        }
       } catch (err) {
         console.error("Supabase getSessions error:", err);
       }
     }
-    return local;
+    const sessionMap = new Map<string, SessionRecord>();
+    for (const s of remote) sessionMap.set(s.id, s);
+    for (const s of db.sessions || []) {
+      if (!sessionMap.has(s.id)) sessionMap.set(s.id, s);
+    }
+    return Array.from(sessionMap.values()).sort(
+      (a, b) => new Date(b.session_started).getTime() - new Date(a.session_started).getTime()
+    );
   },
 
   async createSession(session: Omit<SessionRecord, "id" | "created_at" | "session_started" | "last_heartbeat" | "pending_commands">): Promise<SessionRecord> {
@@ -1259,7 +1273,30 @@ export const dbService = {
 
     if (isSupabaseConfigured && supabase) {
       try {
-        await supabase.from("sessions").insert([record]);
+        const baseSession = {
+          id: record.id,
+          key_id: record.key_id,
+          script_id: record.script_id,
+          ip_address: record.ip_address,
+          hwid: record.hwid,
+          roblox_username: record.roblox_username,
+          roblox_user_id: record.roblox_user_id,
+          status: record.status,
+          tamper_flags: record.tamper_flags || [],
+          pending_commands: record.pending_commands || [],
+          session_started: record.session_started,
+          last_heartbeat: record.last_heartbeat,
+          created_at: record.created_at,
+          place_id: record.place_id ? String(record.place_id) : null,
+          place_name: record.place_name || null,
+          job_id: record.job_id || null,
+          avatar_url: record.avatar_url || null,
+        };
+        const { error } = await supabase.from("sessions").insert([record]);
+        if (error) {
+          const res = await supabase.from("sessions").insert([baseSession]);
+          if (res.error) console.error("Supabase fallback createSession error:", res.error.message);
+        }
       } catch (err) {
         console.error("Supabase createSession error:", err);
       }
@@ -1324,7 +1361,29 @@ export const dbService = {
 
       if (isSupabaseConfigured && supabase) {
         try {
-          await supabase.from("sessions").upsert([session]);
+          const baseSession = {
+            id: session.id,
+            key_id: session.key_id,
+            script_id: session.script_id,
+            ip_address: session.ip_address,
+            hwid: session.hwid,
+            roblox_username: session.roblox_username,
+            roblox_user_id: session.roblox_user_id,
+            status: session.status,
+            tamper_flags: session.tamper_flags || [],
+            pending_commands: session.pending_commands || [],
+            session_started: session.session_started,
+            last_heartbeat: session.last_heartbeat,
+            created_at: session.created_at,
+            place_id: session.place_id ? String(session.place_id) : null,
+            place_name: session.place_name || null,
+            job_id: session.job_id || null,
+            avatar_url: session.avatar_url || null,
+          };
+          const { error } = await supabase.from("sessions").upsert([session]);
+          if (error) {
+            await supabase.from("sessions").upsert([baseSession]);
+          }
         } catch {
           // ignore
         }
@@ -2080,7 +2139,33 @@ export const dbService = {
 
     if (isSupabaseConfigured && supabase) {
       try {
-        await supabase.from("execution_logs").insert([record]);
+        const baseRecord = {
+          id: record.id,
+          script_id: record.script_id,
+          script_name: record.script_name,
+          roblox_username: record.roblox_username || null,
+          roblox_user_id: record.roblox_user_id || null,
+          ip_address: record.ip_address,
+          isp: record.isp || (record.city ? `${record.city}, ${record.country || ""}`.trim() : null),
+          os: record.os || null,
+          executor: record.executor || null,
+          key_last4: record.key_last4 || null,
+          status: record.status,
+          failure_reason: record.failure_reason || null,
+          created_at: record.created_at,
+          place_id: record.place_id ? String(record.place_id) : null,
+          place_name: record.place_name || null,
+          job_id: record.job_id || null,
+          avatar_url: record.avatar_url || null,
+        };
+
+        const { error } = await supabase.from("execution_logs").insert([record]);
+        if (error) {
+          const res = await supabase.from("execution_logs").insert([baseRecord]);
+          if (res.error) {
+            console.error("Supabase recordExecution fallback error:", res.error.message);
+          }
+        }
       } catch (err) {
         console.error("Supabase recordExecution error:", err);
       }
@@ -2106,7 +2191,19 @@ export const dbService = {
 
     if (isSupabaseConfigured && supabase) {
       try {
-        await supabase.from("checkpoint_logs").insert([record]);
+        const baseRecord = {
+          id: record.id,
+          ip_address: record.ip_address,
+          stage: record.stage,
+          created_at: record.created_at,
+        };
+        const { error } = await supabase.from("checkpoint_logs").insert([record]);
+        if (error) {
+          const res = await supabase.from("checkpoint_logs").insert([baseRecord]);
+          if (res.error) {
+            console.error("Supabase recordCheckpoint fallback error:", res.error.message);
+          }
+        }
       } catch (err) {
         console.error("Supabase recordCheckpoint error:", err);
       }
@@ -2169,10 +2266,16 @@ export const dbService = {
 
     // Filter by specific script if requested
     if (scriptId && scriptId !== "all") {
+      const allScripts = await dbService.getScripts();
+      const matchedScript = allScripts.find(
+        (s) => s.id === scriptId || s.slug === scriptId || s.name.toLowerCase() === scriptId.toLowerCase()
+      );
       allExecs = allExecs.filter(
         (e) =>
           e.script_id === scriptId ||
-          e.script_name?.toLowerCase() === scriptId.toLowerCase()
+          (matchedScript && (e.script_id === matchedScript.id || e.script_id === matchedScript.slug)) ||
+          e.script_name?.toLowerCase() === scriptId.toLowerCase() ||
+          (matchedScript && e.script_name?.toLowerCase() === matchedScript.name.toLowerCase())
       );
     }
 
@@ -2301,7 +2404,8 @@ export const dbService = {
       }));
 
     // Average session duration
-    const relevantSessions = db.sessions.filter(
+    const allSessions = await dbService.getSessions();
+    const relevantSessions = allSessions.filter(
       (s) => !cutoff || new Date(s.session_started).getTime() >= cutoff
     );
     let totalDurationSec = 0;
@@ -2519,7 +2623,23 @@ export const dbService = {
 
     if (isSupabaseConfigured && supabase) {
       try {
-        await supabase.from("client_errors").insert([record]);
+        const baseRecord = {
+          id: record.id,
+          session_id: record.session_id || null,
+          script_id: record.script_id || null,
+          script_name: record.script_name || null,
+          roblox_username: record.roblox_username || null,
+          roblox_user_id: record.roblox_user_id || null,
+          executor: record.executor || null,
+          os: record.os || null,
+          error_message: record.error_message,
+          stack_trace: record.stack_trace || null,
+          created_at: record.created_at,
+        };
+        const { error } = await supabase.from("client_errors").insert([record]);
+        if (error) {
+          await supabase.from("client_errors").insert([baseRecord]);
+        }
       } catch {
         // graceful fallback if table not yet created
       }

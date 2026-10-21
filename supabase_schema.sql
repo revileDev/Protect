@@ -176,7 +176,22 @@ ALTER TABLE public.execution_logs
     ADD COLUMN IF NOT EXISTS place_id TEXT DEFAULT NULL,
     ADD COLUMN IF NOT EXISTS place_name TEXT DEFAULT NULL,
     ADD COLUMN IF NOT EXISTS job_id TEXT DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT NULL;
+    ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS country TEXT DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS city TEXT DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION DEFAULT NULL;
+
+-- Migration for sessions
+ALTER TABLE public.sessions
+    ADD COLUMN IF NOT EXISTS country TEXT DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS city TEXT DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION DEFAULT NULL;
+
+-- Migration for checkpoint_logs
+ALTER TABLE public.checkpoint_logs
+    ADD COLUMN IF NOT EXISTS script_id TEXT DEFAULT NULL;
 
 -- ----------------------------------------------------------------------------
 -- 6. Global In-Game Announcements
