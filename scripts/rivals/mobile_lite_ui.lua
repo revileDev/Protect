@@ -1,16 +1,13 @@
 --[[
-    Atomware Rivals - mobile_lite_ui.lua (Full Responsive Rewrite)
-    Ultra-Optimized Mobile Touch UI Framework for Low-Memory Devices (iPads / Budget Mobile)
-    
+    Atomware Rivals - mobile_ui.lua (Full Mobile Rewrite)
+    Ultra-Polished Mobile Touch UI Framework for Atomware Rivals
     Features:
-      - Identical Atomware Cyberpunk Branding & Palette
-      - Glowing "LITE MODE" Header Badge
       - Draggable Floating Toggle Pill with Attached Lock Button
-      - Two-Column Responsive Contained Cards (Left/Right Columns with AutomaticSize.Y)
-      - Zero UIGridLayout clipping bugs (Cards expand fully to fit all controls)
-      - Touch-sized Toggles (46x24), Sliders with smooth drag, and Dropdowns
-      - Complete Settings Tab with Configuration Profiles (Save/Load/Autoload), HUD Overlays,
-        Live Memory Telemetry, and Manual Garbage Collection
+      - Fixed Non-Scrolling Header with Atomware Cyberpunk Branding
+      - Horizontal Swipeable Tab Navigation Bar
+      - Contained Two-Column Responsive Cards (No more endless dropdown stacking)
+      - Contained ScrollList Widgets for Weapons, Skins, Skyboxes, and Sounds (Searchable, Contained Viewport)
+      - Contained Dropdowns, Touch-Sized Toggles, Interactive Sliders, Color Chips, and Keybinds
 ]]
 
 local Players = game:GetService("Players")
@@ -18,13 +15,11 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
-local Stats = game:GetService("Stats")
 
 local LocalPlayer = Players.LocalPlayer
 
 local function trackConnection(connection)
     if _G.AtomwareConfig then return _G.AtomwareConfig:TrackConnection(connection) end
-    if _G.AtomwareCleanup then return _G.AtomwareCleanup:TrackConnection(connection) end
     return connection
 end
 
@@ -33,7 +28,7 @@ end
 --//==================================================
 
 _G.AtomwareEvents = _G.AtomwareEvents or {}
-_G.AtomwarePendingEvents = _G.AtomwarePendingEvents or {}
+_G.AtomwarePendingEvents = {}
 
 local function registerAtomwareEvent(name, callback)
     _G.AtomwareEvents[name] = callback
@@ -42,7 +37,7 @@ local function registerAtomwareEvent(name, callback)
         _G.AtomwarePendingEvents[name] = nil
         task.spawn(function()
             local ok, err = pcall(callback, table.unpack(pending, 1, pending.n))
-            if not ok then warn("[Atomware Lite] event '" .. name .. "' failed: " .. tostring(err)) end
+            if not ok then warn("[Atomware Mobile] event '" .. name .. "' failed: " .. tostring(err)) end
         end)
     end
 end
@@ -63,13 +58,18 @@ _G.FireEvent = function(name, ...)
         local count = select("#", ...)
         task.spawn(function()
             local ok, err = pcall(callback, table.unpack(args, 1, count))
-            if not ok then warn("[Atomware Lite] event '" .. name .. "' failed: " .. tostring(err)) end
+            if not ok then warn("[Atomware Mobile] event '" .. name .. "' failed: " .. tostring(err)) end
         end)
         return
     end
     local args = { ... }
     args.n = select("#", ...)
     _G.AtomwarePendingEvents[name] = args
+end
+
+local function bindSetting(name, default, apply, validate)
+    if _G.AtomwareConfig then return _G.AtomwareConfig:Register(name, default, apply, validate) end
+    return default
 end
 
 --//==================================================
@@ -89,7 +89,6 @@ local THEME = {
     Accent          = Color3.fromRGB(157, 48, 255),
     AccentBright    = Color3.fromRGB(205, 104, 255),
     AccentDark      = Color3.fromRGB(80, 26, 142),
-    LiteCyan        = Color3.fromRGB(42, 255, 200),
 
     Text            = Color3.fromRGB(245, 241, 255),
     TextMuted       = Color3.fromRGB(170, 155, 205),
@@ -148,25 +147,27 @@ local function getGuiParent()
 end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "AtomwareMobileLiteRivalsUI"
+ScreenGui.Name = "AtomwareMobileLiteUI"
+_G.AtomwareLiteMode = true
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.DisplayOrder = 100
 ScreenGui.Parent = getGuiParent()
 
-if _G.AtomwareConfig then _G.AtomwareConfig:AttachUI(ScreenGui, "Mobile Lite Touch") end
+if _G.AtomwareConfig then _G.AtomwareConfig:AttachUI(ScreenGui, "Mobile Touch") end
 
 local UIVisible = true
 local isUILocked = false
+local activeDropdownCloser = nil
 
 --//==================================================
---// DRAGGABLE FLOATING TOGGLE PILL WITH LOCK
+--// DRAGGABLE MOBILE TOGGLE CONTAINER WITH LOCK BUTTON
 --//==================================================
 
 local ToggleContainer = Instance.new("Frame")
-ToggleContainer.Name = "AtomwareLiteToggleContainer"
-ToggleContainer.Size = UDim2.fromOffset(130, 48)
-ToggleContainer.Position = UDim2.new(1, -142, 0.28, 0)
+ToggleContainer.Name = "AtomwareMobileToggleContainer"
+ToggleContainer.Size = UDim2.fromOffset(124, 48)
+ToggleContainer.Position = UDim2.new(1, -136, 0.28, 0)
 ToggleContainer.BackgroundTransparency = 1
 ToggleContainer.BorderSizePixel = 0
 ToggleContainer.ZIndex = 200
@@ -200,19 +201,19 @@ MobileToggleBtn.Size = UDim2.fromOffset(48, 48)
 MobileToggleBtn.Position = UDim2.fromOffset(0, 0)
 MobileToggleBtn.BackgroundColor3 = THEME.Header
 MobileToggleBtn.Text = "AW"
-MobileToggleBtn.TextColor3 = THEME.LiteCyan
+MobileToggleBtn.TextColor3 = THEME.AccentBright
 MobileToggleBtn.TextSize = 16
 MobileToggleBtn.Font = FONT_BOLD
 MobileToggleBtn.AutoButtonColor = false
 MobileToggleBtn.ZIndex = 201
 MobileToggleBtn.Parent = ToggleContainer
 corner(MobileToggleBtn, 24)
-local toggleStroke = stroke(MobileToggleBtn, THEME.LiteCyan, 1.5)
+local toggleStroke = stroke(MobileToggleBtn, THEME.Accent, 1.5)
 
 -- Attached Lock Button
 local ToggleLockBtn = Instance.new("TextButton")
 ToggleLockBtn.Name = "MobileToggleLock"
-ToggleLockBtn.Size = UDim2.fromOffset(68, 34)
+ToggleLockBtn.Size = UDim2.fromOffset(64, 34)
 ToggleLockBtn.Position = UDim2.fromOffset(54, 7)
 ToggleLockBtn.BackgroundColor3 = THEME.Header
 ToggleLockBtn.Text = "Lock"
@@ -300,13 +301,19 @@ trackConnection(ToggleLockBtn.MouseButton1Click:Connect(function()
         lockStroke.Color = THEME.Red
         MobileToggleBtn.BackgroundTransparency = 0.4
         toggleStroke.Color = THEME.BorderDim
+        if _G.AtomwareConfig and _G.AtomwareConfig.Notify then
+            _G.AtomwareConfig:Notify("UI Toggle Locked in place", 2)
+        end
     else
         ToggleLockBtn.Text = "Lock"
         ToggleLockBtn.TextColor3 = THEME.TextMuted
         ToggleLockBtn.BackgroundColor3 = THEME.Header
         lockStroke.Color = THEME.BorderDim
         MobileToggleBtn.BackgroundTransparency = 0
-        toggleStroke.Color = THEME.LiteCyan
+        toggleStroke.Color = THEME.Accent
+        if _G.AtomwareConfig and _G.AtomwareConfig.Notify then
+            _G.AtomwareConfig:Notify("UI Toggle Unlocked", 2)
+        end
     end
 end))
 
@@ -322,115 +329,78 @@ stroke(Header, THEME.BorderDim, 1)
 local HeaderAccent = Instance.new("Frame")
 HeaderAccent.Size = UDim2.fromOffset(4, 22)
 HeaderAccent.Position = UDim2.fromOffset(12, 11)
-HeaderAccent.BackgroundColor3 = THEME.LiteCyan
+HeaderAccent.BackgroundColor3 = THEME.Accent
 HeaderAccent.BorderSizePixel = 0
 HeaderAccent.Parent = Header
 corner(HeaderAccent, 2)
 
 local Title = Instance.new("TextLabel")
-Title.Name = "Title"
-Title.Size = UDim2.fromOffset(110, 44)
-Title.Position = UDim2.fromOffset(24, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "ATOMWARE"
+Title.Text = "ATOMWARE  <font color=\"#cd68ff\">RIVALS</font> <font color=\"#2aff9d\">[LITE]</font>"
+Title.RichText = true
+Title.Size = UDim2.new(0.6, 0, 1, 0)
+Title.Position = UDim2.fromOffset(24, 0)
+Title.TextSize = 15
 Title.TextColor3 = THEME.Text
-Title.TextSize = 14
 Title.Font = FONT_BOLD
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Parent = Header
 
--- Lite Mode Badge
-local LiteBadge = Instance.new("Frame")
-LiteBadge.Size = UDim2.fromOffset(82, 22)
-LiteBadge.Position = UDim2.fromOffset(136, 11)
-LiteBadge.BackgroundColor3 = Color3.fromRGB(15, 35, 30)
-LiteBadge.BorderSizePixel = 0
-LiteBadge.Parent = Header
-corner(LiteBadge, 4)
-stroke(LiteBadge, THEME.LiteCyan, 1)
-
-local LiteBadgeText = Instance.new("TextLabel")
-LiteBadgeText.Size = UDim2.new(1, 0, 1, 0)
-LiteBadgeText.BackgroundTransparency = 1
-LiteBadgeText.Text = "LITE MODE"
-LiteBadgeText.TextColor3 = THEME.LiteCyan
-LiteBadgeText.TextSize = 10
-LiteBadgeText.Font = FONT_BOLD
-LiteBadgeText.Parent = LiteBadge
-
--- Live Memory Indicator in Header
-local MemLabel = Instance.new("TextLabel")
-MemLabel.Size = UDim2.fromOffset(120, 44)
-MemLabel.Position = UDim2.new(1, -170, 0, 0)
-MemLabel.BackgroundTransparency = 1
-MemLabel.Text = "RAM: ... MB"
-MemLabel.TextColor3 = THEME.TextMuted
-MemLabel.TextSize = 11
-MemLabel.Font = FONT
-MemLabel.TextXAlignment = Enum.TextXAlignment.Right
-MemLabel.Parent = Header
-
-task.spawn(function()
-    while ScreenGui and ScreenGui.Parent do
-        local memMb = math.floor(Stats:GetTotalMemoryUsageMb())
-        MemLabel.Text = "RAM: " .. tostring(memMb) .. " MB"
-        if memMb > 1100 then
-            MemLabel.TextColor3 = THEME.Red
-        else
-            MemLabel.TextColor3 = THEME.Green
-        end
-        task.wait(2)
-    end
-end)
-
 local CloseBtn = Instance.new("TextButton")
 CloseBtn.Name = "CloseBtn"
-CloseBtn.Size = UDim2.fromOffset(32, 32)
-CloseBtn.Position = UDim2.new(1, -40, 0, 6)
+CloseBtn.Size = UDim2.fromOffset(32, 28)
+CloseBtn.Position = UDim2.new(1, -40, 0, 8)
 CloseBtn.BackgroundColor3 = THEME.Card
-CloseBtn.Text = "X"
-CloseBtn.TextColor3 = THEME.TextMuted
+CloseBtn.Text = "✕"
+CloseBtn.TextColor3 = THEME.Red
 CloseBtn.TextSize = 13
 CloseBtn.Font = FONT_BOLD
+CloseBtn.AutoButtonColor = false
 CloseBtn.Parent = Header
 corner(CloseBtn, 6)
 stroke(CloseBtn, THEME.BorderDim, 1)
-trackConnection(CloseBtn.MouseButton1Click:Connect(function()
-    setUIVisible(false)
-end))
+trackConnection(CloseBtn.MouseButton1Click:Connect(function() setUIVisible(false) end))
 
--- Horizontal Swipeable Tab Navigation Bar
+-- Horizontal Scrolling Tab Navigation Bar (Locked under Header)
 local TabBar = Instance.new("ScrollingFrame")
 TabBar.Name = "TabBar"
-TabBar.Size = UDim2.new(1, 0, 0, 42)
+TabBar.Size = UDim2.new(1, 0, 0, 40)
 TabBar.Position = UDim2.fromOffset(0, 44)
 TabBar.BackgroundColor3 = THEME.TabBar
 TabBar.BorderSizePixel = 0
 TabBar.ScrollBarThickness = 0
-TabBar.CanvasSize = UDim2.fromOffset(560, 0)
+TabBar.CanvasSize = UDim2.new(0, 0, 0, 0)
+TabBar.AutomaticCanvasSize = Enum.AutomaticSize.X
 TabBar.Parent = MainFrame
-stroke(TabBar, THEME.BorderDim, 1)
-padding(TabBar, 5, 5, 10, 10)
+padding(TabBar, 6, 6, 8, 8)
 
-local TabLayout = Instance.new("UIListLayout")
-TabLayout.FillDirection = Enum.FillDirection.Horizontal
-TabLayout.SortOrder = Enum.SortOrder.LayoutOrder
-TabLayout.Padding = UDim.new(0, 8)
-TabLayout.Parent = TabBar
+local TabListLayout = Instance.new("UIListLayout")
+TabListLayout.FillDirection = Enum.FillDirection.Horizontal
+TabListLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+TabListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+TabListLayout.Padding = UDim.new(0, 6)
+TabListLayout.Parent = TabBar
 
--- Content Area
+-- Content Viewport (Scrollable container for pages)
 local ContentArea = Instance.new("Frame")
 ContentArea.Name = "ContentArea"
-ContentArea.Size = UDim2.new(1, 0, 1, -86)
-ContentArea.Position = UDim2.fromOffset(0, 86)
 ContentArea.BackgroundTransparency = 1
+ContentArea.Position = UDim2.fromOffset(0, 86)
+ContentArea.Size = UDim2.new(1, 0, 1, -86)
 ContentArea.Parent = MainFrame
 
--- Tab Management & Two-Column System
+local TAB_ORDER = {
+    ["Visuals"]   = 1,
+    ["Combat"]    = 2,
+    ["Movement"]  = 3,
+    ["Misc"]      = 4,
+    ["Settings"]  = 5,
+}
+
 local Pages = {}
 local PageColumns = {}
 local TabButtons = {}
-local CurrentPageName = "Combat"
+local CurrentPageName = "Visuals"
 local responsiveLayouts = {}
 
 local function updateResponsiveLayouts()
@@ -468,30 +438,10 @@ local function switchPage(name)
     end
 end
 
-local function getOrCreatePage(name, layoutOrder)
+-- Two-Column Responsive Page Creator
+local function getOrCreatePage(name)
     if Pages[name] then return Pages[name] end
 
-    -- Tab Button
-    local btn = Instance.new("TextButton")
-    btn.Name = name .. "TabBtn"
-    btn.Size = UDim2.fromOffset(108, 32)
-    btn.BackgroundColor3 = (name == CurrentPageName) and THEME.AccentDark or THEME.Card
-    btn.Text = name
-    btn.TextColor3 = (name == CurrentPageName) and THEME.AccentBright or THEME.TextMuted
-    btn.TextSize = 12
-    btn.Font = FONT_BOLD
-    btn.LayoutOrder = layoutOrder or 1
-    btn.AutoButtonColor = false
-    btn.Parent = TabBar
-    corner(btn, 6)
-    stroke(btn, THEME.BorderDim, 1)
-
-    trackConnection(btn.MouseButton1Click:Connect(function()
-        switchPage(name)
-    end))
-    TabButtons[name] = btn
-
-    -- Page Container
     local page = Instance.new("ScrollingFrame")
     page.Name = name .. "Page"
     page.BackgroundTransparency = 1
@@ -503,7 +453,7 @@ local function getOrCreatePage(name, layoutOrder)
     page.ScrollBarImageColor3 = THEME.Accent
     page.Visible = (name == CurrentPageName)
     page.Parent = ContentArea
-    padding(page, 8, 16, 8, 8)
+    padding(page, 8, 12, 8, 8)
 
     -- Two-Column Horizontal Container
     local colContainer = Instance.new("Frame")
@@ -545,471 +495,1280 @@ local function getOrCreatePage(name, layoutOrder)
 
     table.insert(responsiveLayouts, { layout = hList, left = leftCol, right = rightCol })
     updateResponsiveLayouts()
-
     PageColumns[page] = { Columns = { leftCol, rightCol }, Counts = { 0, 0 } }
     Pages[name] = page
     return page
 end
 
--- Two-Column Card Helper
-local function createCard(page, titleText, preferredCol)
-    local meta = PageColumns[page]
-    local targetCol = meta.Columns[1]
+local function normalizeTabName(name)
+    local lower = string.lower(name)
+    if lower == "combat" or lower == "legit" or lower == "rage" then return "Combat", "⚔️" end
+    if lower == "visuals" then return "Visuals", "👁️" end
+    if lower == "move" or lower == "movement" then return "Movement", "🏃" end
+    if lower == "misc" then return "Misc", "🛠️" end
+    if lower == "configs" or lower == "settings" then return "Settings", "⚙️" end
+    return name:sub(1,1):upper() .. name:sub(2), "•"
+end
 
-    if preferredCol == "left" or preferredCol == 1 then
-        targetCol = meta.Columns[1]
-    elseif preferredCol == "right" or preferredCol == 2 then
-        targetCol = meta.Columns[2]
-    else
-        if meta.Counts[1] <= meta.Counts[2] then
-            targetCol = meta.Columns[1]
-            meta.Counts[1] = meta.Counts[1] + 1
+--//==================================================
+--// LITEMODE HEADLESS / MOCK SECTION SYSTEM
+--//==================================================
+
+local function createMockSection(name)
+    local mockSec = { text = name, options = {} }
+    function mockSec:AddToggle(opts)
+        local state = opts and opts.state or false
+        return {
+            state = state,
+            SetState = function(self, val, skip)
+                self.state = val
+                if not skip and opts and opts.callback then pcall(opts.callback, val) end
+            end,
+            AddColor = function(self) return { SetColor = function() end } end,
+            AddKeyPicker = function(self) return { SetKey = function() end } end,
+        }
+    end
+    function mockSec:AddSlider(opts)
+        local val = opts and opts.default or 0
+        return {
+            value = val,
+            SetValue = function(self, v, skip)
+                self.value = v
+                if not skip and opts and opts.callback then pcall(opts.callback, v) end
+            end,
+        }
+    end
+    function mockSec:AddDropdown(opts)
+        local sel = opts and opts.default or nil
+        return {
+            selected = sel,
+            Select = function(self, v, skip)
+                self.selected = v
+                if not skip and opts and opts.callback then pcall(opts.callback, v) end
+            end,
+        }
+    end
+    function mockSec:AddList(opts)
+        return {
+            values = opts and opts.values or {},
+            selected = nil,
+            AddValue = function() end,
+            SetValues = function() end,
+            SetText = function() end,
+        }
+    end
+    function mockSec:AddBox(opts)
+        return { text = opts and opts.default or "" }
+    end
+    function mockSec:AddBind(opts)
+        return {
+            bind = opts and opts.bind or "None",
+            SetBind = function() end,
+        }
+    end
+    function mockSec:AddColor(opts)
+        return {
+            color = opts and opts.default or Color3.new(1, 1, 1),
+            SetColor = function() end,
+        }
+    end
+    function mockSec:UpdateOptions() end
+    return mockSec
+end
+
+local mockTabObj = {
+    name = "MockTab",
+    sections = {},
+    AddSection = function(self, text, side, order)
+        return createMockSection(text)
+    end,
+    AddSubTabs = function() end,
+    UpdateSections = function() end,
+}
+
+--//==================================================
+--// CONTAINED CARD BUILDER
+--//==================================================
+
+local function createMobileCard(page, title, side)
+    local pageLayout = PageColumns[page]
+    local cardParent = page
+    if pageLayout then
+        local colIdx = 1
+        if side == 2 or side == "right" then
+            colIdx = 2
+        elseif side == 1 or side == "left" then
+            colIdx = 1
         else
-            targetCol = meta.Columns[2]
-            meta.Counts[2] = meta.Counts[2] + 1
+            colIdx = pageLayout.Counts[1] <= pageLayout.Counts[2] and 1 or 2
         end
+        pageLayout.Counts[colIdx] = pageLayout.Counts[colIdx] + 1
+        cardParent = pageLayout.Columns[colIdx]
     end
 
     local card = Instance.new("Frame")
-    card.Name = titleText:gsub("%s+", "") .. "Card"
+    card.Name = title .. "Card"
     card.BackgroundColor3 = THEME.Card
-    card.BorderSizePixel = 0
     card.Size = UDim2.new(1, 0, 0, 0)
     card.AutomaticSize = Enum.AutomaticSize.Y
-    card.Parent = targetCol
-    corner(card, 8)
+    card.Parent = cardParent
+    corner(card, 10)
     stroke(card, THEME.BorderDim, 1)
-    padding(card, 10, 12, 12, 12)
+    padding(card, 8, 8, 8, 8)
 
-    local list = Instance.new("UIListLayout")
-    list.SortOrder = Enum.SortOrder.LayoutOrder
-    list.Padding = UDim.new(0, 8)
-    list.Parent = card
+    local cardLayout = Instance.new("UIListLayout")
+    cardLayout.Padding = UDim.new(0, 6)
+    cardLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    cardLayout.Parent = card
 
-    local cardHeader = Instance.new("TextLabel")
-    cardHeader.Size = UDim2.new(1, 0, 0, 20)
-    cardHeader.BackgroundTransparency = 1
-    cardHeader.Text = titleText:upper()
-    cardHeader.TextColor3 = THEME.AccentBright
-    cardHeader.TextSize = 11
-    cardHeader.Font = FONT_BOLD
-    cardHeader.TextXAlignment = Enum.TextXAlignment.Left
-    cardHeader.Parent = card
+    -- Card Header
+    local head = Instance.new("Frame")
+    head.Name = "Header"
+    head.Size = UDim2.new(1, 0, 0, 20)
+    head.BackgroundTransparency = 1
+    head.Parent = card
 
-    return card
-end
-
--- Component: Toggle (Touch friendly)
-local function addToggle(card, labelText, default, callbackName)
-    local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, 0, 0, 32)
-    row.BackgroundTransparency = 1
-    row.Parent = card
+    local pill = Instance.new("Frame")
+    pill.Size = UDim2.fromOffset(3, 14)
+    pill.Position = UDim2.fromOffset(0, 3)
+    pill.BackgroundColor3 = THEME.Accent
+    pill.BorderSizePixel = 0
+    pill.Parent = head
+    corner(pill, 2)
 
     local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1, -54, 1, 0)
+    lbl.Size = UDim2.new(1, -12, 1, 0)
+    lbl.Position = UDim2.fromOffset(8, 0)
     lbl.BackgroundTransparency = 1
-    lbl.Text = labelText
+    lbl.Text = title
+    lbl.TextSize = 11
     lbl.TextColor3 = THEME.Text
-    lbl.TextSize = 12
-    lbl.Font = FONT
+    lbl.Font = FONT_BOLD
     lbl.TextXAlignment = Enum.TextXAlignment.Left
-    lbl.Parent = row
+    lbl.TextTruncate = Enum.TextTruncate.AtEnd
+    lbl.Parent = head
 
-    local switch = Instance.new("TextButton")
-    switch.Size = UDim2.fromOffset(46, 24)
-    switch.Position = UDim2.new(1, -46, 0.5, -12)
-    switch.BackgroundColor3 = default and THEME.Accent or THEME.CardAlt
-    switch.Text = ""
-    switch.AutoButtonColor = false
-    switch.Parent = row
-    corner(switch, 12)
-    stroke(switch, default and THEME.AccentBright or THEME.BorderDim, 1)
+    local sep = Instance.new("Frame")
+    sep.Size = UDim2.new(1, 0, 0, 1)
+    sep.BackgroundColor3 = THEME.BorderDim
+    sep.BorderSizePixel = 0
+    sep.Parent = card
 
-    local knob = Instance.new("Frame")
-    knob.Size = UDim2.fromOffset(18, 18)
-    knob.Position = default and UDim2.fromOffset(25, 3) or UDim2.fromOffset(3, 3)
-    knob.BackgroundColor3 = THEME.Text
-    knob.BorderSizePixel = 0
-    knob.Parent = switch
-    corner(knob, 9)
+    local body = Instance.new("Frame")
+    body.Name = "Body"
+    body.BackgroundTransparency = 1
+    body.Size = UDim2.new(1, 0, 0, 0)
+    body.AutomaticSize = Enum.AutomaticSize.Y
+    body.Parent = card
 
-    local state = default or false
+    local bodyLayout = Instance.new("UIListLayout")
+    bodyLayout.Padding = UDim.new(0, 6)
+    bodyLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    bodyLayout.Parent = body
 
-    local function updateSwitch(val)
-        state = val
-        if state then
-            tween(switch, TweenInfo.new(0.18), { BackgroundColor3 = THEME.Accent })
-            tween(knob, TweenInfo.new(0.18), { Position = UDim2.fromOffset(25, 3) })
-        else
-            tween(switch, TweenInfo.new(0.18), { BackgroundColor3 = THEME.CardAlt })
-            tween(knob, TweenInfo.new(0.18), { Position = UDim2.fromOffset(3, 3) })
+    return card, body
+end
+
+--//==================================================
+--// SECTION WIDGET SYSTEM (CONTAINED WIDGETS)
+--//==================================================
+
+local function wrapMobileSection(card, body, title)
+    local section = {
+        card = card,
+        body = body,
+        text = title,
+        options = {},
+    }
+
+    -- 1. Contained Toggle
+    function section:AddToggle(data)
+        local text = data.text or ""
+        local state = data.state == true
+        local callback = data.callback
+
+        local row = Instance.new("Frame")
+        row.Size = UDim2.new(1, 0, 0, 30)
+        row.BackgroundTransparency = 1
+        row.Parent = body
+
+        local lbl = Instance.new("TextLabel")
+        lbl.Size = UDim2.new(1, -78, 1, 0)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = text
+        lbl.TextSize = 11
+        lbl.TextColor3 = state and THEME.Text or THEME.TextMuted
+        lbl.Font = FONT
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        lbl.TextTruncate = Enum.TextTruncate.AtEnd
+        lbl.Parent = row
+
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.fromOffset(40, 20)
+        btn.Position = UDim2.new(1, -42, 0.5, -10)
+        btn.BackgroundColor3 = state and THEME.Accent or THEME.CardAlt
+        btn.Text = ""
+        btn.AutoButtonColor = false
+        btn.Parent = row
+        corner(btn, 10)
+        stroke(btn, state and THEME.AccentBright or THEME.BorderDim, 1)
+
+        local knob = Instance.new("Frame")
+        knob.Size = UDim2.fromOffset(14, 14)
+        knob.Position = state and UDim2.new(1, -17, 0.5, -7) or UDim2.fromOffset(3, 3)
+        knob.BackgroundColor3 = THEME.Text
+        knob.Parent = btn
+        corner(knob, 7)
+
+        local toggleObj = { enabled = true }
+
+        local function setState(val, skipCallback)
+            local newVal = (val == true)
+            if state == newVal and skipCallback then
+                return
+            end
+            state = newVal
+            lbl.TextColor3 = state and THEME.Text or THEME.TextMuted
+            if skipCallback then
+                btn.BackgroundColor3 = state and THEME.Accent or THEME.CardAlt
+                knob.Position = state and UDim2.new(1, -17, 0.5, -7) or UDim2.fromOffset(3, 3)
+            else
+                tween(btn, TweenInfo.new(0.12), { BackgroundColor3 = state and THEME.Accent or THEME.CardAlt })
+                tween(knob, TweenInfo.new(0.12), { Position = state and UDim2.new(1, -17, 0.5, -7) or UDim2.fromOffset(3, 3) })
+                if callback then pcall(callback, state) end
+            end
         end
-        if callbackName then _G.FireEvent(callbackName, state) end
+
+        trackConnection(btn.MouseButton1Click:Connect(function()
+            setState(not state)
+        end))
+
+        function toggleObj:SetState(val, skipCallback)
+            setState(val, skipCallback)
+        end
+
+        function toggleObj:AddColor(spec)
+            local col = spec.color or Color3.fromRGB(255, 255, 255)
+            local cb = spec.callback
+
+            local chip = Instance.new("TextButton")
+            chip.Size = UDim2.fromOffset(18, 18)
+            chip.Position = UDim2.new(1, -66, 0.5, -9)
+            chip.BackgroundColor3 = col
+            chip.Text = ""
+            chip.AutoButtonColor = false
+            chip.Parent = row
+            corner(chip, 4)
+            stroke(chip, THEME.BorderDim, 1)
+
+            local chipObj = {}
+            function chipObj:SetColor(newColor, skipCb)
+                if col == newColor and skipCb then return end
+                col = newColor
+                chip.BackgroundColor3 = col
+                if not skipCb and cb then pcall(cb, col) end
+            end
+
+            trackConnection(chip.MouseButton1Click:Connect(function()
+                local PALETTE = {
+                    Color3.fromRGB(255, 255, 255),
+                    Color3.fromRGB(205, 104, 255),
+                    Color3.fromRGB(157, 48, 255),
+                    Color3.fromRGB(0, 220, 255),
+                    Color3.fromRGB(42, 255, 157),
+                    Color3.fromRGB(255, 75, 125),
+                    Color3.fromRGB(255, 215, 0),
+                }
+                local nextIdx = 1
+                for idx, c in ipairs(PALETTE) do
+                    if (c.R - col.R)^2 + (c.G - col.G)^2 + (c.B - col.B)^2 < 0.05 then
+                        nextIdx = (idx % #PALETTE) + 1
+                        break
+                    end
+                end
+                chipObj:SetColor(PALETTE[nextIdx])
+            end))
+
+            return chipObj
+        end
+
+        table.insert(section.options, { row = row, obj = toggleObj })
+        return toggleObj
     end
 
-    trackConnection(switch.MouseButton1Click:Connect(function()
-        updateSwitch(not state)
-    end))
+    -- 2. Contained Slider
+    function section:AddSlider(data)
+        local text = data.text or ""
+        local min = data.min or 0
+        local max = data.max or 100
+        local inc = data.increment or 1
+        local val = math.clamp(data.value or min, min, max)
+        local suffix = data.suffix or ""
+        local callback = data.callback
 
-    return row, updateSwitch
-end
+        local row = Instance.new("Frame")
+        row.Size = UDim2.new(1, 0, 0, 40)
+        row.BackgroundTransparency = 1
+        row.Parent = body
 
--- Component: Slider (Touch friendly drag)
-local function addSlider(card, labelText, min, max, default, callbackName, suffix)
-    suffix = suffix or ""
-    local container = Instance.new("Frame")
-    container.Size = UDim2.new(1, 0, 0, 48)
-    container.BackgroundTransparency = 1
-    container.Parent = card
+        local lbl = Instance.new("TextLabel")
+        lbl.Size = UDim2.new(0.65, 0, 0, 15)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = text
+        lbl.TextSize = 10
+        lbl.TextColor3 = THEME.TextMuted
+        lbl.Font = FONT
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        lbl.TextTruncate = Enum.TextTruncate.AtEnd
+        lbl.Parent = row
 
-    local topRow = Instance.new("Frame")
-    topRow.Size = UDim2.new(1, 0, 0, 18)
-    topRow.BackgroundTransparency = 1
-    topRow.Parent = container
-
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(0.7, 0, 1, 0)
-    lbl.BackgroundTransparency = 1
-    lbl.Text = labelText
-    lbl.TextColor3 = THEME.Text
-    lbl.TextSize = 12
-    lbl.Font = FONT
-    lbl.TextXAlignment = Enum.TextXAlignment.Left
-    lbl.Parent = topRow
-
-    local valLbl = Instance.new("TextLabel")
-    valLbl.Size = UDim2.new(0.3, 0, 1, 0)
-    valLbl.Position = UDim2.new(0.7, 0, 0, 0)
-    valLbl.BackgroundTransparency = 1
-    valLbl.Text = tostring(default) .. suffix
-    valLbl.TextColor3 = THEME.AccentBright
-    valLbl.TextSize = 12
-    valLbl.Font = FONT_BOLD
-    valLbl.TextXAlignment = Enum.TextXAlignment.Right
-    valLbl.Parent = topRow
-
-    local bar = Instance.new("Frame")
-    bar.Size = UDim2.new(1, 0, 0, 14)
-    bar.Position = UDim2.fromOffset(0, 26)
-    bar.BackgroundColor3 = THEME.CardAlt
-    bar.BorderSizePixel = 0
-    bar.Parent = container
-    corner(bar, 7)
-    stroke(bar, THEME.BorderDim, 1)
-
-    local percent = math.clamp((default - min) / (max - min), 0, 1)
-    local fill = Instance.new("Frame")
-    fill.Size = UDim2.new(percent, 0, 1, 0)
-    fill.BackgroundColor3 = THEME.Accent
-    fill.BorderSizePixel = 0
-    fill.Parent = bar
-    corner(fill, 7)
-
-    local isDragging = false
-
-    local function updateFromInput(input)
-        local relX = math.clamp(input.Position.X - bar.AbsolutePosition.X, 0, bar.AbsoluteSize.X)
-        local pct = relX / bar.AbsoluteSize.X
-        local val = math.floor(min + (max - min) * pct)
-        fill.Size = UDim2.new(pct, 0, 1, 0)
+        local valLbl = Instance.new("TextLabel")
+        valLbl.Size = UDim2.new(0.35, 0, 0, 15)
+        valLbl.Position = UDim2.new(0.65, 0, 0, 0)
+        valLbl.BackgroundTransparency = 1
         valLbl.Text = tostring(val) .. suffix
-        if callbackName then _G.FireEvent(callbackName, val) end
+        valLbl.TextSize = 10
+        valLbl.TextColor3 = THEME.AccentBright
+        valLbl.Font = FONT_BOLD
+        valLbl.TextXAlignment = Enum.TextXAlignment.Right
+        valLbl.Parent = row
+
+        local track = Instance.new("Frame")
+        track.Size = UDim2.new(1, 0, 0, 8)
+        track.Position = UDim2.fromOffset(0, 22)
+        track.BackgroundColor3 = THEME.CardAlt
+        track.Parent = row
+        corner(track, 4)
+        stroke(track, THEME.BorderDim, 1)
+
+        local fill = Instance.new("Frame")
+        fill.Size = UDim2.new((val - min) / (max - min), 0, 1, 0)
+        fill.BackgroundColor3 = THEME.Accent
+        fill.BorderSizePixel = 0
+        fill.Parent = track
+        corner(fill, 4)
+
+        local sliderObj = { enabled = true }
+
+        local function setValue(newVal, skipCallback)
+            local targetVal = math.clamp(math.floor(newVal / inc + 0.5) * inc, min, max)
+            if val == targetVal and skipCallback then return end
+            val = targetVal
+            local pct = (val - min) / (max - min)
+            fill.Size = UDim2.new(pct, 0, 1, 0)
+            valLbl.Text = tostring(val) .. suffix
+            if not skipCallback and callback then pcall(callback, val) end
+        end
+
+        local dragging = false
+        local function update(inputPos)
+            local relX = math.clamp((inputPos.X - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
+            setValue(min + (relX * (max - min)))
+        end
+
+        trackConnection(row.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                dragging = true
+                update(input.Position)
+            end
+        end))
+
+        trackConnection(UserInputService.InputChanged:Connect(function(input)
+            if dragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
+                update(input.Position)
+            end
+        end))
+
+        trackConnection(UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                dragging = false
+            end
+        end))
+
+        function sliderObj:SetValue(newVal, skipCallback)
+            setValue(newVal, skipCallback)
+        end
+
+        table.insert(section.options, { row = row, obj = sliderObj })
+        return sliderObj
     end
 
-    trackConnection(bar.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            isDragging = true
-            updateFromInput(input)
-        end
-    end))
+    -- 3. Contained Dropdown (Accordion Expanding Container - Never Overlaps)
+    function section:AddList(data)
+        local text = data.text or ""
+        local values = data.values or {}
+        local multi = data.multi == true
+        local selected = data.selected or (multi and {} or values[1])
+        local callback = data.callback
 
-    trackConnection(UserInputService.InputChanged:Connect(function(input)
-        if isDragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
-            updateFromInput(input)
-        end
-    end))
+        local row = Instance.new("Frame")
+        row.Size = UDim2.new(1, 0, 0, 44)
+        row.BackgroundTransparency = 1
+        row.ClipsDescendants = true
+        row.Parent = body
 
-    trackConnection(UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            isDragging = false
-        end
-    end))
+        local lbl = Instance.new("TextLabel")
+        lbl.Size = UDim2.new(1, 0, 0, 14)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = text
+        lbl.TextSize = 10
+        lbl.TextColor3 = THEME.TextMuted
+        lbl.Font = FONT
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        lbl.TextTruncate = Enum.TextTruncate.AtEnd
+        lbl.Parent = row
 
-    return container
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, 0, 0, 24)
+        btn.Position = UDim2.fromOffset(0, 18)
+        btn.BackgroundColor3 = THEME.CardAlt
+        btn.Text = "  " .. (multi and (type(selected) == "table" and table.concat(selected, ", ") or "None") or tostring(selected or "None"))
+        btn.TextColor3 = THEME.Text
+        btn.TextSize = 10
+        btn.Font = FONT
+        btn.TextXAlignment = Enum.TextXAlignment.Left
+        btn.TextTruncate = Enum.TextTruncate.AtEnd
+        btn.AutoButtonColor = false
+        btn.Parent = row
+        corner(btn, 5)
+        stroke(btn, THEME.BorderDim, 1)
+
+        local arrow = Instance.new("TextLabel")
+        arrow.Size = UDim2.fromOffset(20, 24)
+        arrow.Position = UDim2.new(1, -20, 0, 0)
+        arrow.BackgroundTransparency = 1
+        arrow.Text = "▼"
+        arrow.TextColor3 = THEME.AccentBright
+        arrow.TextSize = 9
+        arrow.Parent = btn
+
+        local dropFrame = Instance.new("Frame")
+        dropFrame.Size = UDim2.new(1, 0, 0, 100)
+        dropFrame.Position = UDim2.fromOffset(0, 44)
+        dropFrame.BackgroundColor3 = THEME.Header
+        dropFrame.Visible = false
+        dropFrame.Parent = row
+        corner(dropFrame, 6)
+        stroke(dropFrame, THEME.Accent, 1)
+
+        local scroll = Instance.new("ScrollingFrame")
+        scroll.Size = UDim2.new(1, -4, 1, -4)
+        scroll.Position = UDim2.fromOffset(2, 2)
+        scroll.BackgroundTransparency = 1
+        scroll.ScrollBarThickness = 2
+        scroll.ScrollBarImageColor3 = THEME.Accent
+        scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        scroll.Parent = dropFrame
+
+        local listLayout = Instance.new("UIListLayout")
+        listLayout.Padding = UDim.new(0, 2)
+        listLayout.Parent = scroll
+
+        local open = false
+        local listObj = { enabled = true, values = values }
+
+        local function refreshText()
+            if multi then
+                local selList = type(selected) == "table" and selected or {}
+                btn.Text = "  " .. (#selList > 0 and table.concat(selList, ", ") or "None")
+            else
+                btn.Text = "  " .. tostring(selected or "None")
+            end
+        end
+
+        local function closeDropdown()
+            if not open then return end
+            open = false
+            dropFrame.Visible = false
+            row.Size = UDim2.new(1, 0, 0, 44)
+            arrow.Text = "▼"
+            if activeDropdownCloser == closeDropdown then
+                activeDropdownCloser = nil
+            end
+        end
+
+        local function rebuildOptions()
+            if not open then return end
+            for _, child in ipairs(scroll:GetChildren()) do
+                if child:IsA("TextButton") or child:IsA("TextLabel") then child:Destroy() end
+            end
+            local count = #values
+            local dropHeight = math.clamp(count * 24 + 6, 28, 120)
+            dropFrame.Size = UDim2.new(1, 0, 0, dropHeight)
+            row.Size = UDim2.new(1, 0, 0, 44 + dropHeight + 4)
+
+            if count == 0 then
+                local emptyLbl = Instance.new("TextLabel")
+                emptyLbl.Size = UDim2.new(1, 0, 0, 22)
+                emptyLbl.BackgroundTransparency = 1
+                emptyLbl.Text = "No items available"
+                emptyLbl.TextColor3 = THEME.TextDim
+                emptyLbl.TextSize = 10
+                emptyLbl.Font = FONT
+                emptyLbl.Parent = scroll
+                return
+            end
+
+            for _, opt in ipairs(values) do
+                local optBtn = Instance.new("TextButton")
+                optBtn.Size = UDim2.new(1, 0, 0, 22)
+                optBtn.BackgroundColor3 = THEME.Card
+                optBtn.Text = "  " .. tostring(opt)
+                optBtn.TextColor3 = (multi and type(selected) == "table" and table.find(selected, opt)) and THEME.AccentBright or ((opt == selected) and THEME.AccentBright or THEME.TextMuted)
+                optBtn.TextSize = 10
+                optBtn.Font = FONT
+                optBtn.TextXAlignment = Enum.TextXAlignment.Left
+                optBtn.AutoButtonColor = false
+                optBtn.Parent = scroll
+                corner(optBtn, 3)
+
+                optBtn.MouseButton1Click:Connect(function()
+                    if multi then
+                        selected = type(selected) == "table" and selected or {}
+                        local f = table.find(selected, opt)
+                        if f then table.remove(selected, f) else table.insert(selected, opt) end
+                        optBtn.TextColor3 = table.find(selected, opt) and THEME.AccentBright or THEME.TextMuted
+                        refreshText()
+                        if callback then pcall(callback, selected) end
+                    else
+                        selected = opt
+                        refreshText()
+                        closeDropdown()
+                        if callback then pcall(callback, selected) end
+                    end
+                end)
+            end
+        end
+
+        trackConnection(btn.MouseButton1Click:Connect(function()
+            if open then
+                closeDropdown()
+            else
+                if activeDropdownCloser and activeDropdownCloser ~= closeDropdown then
+                    activeDropdownCloser()
+                end
+                open = true
+                activeDropdownCloser = closeDropdown
+                arrow.Text = "▲"
+                dropFrame.Visible = true
+                rebuildOptions()
+            end
+        end))
+
+        function listObj:Select(val, skipCallback)
+            selected = val
+            refreshText()
+            if open then rebuildOptions() end
+            if not skipCallback and callback then pcall(callback, selected) end
+        end
+
+        function listObj:ClearValues()
+            values = {}
+            listObj.values = values
+            if open then rebuildOptions() end
+        end
+
+        function listObj:AddValue(val)
+            table.insert(values, val)
+            if open then rebuildOptions() end
+        end
+
+        function listObj:SetValues(newVals)
+            values = newVals or {}
+            listObj.values = values
+            if open then rebuildOptions() end
+        end
+
+        function listObj:SetText(newTxt)
+            lbl.Text = newTxt
+        end
+
+        table.insert(section.options, { row = row, obj = listObj })
+        return listObj
+    end
+
+    -- 4. Contained ScrollList Widget (Searchable Contained List Box - Used for Weapons, Skins, Skyboxes, Sounds)
+    function section:AddScrollList(data)
+        local text = data.text or ""
+        local values = data.values or {}
+        local selected = tostring(data.selected or "")
+        local callback = data.callback
+
+        local container = Instance.new("Frame")
+        container.Name = "ScrollListContainer"
+        container.Size = UDim2.new(1, 0, 0, 150)
+        container.BackgroundColor3 = THEME.CardAlt
+        container.BorderSizePixel = 0
+        container.Parent = body
+        corner(container, 8)
+        stroke(container, THEME.BorderDim, 1)
+        padding(container, 6, 6, 6, 6)
+
+        local containerLayout = Instance.new("UIListLayout")
+        containerLayout.Padding = UDim.new(0, 4)
+        containerLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        containerLayout.Parent = container
+
+        -- Search & Title Row
+        local topRow = Instance.new("Frame")
+        topRow.Size = UDim2.new(1, 0, 0, 22)
+        topRow.BackgroundTransparency = 1
+        topRow.LayoutOrder = 1
+        topRow.Parent = container
+
+        local titleLbl = Instance.new("TextLabel")
+        titleLbl.Size = UDim2.new(0.45, 0, 1, 0)
+        titleLbl.BackgroundTransparency = 1
+        titleLbl.Text = text ~= "" and text or "Item Selector"
+        titleLbl.TextSize = 10
+        titleLbl.TextColor3 = THEME.TextMuted
+        titleLbl.Font = FONT_BOLD
+        titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+        titleLbl.TextTruncate = Enum.TextTruncate.AtEnd
+        titleLbl.Parent = topRow
+
+        local searchBox = Instance.new("TextBox")
+        searchBox.Size = UDim2.new(0.55, 0, 1, 0)
+        searchBox.Position = UDim2.new(0.45, 0, 0, 0)
+        searchBox.BackgroundColor3 = THEME.Card
+        searchBox.Text = ""
+        searchBox.PlaceholderText = "Search..."
+        searchBox.PlaceholderColor3 = THEME.TextDim
+        searchBox.TextColor3 = THEME.Text
+        searchBox.TextSize = 10
+        searchBox.Font = FONT
+        searchBox.TextXAlignment = Enum.TextXAlignment.Left
+        searchBox.ClearTextOnFocus = false
+        searchBox.Parent = topRow
+        corner(searchBox, 4)
+        stroke(searchBox, THEME.BorderDim, 1)
+        padding(searchBox, 0, 0, 6, 6)
+
+        -- Scrollable Item Viewport
+        local scrollFrame = Instance.new("ScrollingFrame")
+        scrollFrame.Size = UDim2.new(1, 0, 1, -26)
+        scrollFrame.BackgroundTransparency = 1
+        scrollFrame.ScrollBarThickness = 2
+        scrollFrame.ScrollBarImageColor3 = THEME.Accent
+        scrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        scrollFrame.LayoutOrder = 2
+        scrollFrame.Parent = container
+
+        local scrollLayout = Instance.new("UIListLayout")
+        scrollLayout.Padding = UDim.new(0, 2)
+        scrollLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        scrollLayout.Parent = scrollFrame
+
+        local scrollListObj = { enabled = true, values = values }
+
+        local renderPending = false
+        local function renderItems()
+            renderPending = false
+            local query = string.lower(searchBox.Text)
+            for _, child in ipairs(scrollFrame:GetChildren()) do
+                if child:IsA("TextButton") then child:Destroy() end
+            end
+
+            for _, val in ipairs(values) do
+                local valStr = tostring(val)
+                if query == "" or string.find(string.lower(valStr), query, 1, true) then
+                    local isSel = (valStr == selected)
+                    local itemBtn = Instance.new("TextButton")
+                    itemBtn.Size = UDim2.new(1, 0, 0, 22)
+                    itemBtn.BackgroundColor3 = isSel and THEME.AccentDark or THEME.Card
+                    itemBtn.Text = "  " .. valStr
+                    itemBtn.TextColor3 = isSel and THEME.AccentBright or THEME.TextMuted
+                    itemBtn.TextSize = 10
+                    itemBtn.Font = isSel and FONT_BOLD or FONT
+                    itemBtn.TextXAlignment = Enum.TextXAlignment.Left
+                    itemBtn.TextTruncate = Enum.TextTruncate.AtEnd
+                    itemBtn.AutoButtonColor = false
+                    itemBtn.Parent = scrollFrame
+                    corner(itemBtn, 4)
+                    if isSel then stroke(itemBtn, THEME.Accent, 1) end
+
+                    itemBtn.MouseButton1Click:Connect(function()
+                        selected = valStr
+                        renderItems()
+                        if callback then pcall(callback, valStr) end
+                    end)
+                end
+            end
+        end
+
+        local function scheduleRender()
+            if renderPending then return end
+            renderPending = true
+            task.defer(renderItems)
+        end
+
+        trackConnection(searchBox:GetPropertyChangedSignal("Text"):Connect(scheduleRender))
+        scheduleRender()
+
+        function scrollListObj:Select(val, skipCallback)
+            selected = tostring(val or "")
+            scheduleRender()
+            if not skipCallback and callback then pcall(callback, selected) end
+        end
+
+        function scrollListObj:ClearValues()
+            values = {}
+            scrollListObj.values = values
+            scheduleRender()
+        end
+
+        function scrollListObj:AddValue(val)
+            table.insert(values, val)
+            scheduleRender()
+        end
+
+        function scrollListObj:SetValues(newVals)
+            values = newVals or {}
+            scrollListObj.values = values
+            scheduleRender()
+        end
+
+        function scrollListObj:SetText(newTxt)
+            titleLbl.Text = newTxt
+        end
+
+        table.insert(section.options, { row = container, obj = scrollListObj })
+        return scrollListObj
+    end
+
+    -- 5. Contained Keybind
+    function section:AddBind(data)
+        local text = data.text or ""
+        local bind = data.bind or "None"
+        local keycallback = data.keycallback
+        local bindName = typeof(bind) == "EnumItem" and bind.Name or tostring(bind)
+
+        local row = Instance.new("Frame")
+        row.Size = UDim2.new(1, 0, 0, 28)
+        row.BackgroundTransparency = 1
+        row.Parent = body
+
+        local lbl = Instance.new("TextLabel")
+        lbl.Size = UDim2.new(1, -70, 1, 0)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = text
+        lbl.TextSize = 11
+        lbl.TextColor3 = THEME.TextMuted
+        lbl.Font = FONT
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        lbl.TextTruncate = Enum.TextTruncate.AtEnd
+        lbl.Parent = row
+
+        local badge = Instance.new("TextButton")
+        badge.Size = UDim2.fromOffset(64, 22)
+        badge.Position = UDim2.new(1, -64, 0.5, -11)
+        badge.BackgroundColor3 = THEME.CardAlt
+        badge.Text = "[" .. bindName .. "]"
+        badge.TextColor3 = THEME.AccentBright
+        badge.TextSize = 10
+        badge.Font = FONT_BOLD
+        badge.AutoButtonColor = false
+        badge.Parent = row
+        corner(badge, 4)
+        stroke(badge, THEME.BorderDim, 1)
+
+        local waitingForInput = false
+        local listenConn = nil
+        local timerThread = nil
+
+        local function cleanupListening()
+            if listenConn then
+                listenConn:Disconnect()
+                listenConn = nil
+            end
+            if timerThread then
+                task.cancel(timerThread)
+                timerThread = nil
+            end
+            waitingForInput = false
+        end
+
+        local function updateBadgeVisual()
+            local display = tostring(bindName or "None")
+            if display == "Always" or display == "ALWAYS" then
+                badge.Text = "[Always]"
+                badge.TextColor3 = THEME.AccentBright
+            elseif display == "None" or display == "NONE" or display == "" then
+                badge.Text = "[None]"
+                badge.TextColor3 = THEME.TextMuted
+            else
+                badge.Text = "[" .. display .. "]"
+                badge.TextColor3 = THEME.AccentBright
+            end
+        end
+        updateBadgeVisual()
+
+        badge.MouseButton1Click:Connect(function()
+            if waitingForInput then
+                cleanupListening()
+                if bindName == "Always" then
+                    bindName = "None"
+                else
+                    bindName = "Always"
+                end
+                updateBadgeVisual()
+                local cbVal = (bindName == "Always") and "Always" or "None"
+                if keycallback then
+                    pcall(keycallback, cbVal)
+                end
+                return
+            end
+
+            waitingForInput = true
+            badge.Text = "[...]"
+            badge.TextColor3 = THEME.TextLight
+
+            listenConn = UserInputService.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.Keyboard then
+                    local kc = input.KeyCode
+                    cleanupListening()
+                    if kc == Enum.KeyCode.Escape or kc == Enum.KeyCode.Backspace then
+                        bindName = "None"
+                        updateBadgeVisual()
+                        if keycallback then pcall(keycallback, "None") end
+                    else
+                        bindName = kc.Name
+                        updateBadgeVisual()
+                        if keycallback then pcall(keycallback, kc) end
+                    end
+                elseif input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    cleanupListening()
+                    if bindName == "Always" then
+                        bindName = "None"
+                    else
+                        bindName = "Always"
+                    end
+                    updateBadgeVisual()
+                    local cbVal = (bindName == "Always") and "Always" or "None"
+                    if keycallback then
+                        pcall(keycallback, cbVal)
+                    end
+                end
+            end)
+
+            timerThread = task.delay(3.5, function()
+                if waitingForInput then
+                    cleanupListening()
+                    updateBadgeVisual()
+                end
+            end)
+        end)
+
+        local bindObj = { enabled = true }
+        function bindObj:SetBind(newBind)
+            bind = newBind
+            bindName = typeof(bind) == "EnumItem" and bind.Name or tostring(bind)
+            updateBadgeVisual()
+        end
+
+        table.insert(section.options, { row = row, obj = bindObj })
+        return bindObj
+    end
+
+    -- 6. Contained ColorPicker
+    function section:AddColor(data)
+        local text = data.text or ""
+        local color = data.color or Color3.fromRGB(205, 104, 255)
+        local callback = data.callback
+
+        local row = Instance.new("Frame")
+        row.Size = UDim2.new(1, 0, 0, 28)
+        row.BackgroundTransparency = 1
+        row.Parent = body
+
+        local lbl = Instance.new("TextLabel")
+        lbl.Size = UDim2.new(1, -50, 1, 0)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = text
+        lbl.TextSize = 11
+        lbl.TextColor3 = THEME.TextMuted
+        lbl.Font = FONT
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        lbl.TextTruncate = Enum.TextTruncate.AtEnd
+        lbl.Parent = row
+
+        local chip = Instance.new("TextButton")
+        chip.Size = UDim2.fromOffset(36, 18)
+        chip.Position = UDim2.new(1, -38, 0.5, -9)
+        chip.BackgroundColor3 = color
+        chip.Text = ""
+        chip.AutoButtonColor = false
+        chip.Parent = row
+        corner(chip, 4)
+        stroke(chip, THEME.BorderDim, 1)
+
+        local colorObj = { enabled = true }
+        function colorObj:SetColor(newColor, skipCb)
+            if color == newColor and skipCb then return end
+            color = newColor
+            chip.BackgroundColor3 = color
+            if not skipCb and callback then pcall(callback, color) end
+        end
+
+        trackConnection(chip.MouseButton1Click:Connect(function()
+            local PALETTE = {
+                Color3.fromRGB(255, 255, 255),
+                Color3.fromRGB(205, 104, 255),
+                Color3.fromRGB(157, 48, 255),
+                Color3.fromRGB(0, 220, 255),
+                Color3.fromRGB(42, 255, 157),
+                Color3.fromRGB(255, 75, 125),
+                Color3.fromRGB(255, 215, 0),
+            }
+            local nextIdx = 1
+            for idx, c in ipairs(PALETTE) do
+                if (c.R - color.R)^2 + (c.G - color.G)^2 + (c.B - color.B)^2 < 0.05 then
+                    nextIdx = (idx % #PALETTE) + 1
+                    break
+                end
+            end
+            colorObj:SetColor(PALETTE[nextIdx])
+        end))
+
+        table.insert(section.options, { row = row, obj = colorObj })
+        return colorObj
+    end
+
+    -- 7. Contained Button & Chained Button Rows
+    function section:AddButton(data)
+        local text = data.text or "Button"
+        local confirm = data.confirm == true
+        local callback = data.callback
+
+        local row = Instance.new("Frame")
+        row.Size = UDim2.new(1, 0, 0, 28)
+        row.BackgroundTransparency = 1
+        row.Parent = body
+
+        local rowLayout = Instance.new("UIListLayout")
+        rowLayout.FillDirection = Enum.FillDirection.Horizontal
+        rowLayout.Padding = UDim.new(0, 4)
+        rowLayout.Parent = row
+
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, 0, 1, 0)
+        btn.BackgroundColor3 = THEME.CardAlt
+        btn.Text = text
+        btn.TextColor3 = THEME.Text
+        btn.TextSize = 10
+        btn.Font = FONT_BOLD
+        btn.AutoButtonColor = false
+        btn.Parent = row
+        corner(btn, 5)
+        stroke(btn, THEME.BorderDim, 1)
+
+        local btnObj = { enabled = true, count = 1, buttons = { btn } }
+
+        local clickedOnce = false
+        trackConnection(btn.MouseButton1Click:Connect(function()
+            if confirm and not clickedOnce then
+                clickedOnce = true
+                btn.Text = "Confirm?"
+                btn.TextColor3 = THEME.Red
+                task.delay(3, function()
+                    clickedOnce = false
+                    btn.Text = text
+                    btn.TextColor3 = THEME.Text
+                end)
+                return
+            end
+            clickedOnce = false
+            btn.Text = text
+            btn.TextColor3 = THEME.Text
+            if callback then pcall(callback) end
+        end))
+
+        function btnObj:AddButton(subData)
+            btnObj.count = btnObj.count + 1
+            local count = btnObj.count
+            for _, b in ipairs(btnObj.buttons) do
+                b.Size = UDim2.new(1 / count, -((count - 1) * 4) / count, 1, 0)
+            end
+
+            local subBtn = Instance.new("TextButton")
+            subBtn.Size = UDim2.new(1 / count, -((count - 1) * 4) / count, 1, 0)
+            subBtn.BackgroundColor3 = THEME.CardAlt
+            subBtn.Text = subData.text or "Button"
+            subBtn.TextColor3 = THEME.Text
+            subBtn.TextSize = 10
+            subBtn.Font = FONT_BOLD
+            subBtn.AutoButtonColor = false
+            subBtn.Parent = row
+            corner(subBtn, 5)
+            stroke(subBtn, THEME.BorderDim, 1)
+            table.insert(btnObj.buttons, subBtn)
+
+            trackConnection(subBtn.MouseButton1Click:Connect(function()
+                if subData.callback then pcall(subData.callback) end
+            end))
+            return btnObj
+        end
+
+        table.insert(section.options, { row = row, obj = btnObj })
+        return btnObj
+    end
+
+    -- 8. Contained Text Box
+    function section:AddBox(data)
+        local text = data.text or ""
+        local input = data.input or ""
+        local callback = data.callback
+
+        local row = Instance.new("Frame")
+        row.Size = UDim2.new(1, 0, 0, 44)
+        row.BackgroundTransparency = 1
+        row.Parent = body
+
+        local lbl = Instance.new("TextLabel")
+        lbl.Size = UDim2.new(1, 0, 0, 14)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = text
+        lbl.TextSize = 10
+        lbl.TextColor3 = THEME.TextMuted
+        lbl.Font = FONT
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        lbl.TextTruncate = Enum.TextTruncate.AtEnd
+        lbl.Parent = row
+
+        local box = Instance.new("TextBox")
+        box.Size = UDim2.new(1, 0, 0, 24)
+        box.Position = UDim2.fromOffset(0, 18)
+        box.BackgroundColor3 = THEME.CardAlt
+        box.Text = tostring(input)
+        box.PlaceholderText = "Type here..."
+        box.TextColor3 = THEME.Text
+        box.PlaceholderColor3 = THEME.TextDim
+        box.TextSize = 10
+        box.Font = FONT
+        box.TextXAlignment = Enum.TextXAlignment.Left
+        box.ClearTextOnFocus = false
+        box.Parent = row
+        corner(box, 5)
+        stroke(box, THEME.BorderDim, 1)
+        padding(box, 0, 0, 6, 6)
+
+        local boxObj = { enabled = true }
+        trackConnection(box.FocusLost:Connect(function()
+            if callback then pcall(callback, box.Text) end
+        end))
+
+        function boxObj:SetInput(val, skipCallback)
+            box.Text = tostring(val or "")
+            if not skipCallback and callback then pcall(callback, box.Text) end
+        end
+
+        table.insert(section.options, { row = row, obj = boxObj })
+        return boxObj
+    end
+
+    -- 9. Text & Separator
+    function section:AddText(data)
+        local row = Instance.new("TextLabel")
+        row.Size = UDim2.new(1, 0, 0, 18)
+        row.BackgroundTransparency = 1
+        row.Text = data.text or ""
+        row.TextColor3 = THEME.TextDim
+        row.TextSize = 10
+        row.Font = FONT
+        row.TextXAlignment = Enum.TextXAlignment.Left
+        row.Parent = body
+        return row
+    end
+
+    function section:AddSeparator(data)
+        local sep = Instance.new("Frame")
+        sep.Size = UDim2.new(1, 0, 0, 1)
+        sep.BackgroundColor3 = THEME.BorderDim
+        sep.BorderSizePixel = 0
+        sep.Parent = body
+        return sep
+    end
+
+    function section:UpdateOptions()
+        for _, opt in ipairs(section.options) do
+            if opt.obj and opt.obj.enabled ~= nil then
+                opt.row.Visible = opt.obj.enabled
+            end
+        end
+    end
+
+    return section
 end
 
--- Component: Dropdown (Contained)
-local function addDropdown(card, labelText, options, default, callbackName)
-    local container = Instance.new("Frame")
-    container.Size = UDim2.new(1, 0, 0, 52)
-    container.BackgroundTransparency = 1
-    container.Parent = card
+--//==================================================
+--// ATOMWARE MOBILE WINDOW OBJECT
+--//==================================================
 
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1, 0, 0, 18)
-    lbl.BackgroundTransparency = 1
-    lbl.Text = labelText
-    lbl.TextColor3 = THEME.Text
-    lbl.TextSize = 12
-    lbl.Font = FONT
-    lbl.TextXAlignment = Enum.TextXAlignment.Left
-    lbl.Parent = container
+local AtomwareMobileWindow = {
+    tabs = {},
+    open = true,
+    uiDragging = false,
+    ScreenGui = ScreenGui,
+    MainFrame = MainFrame,
+}
 
-    local dropBtn = Instance.new("TextButton")
-    dropBtn.Size = UDim2.new(1, 0, 0, 28)
-    dropBtn.Position = UDim2.fromOffset(0, 22)
-    dropBtn.BackgroundColor3 = THEME.CardAlt
-    dropBtn.Text = "  " .. tostring(default)
-    dropBtn.TextColor3 = THEME.Text
-    dropBtn.TextSize = 12
-    dropBtn.Font = FONT
-    dropBtn.TextXAlignment = Enum.TextXAlignment.Left
-    dropBtn.AutoButtonColor = false
-    dropBtn.Parent = container
-    corner(dropBtn, 6)
-    stroke(dropBtn, THEME.BorderDim, 1)
+function AtomwareMobileWindow:init() return true end
+function AtomwareMobileWindow:NewWindow(spec) return self end
 
-    local arrow = Instance.new("TextLabel")
-    arrow.Size = UDim2.fromOffset(20, 28)
-    arrow.Position = UDim2.new(1, -24, 0, 0)
-    arrow.BackgroundTransparency = 1
-    arrow.Text = "v"
-    arrow.TextColor3 = THEME.TextMuted
-    arrow.TextSize = 10
-    arrow.Font = FONT_BOLD
-    arrow.Parent = dropBtn
-
-    local currentIndex = table.find(options, default) or 1
-
-    trackConnection(dropBtn.MouseButton1Click:Connect(function()
-        currentIndex = (currentIndex % #options) + 1
-        local selected = options[currentIndex]
-        dropBtn.Text = "  " .. selected
-        if callbackName then _G.FireEvent(callbackName, selected) end
-    end))
-
-    return container
+function AtomwareMobileWindow:SelectTab(name)
+    local displayName = normalizeTabName(name)
+    switchPage(displayName)
 end
 
--- Component: Action Button
-local function addButton(card, btnText, color, onClick)
-    local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, 0, 0, 36)
-    row.BackgroundTransparency = 1
-    row.Parent = card
+function AtomwareMobileWindow:SwitchPage(name)
+    self:SelectTab(name)
+end
+
+function AtomwareMobileWindow:CreateRealTab(displayName, icon)
+    local existing = self.tabs[displayName]
+    if existing then return existing end
+
+    local page = getOrCreatePage(displayName)
 
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, 0, 1, 0)
-    btn.BackgroundColor3 = color or THEME.CardAlt
-    btn.Text = btnText
-    btn.TextColor3 = THEME.Text
-    btn.TextSize = 12
+    btn.Name = displayName .. "Tab"
+    btn.Size = UDim2.fromOffset(88, 28)
+    btn.LayoutOrder = TAB_ORDER[displayName] or 99
+    btn.BackgroundColor3 = (displayName == CurrentPageName) and THEME.AccentDark or THEME.Card
+    btn.Text = icon .. " " .. displayName
+    btn.TextColor3 = (displayName == CurrentPageName) and THEME.AccentBright or THEME.TextMuted
+    btn.TextSize = 11
     btn.Font = FONT_BOLD
     btn.AutoButtonColor = false
-    btn.Parent = row
+    btn.Parent = TabBar
     corner(btn, 6)
     stroke(btn, THEME.BorderDim, 1)
 
+    TabButtons[displayName] = btn
     trackConnection(btn.MouseButton1Click:Connect(function()
-        pcall(onClick)
+        switchPage(displayName)
     end))
 
-    return row
+    local tabObj = {
+        name = displayName,
+        page = page,
+        sections = {},
+    }
+
+    function tabObj:AddSection(text, side, order)
+        local card, body = createMobileCard(page, text, side)
+        local section = wrapMobileSection(card, body, text)
+        table.insert(tabObj.sections, section)
+        return section
+    end
+
+    function tabObj:AddSubTabs(subNames) end
+
+    function tabObj:UpdateSections()
+        for _, sec in ipairs(tabObj.sections) do
+            sec:UpdateOptions()
+        end
+    end
+
+    self.tabs[displayName] = tabObj
+    return tabObj
 end
 
--- Component: Input TextBox
-local function addInput(card, labelText, defaultText, onEnter)
-    local container = Instance.new("Frame")
-    container.Size = UDim2.new(1, 0, 0, 52)
-    container.BackgroundTransparency = 1
-    container.Parent = card
+function AtomwareMobileWindow:AddTab(rawName, order)
+    local lower = string.lower(rawName or "")
 
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1, 0, 0, 18)
-    lbl.BackgroundTransparency = 1
-    lbl.Text = labelText
-    lbl.TextColor3 = THEME.Text
-    lbl.TextSize = 12
-    lbl.Font = FONT
-    lbl.TextXAlignment = Enum.TextXAlignment.Left
-    lbl.Parent = container
-
-    local box = Instance.new("TextBox")
-    box.Size = UDim2.new(1, 0, 0, 28)
-    box.Position = UDim2.fromOffset(0, 22)
-    box.BackgroundColor3 = THEME.CardAlt
-    box.Text = defaultText or ""
-    box.PlaceholderText = "Enter profile name..."
-    box.TextColor3 = THEME.Text
-    box.PlaceholderColor3 = THEME.TextDim
-    box.TextSize = 12
-    box.Font = FONT
-    box.ClearTextOnFocus = false
-    box.Parent = container
-    corner(box, 6)
-    stroke(box, THEME.BorderDim, 1)
-
-    if onEnter then
-        trackConnection(box.FocusLost:Connect(function(enterPressed)
-            onEnter(box.Text)
-        end))
+    -- 1. Excluded Tabs in LiteMode: World, Cosmetics (items), Extras
+    if lower == "world" or lower == "items" or lower == "cosmetics" or lower == "extras" then
+        self.tabs[rawName] = mockTabObj
+        return mockTabObj
     end
 
-    return box
+    -- 2. Visuals Tab (Allowed: all visual elements except Style, Utility Style, and Hit Effects)
+    if lower == "visuals" then
+        local realTab = self.tabs["Visuals"] or self:CreateRealTab("Visuals", "👁️")
+        local visualsProxy = {
+            name = "Visuals",
+            page = realTab.page,
+            sections = realTab.sections,
+            AddSection = function(selfProxy, text, side, sOrder)
+                local sLower = string.lower(text or "")
+                if sLower == "style" or sLower:find("utility style") or sLower:find("hit effects") then
+                    return createMockSection(text)
+                end
+                return realTab:AddSection(text, side, sOrder)
+            end,
+            AddSubTabs = function() end,
+            UpdateSections = function() realTab:UpdateSections() end,
+        }
+        self.tabs[rawName] = visualsProxy
+        return visualsProxy
+    end
+
+    -- 3. Unified Combat Tab (Combines Silent Aim from Legit and Ragebot from Rage)
+    if lower == "legit" then
+        local combatTab = self.tabs["Combat"] or self:CreateRealTab("Combat", "⚔️")
+        local legitProxy = {
+            name = "Combat",
+            page = combatTab.page,
+            sections = combatTab.sections,
+            AddSection = function(selfProxy, text, side, sOrder)
+                local sLower = string.lower(text or "")
+                -- Retain Silent Aim in Left Column (side 1)
+                if sLower:find("silent") then
+                    return combatTab:AddSection(text, 1, sOrder)
+                end
+                -- Headless mock for legit aimbot and triggerbot in LiteMode
+                return createMockSection(text)
+            end,
+            AddSubTabs = function() end,
+            UpdateSections = function() combatTab:UpdateSections() end,
+        }
+        self.tabs[rawName] = legitProxy
+        return legitProxy
+    end
+
+    if lower == "rage" then
+        local combatTab = self.tabs["Combat"] or self:CreateRealTab("Combat", "⚔️")
+        local rageProxy = {
+            name = "Combat",
+            page = combatTab.page,
+            sections = combatTab.sections,
+            AddSection = function(selfProxy, text, side, sOrder)
+                local sLower = string.lower(text or "")
+                -- Retain Ragebot in Right Column (side 2)
+                if sLower:find("rage") then
+                    return combatTab:AddSection(text, 2, sOrder)
+                end
+                -- Headless mock for extra visualizers / evasion
+                return createMockSection(text)
+            end,
+            AddSubTabs = function() end,
+            UpdateSections = function() combatTab:UpdateSections() end,
+        }
+        self.tabs[rawName] = rageProxy
+        return rageProxy
+    end
+
+    -- 4. Movement, Misc, Settings
+    local displayName, icon = normalizeTabName(rawName)
+    local tab = self.tabs[displayName] or self:CreateRealTab(displayName, icon)
+    self.tabs[rawName] = tab
+    return tab
 end
 
---//==================================================
---// POPULATE TABS & SECTIONS
---//==================================================
+function AtomwareMobileWindow:UpdateTabs()
+    switchPage("Visuals")
+end
 
--- TAB 1: COMBAT
-local combatPage = getOrCreatePage("Combat", 1)
-local silentCard = createCard(combatPage, "Silent Aim", "left")
-addToggle(silentCard, "Enable Silent Aim", false, "Enable Silent Aim")
-addToggle(silentCard, "Show FOV Circle", false, "Show Silent FOV Circle")
-addToggle(silentCard, "Silent Team Check", false, "Silent Team Check")
-addToggle(silentCard, "Silent Wall Check", false, "Silent Wall Check")
-addSlider(silentCard, "Hit Chance", 1, 100, 100, "Silent Aim Hit Chance", "%")
-addSlider(silentCard, "FOV Radius", 20, 500, 120, "Silent Aim FOV")
-addDropdown(silentCard, "Target Part", { "Head", "Torso", "Closest" }, "Head", "Silent Target Part")
+function AtomwareMobileWindow:SetOpen(visible)
+    setUIVisible(visible)
+end
 
-local aimbotCard = createCard(combatPage, "Aimbot & Hitbox", "right")
-addToggle(aimbotCard, "Enable Aimbot", false, "Enable Aimbot")
-addToggle(aimbotCard, "Show Aimbot FOV", false, "Show Aimbot FOV Circle")
-addToggle(aimbotCard, "Aimbot Team Check", false, "Aimbot Team Check")
-addToggle(aimbotCard, "Aimbot Wall Check", false, "Aimbot Wall Check")
-addDropdown(aimbotCard, "Aimbot Activation", { "Always On", "MouseButton2", "MouseButton1" }, "Always On", "Aimbot Mode")
-addSlider(aimbotCard, "Smoothness", 1, 20, 4, "Aimbot Smoothness")
-addSlider(aimbotCard, "FOV Radius", 20, 500, 140, "Aimbot FOV")
-addToggle(aimbotCard, "Hitbox Expander", false, "Enable Hitbox Expander")
-addSlider(aimbotCard, "Hitbox Size", 2, 25, 8, "Hitbox Size")
-addDropdown(aimbotCard, "Hitbox Target", { "Head", "Torso" }, "Head", "Hitbox Part")
+function AtomwareMobileWindow:CreateSettingsTab(menu)
+    return self:AddTab("settings", 999)
+end
 
--- TAB 2: VISUALS (LITE)
-local visualsPage = getOrCreatePage("Visuals", 2)
-local espCard = createCard(visualsPage, "Core ESP (Zero GPU Chams)", "left")
-addToggle(espCard, "Enable ESP Master", false, "Enable ESP")
-addToggle(espCard, "2D Box ESP", false, "Box ESP")
-addToggle(espCard, "Health Bar", false, "Health Bar")
-addToggle(espCard, "Player Name", false, "Name ESP")
-addToggle(espCard, "Distance Text", false, "Distance ESP")
-addToggle(espCard, "Weapon Text", false, "Weapon ESP")
-addToggle(espCard, "Snaplines", false, "Snaplines")
-addToggle(espCard, "Team Check", false, "Team Check")
-addSlider(espCard, "Max Distance", 100, 2000, 1000, "Max ESP Distance", "m")
-
-local liteNoticeCard = createCard(visualsPage, "Lite Mode Protection", "right")
-local noticeLbl = Instance.new("TextLabel")
-noticeLbl.Size = UDim2.new(1, 0, 0, 80)
-noticeLbl.BackgroundTransparency = 1
-noticeLbl.Text = "Chams / Highlights, 3D Character Models, and semi-transparent Box Fills are disabled in Lite Mode to eliminate iPad Jetsam memory crashes while preserving maximum FPS."
-noticeLbl.TextColor3 = THEME.TextMuted
-noticeLbl.TextSize = 11
-noticeLbl.Font = FONT
-noticeLbl.TextWrapped = true
-noticeLbl.TextXAlignment = Enum.TextXAlignment.Left
-noticeLbl.Parent = liteNoticeCard
-
--- TAB 3: WORLD & MOVEMENT
-local worldPage = getOrCreatePage("World & Move", 3)
-local worldCard = createCard(worldPage, "World Lighting", "left")
-addToggle(worldCard, "Fullbright", false, "Fullbright")
-addToggle(worldCard, "Clear Atmosphere / Fog", false, "Clear Atmosphere / Fog")
-addToggle(worldCard, "Custom FOV", false, "Custom Camera FOV")
-addSlider(worldCard, "Camera FOV", 60, 120, 90, "Camera FOV")
-
-local moveCard = createCard(worldPage, "Movement Engine", "right")
-addToggle(moveCard, "Speed Multiplier", false, "Speed Multiplier")
-addSlider(moveCard, "WalkSpeed", 16, 60, 24, "WalkSpeed")
-addToggle(moveCard, "Infinite Jump", false, "Infinite Jump")
-addToggle(moveCard, "Bunny Hop", false, "Bunny Hop")
-addToggle(moveCard, "Noclip", false, "Noclip")
-
--- TAB 4: SETTINGS & CONFIGS
-local settingsPage = getOrCreatePage("Settings", 4)
-local configCard = createCard(settingsPage, "Configuration Profiles", "left")
-local profileBox = addInput(configCard, "Profile Name", "Default", function(text)
-    if _G.AtomwareConfig then _G.AtomwareConfig:Save(text) end
-end)
-
-addButton(configCard, "Save Profile", THEME.CardHover, function()
-    local name = profileBox.Text ~= "" and profileBox.Text or "Default"
-    if _G.AtomwareConfig then
-        local ok, err = _G.AtomwareConfig:Save(name)
-        if ok and _G.AtomwareConfig.Notify then
-            _G.AtomwareConfig:Notify("Profile saved: " .. name, 2.5)
-        elseif err and _G.AtomwareConfig.Notify then
-            _G.AtomwareConfig:Notify("Error: " .. tostring(err), 3)
-        end
-    end
-end)
-
-addButton(configCard, "Load Profile", THEME.CardHover, function()
-    local name = profileBox.Text ~= "" and profileBox.Text or "Default"
-    if _G.AtomwareConfig then
-        local ok, err = _G.AtomwareConfig:Load(name)
-        if ok and _G.AtomwareConfig.Notify then
-            _G.AtomwareConfig:Notify("Profile loaded: " .. name, 2.5)
-        elseif err and _G.AtomwareConfig.Notify then
-            _G.AtomwareConfig:Notify("Error: " .. tostring(err), 3)
-        end
-    end
-end)
-
-addButton(configCard, "Set Autoload", THEME.CardHover, function()
-    local name = profileBox.Text ~= "" and profileBox.Text or "Default"
-    if _G.AtomwareConfig then
-        local ok = _G.AtomwareConfig:SetAutoload(name)
-        if ok and _G.AtomwareConfig.Notify then
-            _G.AtomwareConfig:Notify("Autoload set to: " .. name, 2.5)
-        end
-    end
-end)
-
-local hudCard = createCard(settingsPage, "HUD & Diagnostics", "right")
-addToggle(hudCard, "Watermark", true, nil)
-addToggle(hudCard, "FPS & Memory Counter", true, nil)
-
-local ramMetric = Instance.new("TextLabel")
-ramMetric.Size = UDim2.new(1, 0, 0, 24)
-ramMetric.BackgroundTransparency = 1
-ramMetric.Text = "Current Engine RAM: ... MB"
-ramMetric.TextColor3 = THEME.LiteCyan
-ramMetric.TextSize = 12
-ramMetric.Font = FONT_BOLD
-ramMetric.TextXAlignment = Enum.TextXAlignment.Left
-ramMetric.Parent = hudCard
-
-task.spawn(function()
-    while ScreenGui and ScreenGui.Parent do
-        local mem = math.floor(Stats:GetTotalMemoryUsageMb())
-        ramMetric.Text = "Current Engine RAM: " .. tostring(mem) .. " MB"
-        task.wait(2)
-    end
-end)
-
-addButton(hudCard, "PURGE MEMORY (CLEAN RAM)", Color3.fromRGB(35, 20, 50), function()
-    pcall(function()
-        collectgarbage("collect")
-        if _G.AtomwareConfig and _G.AtomwareConfig.Notify then
-            _G.AtomwareConfig:Notify("Garbage Collector Purged Memory!", 2)
-        end
-    end)
-end)
-
-addButton(hudCard, "UNLOAD SCRIPT", Color3.fromRGB(50, 18, 30), function()
-    if _G.AtomwareUnload then
-        pcall(_G.AtomwareUnload)
-    elseif ScreenGui then
-        ScreenGui:Destroy()
-    end
-end)
-
--- Default to Combat Tab
-switchPage("Combat")
-
-_G.AtomwareLiteMode = true
+_G.AtomwareWindow = AtomwareMobileWindow
 _G.AtomwareUILoaded = true
-_G.AtomwareWindow = MainFrame
-print("[Atomware Rivals] Mobile_Lite UI Framework (Responsive Two-Column) Loaded Successfully!")
+
+return AtomwareMobileWindow

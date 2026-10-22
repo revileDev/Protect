@@ -1,8 +1,17 @@
+--[[
+    Atomware Rivals - features.lua
+    Universal Features Backend for Atomware Rivals
+    Contains Combat (Legit Aimbot, Silent Aim, Triggerbot, Ragebot V1/V2, Exploits),
+    Movement, Visuals (ESP, Skeletons, Chams, Offscreen Arrows), World & Lighting,
+    Misc (Spoofing, Viewmodels, Sounds, Auto Queue).
+    Full Feature Parity & Rebrand for Atomware Hub.
+]]
+
 pcall(function()
 	local g = (getgenv and getgenv()) or _G
-	if type(g) == "table" and type(g.__sonata_unload) == "function" then
-		g.__sonata_unload()
-		g.__sonata_unload = nil
+	if type(g) == "table" and type(g.__atomware_rivals_unload) == "function" then
+		g.__atomware_rivals_unload()
+		g.__atomware_rivals_unload = nil
 	end
 end)
 
@@ -321,14 +330,19 @@ local function hookGameMethod(targetFn: any, wrap: any): any?
 end
 
 local function installSignalGuard()
-	if _G.AtomwareLiteMode == true then return end
 	local genv = execApi("getgenv")
 	local env = if typeof(genv) == "function" then genv() else nil
 	if type(env) == "table" and env.__sonataSignalGuard then
 		return
 	end
 	local okMod, Signal = pcall(function()
-		return require(getService("ReplicatedStorage"):WaitForChild("Modules", 10):WaitForChild("Signal", 10))
+		local rep = getService("ReplicatedStorage")
+		local modFolder = rep:FindFirstChild("Modules")
+		if modFolder then
+			local sigMod = modFolder:FindFirstChild("Signal")
+			if sigMod then return require(sigMod) end
+		end
+		return nil
 	end)
 	if not okMod or type(Signal) ~= "table" or type(Signal.new) ~= "function" then
 		return
@@ -379,6 +393,7 @@ pcall(installSignalGuard)
 
 local Players = getService("Players") :: Players
 local UserInputService = getService("UserInputService") :: UserInputService
+local IS_MOBILE = UserInputService.TouchEnabled or not UserInputService.MouseEnabled
 local RunService = getService("RunService") :: RunService
 local ReplicatedStorage = getService("ReplicatedStorage") :: ReplicatedStorage
 local Workspace = getService("Workspace") :: Workspace
@@ -390,2265 +405,8 @@ local WHITE_IMAGE = "rbxasset://textures/ui/GuiImagePlaceholder.png"
 local RANKED_CHARM_ELO = 99999
 local RANKED_CHARM_LEADERBOARD = 1
 
-local CONFIG_FOLDER = "sonatarivals"
+local CONFIG_FOLDER = "Atomware/Rivals"
 
-export type CosmeticsApi = {
-	ready: boolean,
-	skinmap: { [string]: string },
-	wrapmap: { [string]: string },
-	charmmap: { [string]: string },
-	finishermap: { [string]: string },
-	charmon: { [string]: boolean },
-	finisheron: { [string]: boolean },
-	weapons: { string },
-	wraps: { string },
-	charms: { string },
-	finishers: { string },
-	install: (self: CosmeticsApi) -> boolean,
-	skinsFor: (self: CosmeticsApi, weapon: string) -> { string },
-	rarityColor: (self: CosmeticsApi, name: string) -> Color3,
-	entryImage: (self: CosmeticsApi, name: string?) -> string?,
-	entryTint: (self: CosmeticsApi, name: string?) -> Color3?,
-	previewImage: (self: CosmeticsApi, weapon: string, mode: string) -> string?,
-	heldWeapon: (self: CosmeticsApi) -> string?,
-	apply: (self: CosmeticsApi, weapon: string) -> (),
-	applyExtra: (self: CosmeticsApi, weapon: string) -> (),
-	setSelection: (self: CosmeticsApi, mode: string, weapon: string, option: string?) -> (),
-	restore: (self: CosmeticsApi, config: any) -> (),
-	export: (self: CosmeticsApi) -> (any, any, any, any),
-	clearAll: (self: CosmeticsApi) -> (),
-	randomizeAll: (self: CosmeticsApi) -> (),
-}
-
-local RarityFallback = {
-	Common = Color3.fromRGB(90, 200, 120),
-	Uncommon = Color3.fromRGB(80, 210, 140),
-	Rare = Color3.fromRGB(70, 140, 255),
-	Legendary = Color3.fromRGB(255, 70, 70),
-	Mythical = Color3.fromRGB(190, 80, 255),
-	Exotic = Color3.fromRGB(255, 160, 50),
-	Unique = Color3.fromRGB(255, 160, 50),
-	Contraband = Color3.fromRGB(255, 200, 60),
-}
-
-local function createCosmetics(): CosmeticsApi
-	local api: CosmeticsApi
-	local skinmap: { [string]: string } = {}
-	local wrapmap: { [string]: string } = {}
-	local charmmap: { [string]: string } = {}
-	local finishermap: { [string]: string } = {}
-	local charmon: { [string]: boolean } = {}
-	local finisheron: { [string]: boolean } = {}
-	local weapons: { string } = {}
-	local wraps: { string } = {}
-	local charms: { string } = {}
-	local finishers: { string } = {}
-	local installing = false
-
-	local items: any = nil
-	local cosmetics: any = nil
-	local applyFn: ((string) -> ())? = nil
-	local applyExtraFn: ((string) -> ())? = nil
-	local heldWeaponFn: (() -> string?)? = nil
-
-	local function clientPlayer(): Player?
-		return Players.LocalPlayer
-	end
-
-	local function playerscripts(): Instance?
-		local client = clientPlayer()
-		if not client then
-			return nil
-		end
-		local ok, scripts = pcall(function()
-			return client:FindFirstChild("PlayerScripts")
-		end)
-		if ok and typeof(scripts) == "Instance" then
-			return scripts
-		end
-		return nil
-	end
-
-	local function entryimage(entry: any): string?
-		if type(entry) ~= "table" then
-			return nil
-		end
-		local preferred = {
-			"ImageHighResolution",
-			"Image",
-			"Icon",
-			"Thumbnail",
-			"DisplayImage",
-			"IconImage",
-			"ImageId",
-			"PreviewImage",
-			"RenderImage",
-		}
-		for _, key in preferred do
-			local value = entry[key]
-			if type(value) == "string" and value ~= "" and (string.find(value, "rbxasset", 1, true) or string.find(value, "http", 1, true)) then
-				return value
-			end
-		end
-		for key, value in entry do
-			if type(key) == "string" and type(value) == "string" and value ~= "" and (string.find(value, "rbxasset", 1, true) or string.find(value, "http", 1, true)) then
-				local lower = string.lower(key)
-				if string.find(lower, "image", 1, true)
-					or string.find(lower, "icon", 1, true)
-					or string.find(lower, "thumb", 1, true)
-					or string.find(lower, "preview", 1, true)
-					or string.find(lower, "render", 1, true)
-				then
-					return value
-				end
-			end
-		end
-		return nil
-	end
-
-	local constantsImages: { [string]: string }? = nil
-	local seasonLibrary: any = nil
-	local charmsFolder: Instance? = nil
-	local wrapTexturesFolder: Instance? = nil
-
-	local function refreshImageSources()
-		if constantsImages and seasonLibrary and charmsFolder and wrapTexturesFolder then
-			return
-		end
-		if not constantsImages then
-			pcall(function()
-				local constants = require(ReplicatedStorage.Modules.CONSTANTS)
-				if type(constants) == "table" and type(constants.COSMETIC_IMAGES) == "table" then
-					constantsImages = constants.COSMETIC_IMAGES
-				end
-			end)
-		end
-		if not seasonLibrary then
-			pcall(function()
-				seasonLibrary = require(ReplicatedStorage.Modules.SeasonLibrary)
-			end)
-		end
-		if not charmsFolder or not wrapTexturesFolder then
-			local scripts = playerscripts()
-			if scripts then
-				pcall(function()
-					charmsFolder = scripts.Assets:FindFirstChild("Charms")
-				end)
-				pcall(function()
-					wrapTexturesFolder = scripts.Assets:FindFirstChild("WrapTextures")
-				end)
-			end
-		end
-	end
-
-	local function isAssetImage(value: any): boolean
-		return type(value) == "string"
-			and value ~= ""
-			and (string.find(value, "rbxasset", 1, true) ~= nil or string.find(value, "http", 1, true) ~= nil)
-	end
-
-	local function textureFromInstance(root: Instance?): string?
-		if not root then
-			return nil
-		end
-		local found: string? = nil
-		pcall(function()
-			local attr = root:GetAttribute("Image")
-			if isAssetImage(attr) then
-				found = attr :: string
-				return
-			end
-			for _, descendant in root:GetDescendants() do
-				if descendant:IsA("Decal") or descendant:IsA("Texture") then
-					if isAssetImage(descendant.Texture) then
-						found = descendant.Texture
-						return
-					end
-				elseif descendant:IsA("MeshPart") and isAssetImage(descendant.TextureID) then
-					found = descendant.TextureID
-					return
-				elseif descendant:IsA("SpecialMesh") and isAssetImage(descendant.TextureId) then
-					found = descendant.TextureId
-					return
-				elseif descendant:IsA("ImageLabel") or descendant:IsA("ImageButton") then
-					if isAssetImage(descendant.Image) then
-						found = descendant.Image
-						return
-					end
-				elseif descendant.ClassName == "SurfaceAppearance" then
-					local colorMap = (descendant :: any).ColorMap
-					if isAssetImage(colorMap) then
-						found = colorMap
-						return
-					end
-				end
-			end
-		end)
-		return found
-	end
-
-	local function materialVariantImage(variantName: string): string?
-		local wrapsRoot = MaterialService:FindFirstChild("Wraps")
-		if not wrapsRoot then
-			return nil
-		end
-		local variant = wrapsRoot:FindFirstChild(variantName)
-		if not (variant and variant:IsA("MaterialVariant")) then
-			return nil
-		end
-		local colorMap = variant.ColorMap
-		if isAssetImage(colorMap) then
-			return colorMap
-		end
-		return textureFromInstance(variant)
-	end
-
-	local function wrapGroupImage(data: any): string?
-		if type(data) ~= "table" or type(data.WrapGroups) ~= "table" then
-			return nil
-		end
-		for _, group in data.WrapGroups do
-			if type(group) == "table" and type(group.MaterialVariant) == "string" and group.MaterialVariant ~= "" then
-				local fromMaterial = materialVariantImage(group.MaterialVariant)
-				if fromMaterial then
-					return fromMaterial
-				end
-				if wrapTexturesFolder then
-					local folder = wrapTexturesFolder:FindFirstChild(group.MaterialVariant)
-					local fromFolder = textureFromInstance(folder)
-					if fromFolder then
-						return fromFolder
-					end
-				end
-			end
-		end
-		return nil
-	end
-
-	local function wrapGroupColor(data: any): Color3?
-		if type(data) ~= "table" or type(data.WrapGroups) ~= "table" then
-			return nil
-		end
-		for _, group in data.WrapGroups do
-			if type(group) == "table" and typeof(group.Color) == "Color3" then
-				return group.Color
-			end
-		end
-		return nil
-	end
-
-	local function rankImageForElo(elo: number, leaderboardRank: number?): string?
-		if type(seasonLibrary) ~= "table" or type(seasonLibrary.RankProfiles) ~= "table" then
-			return nil
-		end
-		local profile = seasonLibrary.RankProfiles.ranks_version1 or seasonLibrary.RankProfiles[next(seasonLibrary.RankProfiles)]
-		if type(profile) ~= "table" or type(profile.Ranks) ~= "table" then
-			return nil
-		end
-		local bestName: string? = nil
-		local bestElo = -math.huge
-		local bestHasBoard = false
-		for name, info in profile.Ranks do
-			if type(info) == "table" and type(info.RequiredELO) == "number" then
-				local requiredRank = info.RequiredELOLeaderboardRanking
-				local rankOk = requiredRank == nil or (type(leaderboardRank) == "number" and leaderboardRank <= requiredRank)
-				if info.RequiredELO <= elo and rankOk then
-					local hasBoard = requiredRank ~= nil
-					if info.RequiredELO > bestElo or (info.RequiredELO == bestElo and hasBoard and not bestHasBoard) then
-						bestElo = info.RequiredELO
-						bestName = name
-						bestHasBoard = hasBoard
-					end
-				end
-			end
-		end
-		if bestName and type(profile.Ranks[bestName]) == "table" then
-			local image = profile.Ranks[bestName].Image
-			if isAssetImage(image) then
-				return image
-			end
-		end
-		return nil
-	end
-
-	local RANK_CHARM_SEP = " " .. utf8.char(0x00B7) .. " "
-
-	local function getRankOrder(): { string }
-		refreshImageSources()
-		local order = {}
-		if type(seasonLibrary) == "table" and type(seasonLibrary.RankProfiles) == "table" then
-			local profile = seasonLibrary.RankProfiles.ranks_version1
-			if type(profile) == "table" and type(profile.RanksOrder) == "table" then
-				for _, rankName in profile.RanksOrder do
-					if type(rankName) == "string" and rankName ~= "Unranked" then
-						table.insert(order, rankName)
-					end
-				end
-			end
-		end
-		if #order == 0 then
-			order = {
-				"Bronze 1", "Bronze 2", "Bronze 3",
-				"Silver 1", "Silver 2", "Silver 3",
-				"Gold 1", "Gold 2", "Gold 3",
-				"Platinum 1", "Platinum 2", "Platinum 3",
-				"Diamond 1", "Diamond 2", "Diamond 3",
-				"Onyx 1", "Onyx 2", "Onyx 3",
-				"Nemesis", "Archnemesis",
-			}
-		end
-		return order
-	end
-
-	local function parseRankCharm(name: string): (string?, string?)
-		if type(name) ~= "string" then
-			return nil, nil
-		end
-		if string.match(name, "^Season %d+$") then
-			return nil, nil
-		end
-		local seasonPrefix = string.match(name, "^(Season %d+)")
-		if seasonPrefix then
-			local ranks = getRankOrder()
-			table.sort(ranks, function(a, b)
-				return #a > #b
-			end)
-			for _, rankName in ranks do
-				if string.sub(name, -#rankName) == rankName then
-					local before = string.sub(name, 1, #name - #rankName)
-					if string.match(before, "^Season %d+%W*$") then
-						return seasonPrefix, rankName
-					end
-				end
-			end
-		end
-		local season, rank = string.match(name, "^Season (%d+)%W+(.+)$")
-		if season and rank then
-			rank = string.gsub(rank, "^%s+", "")
-			rank = string.gsub(rank, "%s+$", "")
-			rank = string.gsub(rank, "^[^%w]+", "")
-			if rank ~= "" then
-				return "Season " .. season, rank
-			end
-		end
-		return nil, nil
-	end
-
-	local function rankMeta(rankName: string): (number, number?)
-		refreshImageSources()
-		if type(seasonLibrary) == "table" and type(seasonLibrary.RankProfiles) == "table" then
-			local profile = seasonLibrary.RankProfiles.ranks_version1
-			local info = profile and profile.Ranks and profile.Ranks[rankName]
-			if type(info) == "table" then
-				local elo = if type(info.RequiredELO) == "number" then info.RequiredELO else 0
-				local board = if type(info.RequiredELOLeaderboardRanking) == "number"
-					then info.RequiredELOLeaderboardRanking
-					else nil
-				if rankName == "Archnemesis" then
-					return math.max(elo, 3600), board or 1
-				elseif rankName == "Nemesis" then
-					return math.max(elo, 3600), board or 9999
-				end
-				local order = profile.RanksOrder
-				if type(order) == "table" then
-					local idx = table.find(order, rankName)
-					local nextName = idx and order[idx + 1]
-					local nextInfo = nextName and profile.Ranks[nextName]
-					if type(nextInfo) == "table" and type(nextInfo.RequiredELO) == "number" and nextInfo.RequiredELO > elo then
-						return math.floor((elo + nextInfo.RequiredELO) * 0.5), nil
-					end
-				end
-				return elo + 50, nil
-			end
-		end
-		if rankName == "Archnemesis" then
-			return RANKED_CHARM_ELO, RANKED_CHARM_LEADERBOARD
-		end
-		if rankName == "Nemesis" then
-			return 3600, 9999
-		end
-		return 0, nil
-	end
-
-	local function forceSeasonRankOnModel(model: Instance?, rankName: string?, board: number?)
-		if typeof(model) ~= "Instance" or type(rankName) ~= "string" or rankName == "" then
-			return
-		end
-		local extra = model:FindFirstChild("Extra")
-		if not extra then
-			return
-		end
-		local kept: Instance? = nil
-		for _, child in extra:GetChildren() do
-			if child.Name == rankName then
-				kept = child
-			else
-				pcall(function()
-					child:Destroy()
-				end)
-			end
-		end
-		if kept == nil then
-			return
-		end
-		if board ~= nil then
-			local text = "#" .. tostring(board)
-			for _, descendant in model:GetDescendants() do
-				if descendant:HasTag("CharmLeaderboardRank") then
-					pcall(function()
-						(descendant :: any).Text = text
-					end)
-				end
-			end
-		end
-	end
-
-	local function applyRankToCharm(charm: any, rankName: string?, elo: number?, board: number?)
-		if type(charm) ~= "table" then
-			return
-		end
-		if type(rankName) == "string" and rankName ~= "" then
-			forceSeasonRankOnModel(charm.Model, rankName, board)
-		end
-		if type(seasonLibrary) == "table" and type(seasonLibrary.FormatSeasonRankCharm) == "function" and typeof(charm.Model) == "Instance" then
-			local seasonName: string? = nil
-			local ver = nil
-			if type(charm.Name) == "string" then
-				ver = tonumber(string.sub(charm.Name, 8))
-			end
-			if type(ver) == "number" and type(seasonLibrary.SeasonsByVersion) == "table" then
-				local season = seasonLibrary.SeasonsByVersion[ver]
-				if type(season) == "table" and type(season.Name) == "string" then
-					seasonName = season.Name
-				end
-			end
-			if not seasonName and type(seasonLibrary.CurrentSeason) == "table" then
-				seasonName = seasonLibrary.CurrentSeason.Name
-			end
-			if type(seasonName) == "string" and type(elo) == "number" then
-				pcall(function()
-					seasonLibrary:FormatSeasonRankCharm(charm.Model, seasonName, elo, board)
-				end)
-				if type(rankName) == "string" then
-					forceSeasonRankOnModel(charm.Model, rankName, board)
-				end
-			end
-		end
-	end
-
-	local function rankImageByName(rankName: string): string?
-		refreshImageSources()
-		if type(seasonLibrary) ~= "table" or type(seasonLibrary.RankProfiles) ~= "table" then
-			return nil
-		end
-		local profile = seasonLibrary.RankProfiles.ranks_version1
-		local info = profile and profile.Ranks and profile.Ranks[rankName]
-		if type(info) == "table" and isAssetImage(info.Image) then
-			return info.Image
-		end
-		return nil
-	end
-
-	local function resolveCosmeticImage(name: string?, data: any): (string?, Color3?)
-		if type(name) ~= "string" or name == "" or name == "default" or name == "none" then
-			return nil, nil
-		end
-		refreshImageSources()
-
-		local rankBase, rankName = parseRankCharm(name)
-		if rankName then
-			local rankImage = rankImageByName(rankName)
-			if rankImage then
-				return rankImage, nil
-			end
-			name = rankBase or name
-			data = cosmetics and cosmetics.Cosmetics and cosmetics.Cosmetics[name]
-		end
-
-		if constantsImages and isAssetImage(constantsImages[name]) then
-			return constantsImages[name], nil
-		end
-
-		local fromData = entryimage(data)
-		if fromData then
-			return fromData, nil
-		end
-
-		if type(name) == "string" and string.sub(name, 1, 7) == "Season " and tonumber(string.sub(name, 8)) then
-			local ranked = rankImageForElo(RANKED_CHARM_ELO, RANKED_CHARM_LEADERBOARD)
-			if ranked then
-				return ranked, nil
-			end
-		end
-
-		if charmsFolder then
-			local charmModel = charmsFolder:FindFirstChild(name)
-			local charmImage = textureFromInstance(charmModel)
-			if charmImage then
-				return charmImage, nil
-			end
-		end
-
-		if wrapTexturesFolder then
-			local wrapFolder = wrapTexturesFolder:FindFirstChild(name)
-				or wrapTexturesFolder:FindFirstChild((string.gsub(name, " ", "_")))
-			local wrapImage = textureFromInstance(wrapFolder)
-			if wrapImage then
-				return wrapImage, nil
-			end
-		end
-
-		local fromWrapGroup = wrapGroupImage(data)
-		if fromWrapGroup then
-			return fromWrapGroup, nil
-		end
-
-		local tint = wrapGroupColor(data)
-		if tint then
-			return WHITE_IMAGE, tint
-		end
-
-		return nil, nil
-	end
-
-	local function cosmetictype(data: any): string
-		local kind = type(data) == "table" and (data.Type or data.CosmeticType or data.Slot)
-		if type(kind) ~= "string" then
-			return ""
-		end
-		return string.lower(kind)
-	end
-
-	local function raritycolor(entry: any): Color3
-		local rarityValue = if type(entry) == "table" then (entry.Rarity or entry.RarityName) else nil
-		local rarity = if type(rarityValue) == "string" then rarityValue else nil
-		local rows = cosmetics and (cosmetics.Rarities or cosmetics.RarityColors)
-		local row = if rarity and type(rows) == "table" then rows[rarity] else nil
-		if type(row) == "table" then
-			if typeof(row.Color) == "Color3" then
-				return row.Color
-			end
-		elseif typeof(row) == "Color3" then
-			return row
-		end
-		if rarity then
-			return RarityFallback[rarity] or Color3.fromRGB(220, 220, 220)
-		end
-		return Color3.fromRGB(220, 220, 220)
-	end
-
-	local _indexingInProgress = false
-	local _indexingComplete = false
-	local skinsByWeapon: { [string]: { string } } = {}
-	local imageCache: { [string]: string? } = {}
-	local tintCache: { [string]: Color3? } = {}
-
-	local function getWeapons(): { string }
-		if #weapons > 0 then
-			return weapons
-		end
-		local seen: { [string]: boolean } = {}
-		local function addweapon(name: any)
-			if type(name) ~= "string" or name == "" or name == "MISSING_WEAPON" or seen[name] then
-				return
-			end
-			seen[name] = true
-			table.insert(weapons, name)
-		end
-		local itemSource = items and (items.Items or items)
-		if type(itemSource) == "table" then
-			for key, data in itemSource do
-				if type(data) == "table" then
-					addweapon(type(data.Name) == "string" and data.Name or (type(key) == "string" and key or nil))
-				elseif type(key) == "string" then
-					addweapon(key)
-				end
-			end
-		end
-		table.sort(weapons)
-		return weapons
-	end
-
-	local function skinsfor(weapon: string): { string }
-		if not weapon or weapon == "" then
-			return { "default" }
-		end
-		local key = string.lower(weapon)
-		local cached = skinsByWeapon[key]
-		if cached then
-			return cached
-		end
-		local list = { "default" }
-		if cosmetics and type(cosmetics.Cosmetics) == "table" then
-			local names = {}
-			for name, data in cosmetics.Cosmetics do
-				local itemName = type(data) == "table" and (data.ItemName or data.Item or data.Weapon)
-				if cosmetictype(data) == "skin" and type(itemName) == "string" and string.lower(itemName) == key then
-					table.insert(names, name)
-				end
-			end
-			table.sort(names)
-			for _, name in names do
-				table.insert(list, name)
-			end
-		end
-		skinsByWeapon[key] = list
-		skinsByWeapon[weapon] = list
-		return list
-	end
-
-	local function getWraps(): { string }
-		if #wraps > 1 then
-			return wraps
-		end
-		if cosmetics and type(cosmetics.Cosmetics) == "table" then
-			local temp = {}
-			for name, data in cosmetics.Cosmetics do
-				if cosmetictype(data) == "wrap" then
-					table.insert(temp, name)
-				end
-			end
-			table.sort(temp)
-			table.clear(wraps)
-			table.insert(wraps, "default")
-			for _, name in temp do
-				table.insert(wraps, name)
-			end
-		end
-		if #wraps == 0 then
-			wraps[1] = "default"
-		end
-		return wraps
-	end
-
-	local function getCharms(): { string }
-		if #charms > 0 and charms[1] ~= "none" then
-			return charms
-		end
-		if cosmetics and type(cosmetics.Cosmetics) == "table" then
-			local temp = {}
-			for name, data in cosmetics.Cosmetics do
-				if cosmetictype(data) == "charm" then
-					table.insert(temp, name)
-				end
-			end
-			table.sort(temp)
-			local expanded = {}
-			local others = {}
-			local ranks = getRankOrder()
-			for _, name in temp do
-				if string.match(name, "^Season %d+$") then
-					for _, rankName in ranks do
-						table.insert(expanded, name .. RANK_CHARM_SEP .. rankName)
-					end
-				else
-					table.insert(others, name)
-				end
-			end
-			for _, name in others do
-				table.insert(expanded, name)
-			end
-			table.clear(charms)
-			for _, name in expanded do
-				table.insert(charms, name)
-			end
-		end
-		if #charms == 0 then
-			charms[1] = "none"
-		end
-		return charms
-	end
-
-	local function getFinishers(): { string }
-		if #finishers > 0 and finishers[1] ~= "none" then
-			return finishers
-		end
-		if cosmetics and type(cosmetics.Cosmetics) == "table" then
-			local temp = {}
-			for name, data in cosmetics.Cosmetics do
-				if cosmetictype(data) == "finisher" then
-					table.insert(temp, name)
-				end
-			end
-			table.sort(temp)
-			table.clear(finishers)
-			for _, name in temp do
-				table.insert(finishers, name)
-			end
-		end
-		if #finishers == 0 then
-			finishers[1] = "none"
-		end
-		return finishers
-	end
-
-	local function slotdata(name: string): any
-		local rankBase, _rank = parseRankCharm(name)
-		local lookup = rankBase or name
-		local info = cosmetics and cosmetics.Cosmetics and cosmetics.Cosmetics[lookup]
-		if type(info) == "table" then
-			local copy = table.clone(info)
-			copy.Name = lookup
-			return copy
-		end
-		return { Name = lookup }
-	end
-
-	local function equippedcosmetic(name: string): any
-		local data = slotdata(name)
-		local rankBase, rankName = parseRankCharm(name)
-		if rankBase and rankName then
-			data.Name = rankBase
-			local elo, board = rankMeta(rankName)
-			data.Metadata = {
-				SeasonELO = elo,
-				SeasonLeaderboardRank = board,
-				SonataRankName = rankName,
-			}
-			return data
-		end
-		if type(name) == "string" and string.match(name, "^Season %d+$") then
-			data.Name = name
-			data.Metadata = {
-				SeasonELO = RANKED_CHARM_ELO,
-				SeasonLeaderboardRank = RANKED_CHARM_LEADERBOARD,
-				SonataRankName = "Archnemesis",
-			}
-		end
-		return data
-	end
-
-	local function installskins(): boolean
-		local client = clientPlayer()
-		local scripts = playerscripts()
-		if not client or not scripts then
-			return false
-		end
-
-		local okItems, loadedItems = pcall(require, ReplicatedStorage.Modules.ItemLibrary)
-		local okCosmetics, loadedCosmetics = pcall(require, ReplicatedStorage.Modules.CosmeticLibrary)
-		local okUtility, utilityModule = pcall(require, ReplicatedStorage.Modules.Utility)
-		local okAnim, animationLibrary = pcall(require, ReplicatedStorage.Modules.AnimationLibrary)
-		local okSound, soundLibrary = pcall(require, ReplicatedStorage.Modules.SoundLibrary)
-		local okWrap, wrapController = pcall(require, scripts.Controllers.WrapController)
-		local okFighter, fighterController = pcall(require, scripts.Controllers.FighterController)
-		local okView, viewclass = pcall(require, scripts.Modules.ClientReplicatedClasses.ClientFighter.ClientItem.ClientViewModel)
-		if not (okItems and okCosmetics and okUtility and okAnim and okSound and okWrap and okFighter and okView) then
-			return false
-		end
-
-		items = loadedItems
-		cosmetics = loadedCosmetics
-		refreshImageSources()
-		if type(viewclass._UpdateLocalTransparencyModifier) == "function" and not rawget(viewclass, "__sonataTransparencyGuard") then
-			rawset(viewclass, "__sonataTransparencyGuard", true)
-			viewclass._UpdateLocalTransparencyModifier = function(self: any, part: any)
-				if type(self) ~= "table" or part == nil then
-					return
-				end
-				local pending = self._local_transparency_modifier_update
-				if type(pending) ~= "table" then
-					pending = {}
-					self._local_transparency_modifier_update = pending
-				end
-				pending[part] = true
-				task.defer(function()
-					if type(self) ~= "table" then
-						return
-					end
-					local updates = self._local_transparency_modifier_update
-					if type(updates) ~= "table" or not updates[part] then
-						return
-					end
-					updates[part] = nil
-					local buckets = self._local_transparency_modifiers
-					local values = type(buckets) == "table" and buckets[part] or nil
-					if type(values) ~= "table" then
-						return
-					end
-					local maxT = 0
-					for _, value in values do
-						if type(value) == "number" and value > maxT then
-							maxT = value
-						end
-					end
-					if typeof(part) ~= "Instance" then
-						return
-					end
-					pcall(function()
-						(part :: Instance).LocalTransparencyModifier = maxT
-						for _, descendant in (part :: Instance):GetDescendants() do
-							if descendant:IsA("Texture")
-								or descendant:IsA("Beam")
-								or descendant:IsA("ParticleEmitter")
-								or descendant:IsA("Trail")
-								or descendant:IsA("Decal")
-							then
-								descendant.LocalTransparencyModifier = maxT
-							end
-						end
-					end)
-				end)
-			end
-		end
-		if type(viewclass._IsSubmodelBehindHead) == "function" and not rawget(viewclass, "__sonataBehindHeadGuard") then
-			rawset(viewclass, "__sonataBehindHeadGuard", true)
-			local previousBehind = viewclass._IsSubmodelBehindHead
-			viewclass._IsSubmodelBehindHead = function(self: any, submodel: any, rotation: any)
-				local map = type(self) == "table" and self._submodel_boundingbox_attachments
-				if type(map) ~= "table" or typeof(submodel) ~= "Instance" or type(map[submodel]) ~= "table" then
-					return false
-				end
-				return previousBehind(self, submodel, rotation)
-			end
-		end
-		local viewmodels = scripts.Assets.ViewModels
-		local lookup = utilityModule.LookThrough
-		local previousWrap = rawget(viewclass, "__sonataOriginalGetWrap") or viewclass.GetWrap
-		pcall(function()
-			rawset(viewclass, "__sonataOriginalGetWrap", previousWrap)
-		end)
-		local muzzleFlashes = scripts.Assets.Misc:FindFirstChild("MuzzleFlashes")
-
-		hookGameMethod(wrapController.ApplyWrap, function(previousApply, ...)
-			local packed = table.pack(pcall(previousApply, ...))
-			if not packed[1] then
-				return {}
-			end
-			local result = packed[2]
-			if type(result) ~= "table" then
-				return {}
-			end
-			return result
-		end)
-
-		local function safeWrapTable(original: any, name: string?): { [string]: any }
-			local copy: { [string]: any }
-			if type(original) == "table" then
-				copy = table.clone(original)
-			else
-				copy = {}
-			end
-			if type(name) == "string" and name ~= "" then
-				copy.Name = name
-			elseif type(copy.Name) ~= "string" then
-				copy.Name = ""
-			end
-			if type(copy.WrapGroups) ~= "table" then
-				copy.WrapGroups = {}
-			end
-			if type(copy.HideInThirdPerson) ~= "boolean" then
-				copy.HideInThirdPerson = false
-			end
-			return copy
-		end
-
-		viewclass.GetWrap = function(self, ...)
-			local wrapOk, original = pcall(previousWrap, self, ...)
-			if not wrapOk or type(original) ~= "table" then
-				original = nil
-			elseif type(original.Name) ~= "string"
-				or (type(cosmetics) == "table" and type(cosmetics.Cosmetics) == "table" and cosmetics.Cosmetics[original.Name] == nil)
-			then
-				original = nil
-			end
-			local weapon = self.ClientItem and self.ClientItem.Name
-			local wrap = if type(weapon) == "string" then wrapmap[weapon] else nil
-			local info = if type(wrap) == "string" and wrap ~= "" and type(cosmetics) == "table" and type(cosmetics.Cosmetics) == "table"
-				then cosmetics.Cosmetics[wrap]
-				else nil
-			if type(info) ~= "table" then
-				return original
-			end
-			local copy = safeWrapTable(info, wrap)
-			if type(info.WrapGroups) == "table" then
-				copy.WrapGroups = info.WrapGroups
-			end
-			return copy
-		end
-
-		local function modelFor(name: string): Instance?
-			if type(name) ~= "string" or name == "" then
-				return nil
-			end
-			local ok, model = pcall(function()
-				return lookup(utilityModule, viewmodels, name)
-			end)
-			if ok and typeof(model) == "Instance" then
-				return model
-			end
-			ok, model = pcall(function()
-				return viewmodels:FindFirstChild(name, true)
-			end)
-			if ok and typeof(model) == "Instance" then
-				return model
-			end
-			return nil
-		end
-
-		local function eachviewmodel(weapon: string, fn: (any) -> ())
-			local mine = fighterController.LocalFighter
-			if not mine or typeof(mine.Items) ~= "table" then
-				return
-			end
-			for _, item in mine.Items do
-				if typeof(item) == "table" and item.Name == weapon then
-					local vm = item.ViewModel
-					if typeof(vm) == "table" and vm.Model then
-						fn(vm)
-					end
-				end
-			end
-			pcall(function()
-				local equipped = mine.EquippedItem or mine:Get("EquippedItem")
-				if typeof(equipped) == "table" and equipped.Name == weapon then
-					local vm = equipped.ViewModel
-					if typeof(vm) == "table" and vm.Model then
-						fn(vm)
-					end
-				end
-			end)
-		end
-
-		local function attrCFrame(inst: Instance, name: string, fallback: CFrame): CFrame
-			local value = inst:GetAttribute(name)
-			if typeof(value) == "CFrame" then
-				local cf: CFrame = value :: any
-				return cf
-			end
-			return fallback
-		end
-
-		local BOUNDING_CORNERS = {
-			Vector3.new(0.5, 0.5, 0.5),
-			Vector3.new(-0.5, 0.5, 0.5),
-			Vector3.new(-0.5, 0.5, -0.5),
-			Vector3.new(0.5, 0.5, -0.5),
-			Vector3.new(0.5, -0.5, 0.5),
-			Vector3.new(-0.5, -0.5, 0.5),
-			Vector3.new(-0.5, -0.5, -0.5),
-			Vector3.new(0.5, -0.5, -0.5),
-		}
-
-		local function weld(vm: any, itemModel: Instance)
-			local rootCandidate = vm.Model.PrimaryPart or vm.Model:FindFirstChild("HumanoidRootPart")
-			if typeof(rootCandidate) ~= "Instance" or not (rootCandidate :: Instance):IsA("BasePart") then
-				return
-			end
-			local root = rootCandidate :: BasePart
-			itemModel.Name = "ItemVisual"
-			itemModel.Parent = vm.Model
-			vm.ItemModel = itemModel
-			vm._arm_submodels = if typeof(vm._arm_submodels) == "table" then vm._arm_submodels else {}
-			table.clear(vm._arm_submodels)
-			vm._submodel_boundingbox_attachments = if typeof(vm._submodel_boundingbox_attachments) == "table" then vm._submodel_boundingbox_attachments else {}
-			table.clear(vm._submodel_boundingbox_attachments)
-			vm._submodels_behind_head_values = if typeof(vm._submodels_behind_head_values) == "table" then vm._submodels_behind_head_values else {}
-			table.clear(vm._submodels_behind_head_values)
-			vm._animation_context_submodels = if typeof(vm._animation_context_submodels) == "table" then vm._animation_context_submodels else {}
-			table.clear(vm._animation_context_submodels)
-			local origin: CFrame? = nil
-			local children = itemModel:GetChildren()
-			for _, child in children do
-				if child.Name == "_fake" then
-					vm._can_wrap_left_arm = child:FindFirstChild("LeftArmWrapped") ~= nil
-					vm._can_wrap_right_arm = child:FindFirstChild("RightArmWrapped") ~= nil
-					child:Destroy()
-				elseif child:IsA("Model") then
-					local primaryCandidate = child:FindFirstChild("Primary")
-					if not primaryCandidate or not primaryCandidate:IsA("BasePart") then
-						continue
-					end
-					local primary = primaryCandidate :: BasePart
-					child.PrimaryPart = primary
-					origin = origin or primary.CFrame
-					local arm = child.Name == "_right_arm" and "RightArm" or (child.Name == "_left_arm" and "LeftArm" or nil)
-					local limb = if arm then vm.Model:FindFirstChild(arm) else nil
-					if arm and limb and limb:IsA("BasePart") then
-						local scaleOk, scale = pcall(function()
-							return child:GetScale()
-						end)
-						vm._arm_submodels[child] = {
-							OriginalScale = if scaleOk and type(scale) == "number" then scale else 1,
-							HideInThirdPerson = child:GetAttribute("HideInThirdPerson") == true,
-						}
-						child.Parent = limb
-						pcall(function()
-							child:PivotTo(limb.CFrame)
-						end)
-						local weldPart = Instance.new("WeldConstraint")
-						weldPart.Part0 = limb
-						weldPart.Part1 = primary
-						weldPart.Parent = primary
-					else
-						local motor = Instance.new("Motor6D")
-						motor.Part0 = root
-						motor.Part1 = primary
-						motor.Name = 'ItemVisual["' .. child.Name .. '"]'
-						local pivot = origin or primary.CFrame
-						motor.C0 = attrCFrame(child, "C0", primary.CFrame:ToObjectSpace(pivot):Inverse())
-						motor.C1 = attrCFrame(child, "C1", CFrame.identity)
-						motor.Parent = root
-						primary.Name = child.Name .. "Primary"
-						pcall(function()
-							child:PivotTo(root.CFrame)
-						end)
-						vm._submodel_boundingbox_attachments[child] = {}
-						local okBox, boxCf, boxSize = pcall(function()
-							return child:GetBoundingBox()
-						end)
-						if okBox and typeof(boxCf) == "CFrame" and typeof(boxSize) == "Vector3" then
-							for index, cornerOffset in BOUNDING_CORNERS do
-								local attachment = Instance.new("Attachment")
-								attachment.Name = "_boundingbox" .. tostring(index)
-								attachment.Parent = primary
-								attachment.WorldCFrame = boxCf * CFrame.new(boxSize * cornerOffset)
-								table.insert(vm._submodel_boundingbox_attachments[child], attachment)
-							end
-						end
-					end
-					for _, descendant in child:GetDescendants() do
-						if descendant:IsA("BasePart") then
-							descendant.CastShadow = false
-							descendant.CanCollide = false
-							descendant.CanTouch = false
-							descendant.CanQuery = false
-							descendant.Massless = true
-							if descendant ~= primary then
-								local weldPart = Instance.new("WeldConstraint")
-								weldPart.Part0 = primary
-								weldPart.Part1 = descendant
-								weldPart.Parent = primary
-								descendant.Anchored = false
-							end
-						end
-					end
-					primary.Anchored = false
-				end
-			end
-			vm._body_model = itemModel:FindFirstChild("Body")
-			vm._aim_position_attachment = vm.Model:FindFirstChild("_aim_position", true)
-			vm._aim_lookat_attachment = vm.Model:FindFirstChild("_aim_lookat", true)
-			vm._center_attachment = vm.Model:FindFirstChild("_center", true)
-			vm._charm_attachment_model = vm.Model:FindFirstChild("_charm_attachment_model", true)
-			vm._charm_pivot_attachment = if vm._charm_attachment_model
-				then vm._charm_attachment_model:FindFirstChild("_charm_pivot_attachment", true)
-				else vm.Model:FindFirstChild("_charm_pivot_attachment", true)
-			vm._muzzle_attachments = {}
-			for _, descendant in vm.Model:GetDescendants() do
-				if descendant.Name == "_muzzle" then
-					table.insert(vm._muzzle_attachments, descendant)
-					if muzzleFlashes then
-						local flash = muzzleFlashes:FindFirstChild(vm.Name)
-							or muzzleFlashes:FindFirstChild(vm.ClientItem.Name)
-							or muzzleFlashes:FindFirstChild("Default")
-						local attachment = flash and flash:FindFirstChild("Attachment")
-						if attachment then
-							for _, flashChild in attachment:GetChildren() do
-								flashChild:Clone().Parent = descendant
-							end
-						end
-					end
-				end
-			end
-			if typeof(vm._local_transparency_modifier_update) == "table" then
-				table.clear(vm._local_transparency_modifier_update)
-			end
-			if typeof(vm._local_transparency_modifiers) == "table" then
-				table.clear(vm._local_transparency_modifiers)
-			end
-			pcall(function()
-				vm:_UpdateHiddenArmSubmodels(true)
-			end)
-		end
-
-		local function clearvisual(vm: any)
-			local root = vm.Model.PrimaryPart or vm.Model:FindFirstChild("HumanoidRootPart")
-			if root then
-				for _, child in root:GetChildren() do
-					if child:IsA("Motor6D") and string.sub(child.Name, 1, 10) == "ItemVisual" then
-						child:Destroy()
-					end
-				end
-			end
-			if typeof(vm._arm_submodels) == "table" then
-				for model in vm._arm_submodels do
-					if typeof(model) == "Instance" then
-						model:Destroy()
-					end
-				end
-				table.clear(vm._arm_submodels)
-			end
-			if typeof(vm._submodel_boundingbox_attachments) == "table" then
-				table.clear(vm._submodel_boundingbox_attachments)
-			end
-			if typeof(vm._submodels_behind_head_values) == "table" then
-				table.clear(vm._submodels_behind_head_values)
-			end
-			if vm.ItemModel then
-				vm.ItemModel:Destroy()
-				vm.ItemModel = nil
-			end
-			if typeof(vm._animation_context_submodels) == "table" then
-				table.clear(vm._animation_context_submodels)
-			end
-			if typeof(vm._local_transparency_modifier_update) == "table" then
-				table.clear(vm._local_transparency_modifier_update)
-			end
-			if typeof(vm._local_transparency_modifiers) == "table" then
-				table.clear(vm._local_transparency_modifiers)
-			end
-		end
-
-		local function loadsounds(vm: any)
-			if not vm._preloaded_sounds or not vm.Info or typeof(vm.Info.Animations) ~= "table" then
-				return
-			end
-			for _, key in vm.Info.Animations do
-				local sounds = soundLibrary.AnimationSounds[key]
-				if sounds then
-					pcall(function()
-						soundLibrary:PreloadSounds(sounds, vm._preloaded_sounds)
-					end)
-				end
-			end
-			local extra = soundLibrary.ViewModelSounds[vm.Name]
-			if extra then
-				pcall(function()
-					soundLibrary:PreloadSounds(extra, vm._preloaded_sounds)
-				end)
-			end
-		end
-
-		local function loadanims(vm: any)
-			local animator = vm.Animator
-			local controller = vm.Model:FindFirstChild("AnimationController")
-			local player = controller and controller:FindFirstChild("Animator")
-			if not animator or not player or not vm.Info or typeof(vm.Info.Animations) ~= "table" then
-				return
-			end
-			if typeof(animator._animation_tracks) == "table" then
-				for _, track in animator._animation_tracks do
-					pcall(function()
-						track:Stop(0)
-						track:Destroy()
-					end)
-				end
-				table.clear(animator._animation_tracks)
-			else
-				animator._animation_tracks = {}
-			end
-			if typeof(animator._animation_keys_lookup) == "table" then
-				table.clear(animator._animation_keys_lookup)
-			end
-			animator._viewmodel_animations = vm.Info.Animations
-			animator._play_animations_instantly = vm.Info.PlayAnimationsInstantly
-			animator._animations_loaded = true
-			for key, animName in vm.Info.Animations do
-				local info = animationLibrary.Info[animName]
-				if info and info.AnimationID then
-					local animation = Instance.new("Animation")
-					animation.AnimationId = info.AnimationID
-					animation.Parent = vm.Model
-					local loadOk, track = pcall(function()
-						return player:LoadAnimation(animation)
-					end)
-					if loadOk and track then
-						animator._animation_tracks[key] = track
-					end
-				end
-			end
-			pcall(function()
-				animator:ChangeEquipAnimation("Equip")
-			end)
-			pcall(function()
-				animator:ChangeIdleAnimation("Idle")
-			end)
-			pcall(function()
-				animator:ChangeSprintAnimation("Sprint")
-			end)
-			pcall(function()
-				animator:PlayIdleAnimation()
-			end)
-		end
-
-		local function refreshwrap(vm: any)
-			if vm._original_wrap_properties then
-				pcall(function()
-					wrapController:ResetWrap(vm._original_wrap_properties)
-				end)
-				vm._original_wrap_properties = nil
-			end
-			pcall(function()
-				vm:_UpdateWrap()
-			end)
-		end
-
-		local shownimage: { [string]: string } = {}
-		local imagewatch: { [string]: string } = {}
-
-		local function watchimage(from: string?, to: string?)
-			if type(from) == "string" and type(to) == "string" and from ~= to then
-				imagewatch[from] = to
-			end
-		end
-
-		local function paintimages(weapon: string)
-			local skinName = skinmap[weapon]
-			local skin = skinName and cosmetics.Cosmetics[skinName]
-			local item = items.Items[weapon]
-			local nextImage = entryimage(skin) or entryimage(item)
-			if not nextImage then
-				return
-			end
-			local wanted: { [string]: boolean } = {}
-			if shownimage[weapon] then
-				wanted[shownimage[weapon]] = true
-				watchimage(shownimage[weapon], nextImage)
-			end
-			local base = entryimage(item)
-			if base then
-				wanted[base] = true
-				watchimage(base, nextImage)
-			end
-			local wSkins = skinsfor(weapon)
-			for _, sName in wSkins do
-				local sData = cosmetics and cosmetics.Cosmetics and cosmetics.Cosmetics[sName]
-				local img = entryimage(sData)
-				if img then
-					wanted[img] = true
-					watchimage(img, nextImage)
-				end
-			end
-			local gui = client:FindFirstChild("PlayerGui")
-			if not gui then
-				return
-			end
-			for _, obj in gui:GetDescendants() do
-				if (obj:IsA("ImageLabel") or obj:IsA("ImageButton")) and wanted[obj.Image] then
-					obj.Image = nextImage
-				elseif obj:IsA("TextLabel") and obj.Text == weapon and obj.Parent then
-					for _, child in obj.Parent:GetDescendants() do
-						if child:IsA("ImageLabel") or child:IsA("ImageButton") then
-							local lower = string.lower(child.Name)
-							if string.find(lower, "icon", 1, true)
-								or string.find(lower, "image", 1, true)
-								or string.find(lower, "thumb", 1, true)
-								or string.find(lower, "weapon", 1, true)
-							then
-								child.Image = nextImage
-							end
-						end
-					end
-				end
-			end
-			shownimage[weapon] = nextImage
-		end
-
-		local tracerTemplates: { [string]: { Instance } } = {}
-
-		local function istracer(obj: Instance): boolean
-			local classOk, className = pcall(function()
-				return obj.ClassName
-			end)
-			return classOk and (className == "Beam" or className == "Trail" or className == "ParticleEmitter")
-		end
-
-		local function copytracer(from: Instance, to: Instance)
-			pcall(function()
-				if from.ClassName ~= to.ClassName then
-					return
-				end
-				local override: Color3? = nil
-				pcall(function()
-					local bridge = (_G :: any).__sonata_bridge
-					local fx = type(bridge) == "table" and bridge.ClientFx
-					if type(fx) == "table" and fx.tracers == true and typeof(fx.tracerColor) == "Color3" then
-						override = fx.tracerColor
-					end
-				end)
-				if from:IsA("Beam") and to:IsA("Beam") then
-					to.Color = if override then ColorSequence.new(override) else from.Color
-					to.Transparency = from.Transparency
-					to.Texture = if override then "" else from.Texture
-					to.Width0 = from.Width0
-					to.Width1 = from.Width1
-					to.LightEmission = from.LightEmission
-					to.TextureSpeed = from.TextureSpeed
-					to.TextureLength = from.TextureLength
-				elseif from:IsA("Trail") and to:IsA("Trail") then
-					to.Color = if override then ColorSequence.new(override) else from.Color
-					to.Transparency = from.Transparency
-					to.Texture = if override then "" else from.Texture
-					to.Lifetime = from.Lifetime
-					to.LightEmission = from.LightEmission
-					to.WidthScale = from.WidthScale
-				elseif from:IsA("ParticleEmitter") and to:IsA("ParticleEmitter") then
-					to.Color = if override then ColorSequence.new(override) else from.Color
-					to.Transparency = from.Transparency
-					to.Texture = from.Texture
-					to.LightEmission = from.LightEmission
-					to.Rate = from.Rate
-					to.Lifetime = from.Lifetime
-					to.Speed = from.Speed
-					to.Size = from.Size
-				end
-			end)
-		end
-
-		local function collecttracers(root: Instance?): { Instance }
-			local list = {}
-			if not root then
-				return list
-			end
-			local ok, descendants = pcall(function()
-				return root:GetDescendants()
-			end)
-			if not ok then
-				return list
-			end
-			for _, obj in next, descendants do
-				if istracer(obj) then
-					table.insert(list, obj)
-				end
-			end
-			return list
-		end
-
-		local function painttracers(root: Instance?, weapon: string)
-			local templates = tracerTemplates[weapon]
-			if not templates or not templates[1] or not root then
-				return
-			end
-			for _, obj in next, collecttracers(root) do
-				for _, from in next, templates do
-					if from.ClassName == obj.ClassName then
-						copytracer(from, obj)
-						break
-					end
-				end
-			end
-		end
-
-		local function heldweapon(): string?
-			local mine = fighterController.LocalFighter
-			if not mine then
-				return nil
-			end
-			local ok, item = pcall(function()
-				return mine.EquippedItem or mine:Get("EquippedItem")
-			end)
-			if ok and type(item) == "table" and type(item.Name) == "string" then
-				return item.Name
-			end
-			return nil
-		end
-		heldWeaponFn = heldweapon
-
-		local function applyextra(weapon: string)
-			local mine = fighterController.LocalFighter
-			if not weapon or not mine or type(mine.Items) ~= "table" then
-				return
-			end
-			local CharmClass
-			pcall(function()
-				CharmClass = require(scripts.Modules.Charm)
-			end)
-			local charmFolder = scripts.Modules:FindFirstChild("Charms")
-
-			local function attachcharm(vm: any, data: any)
-				if type(vm) ~= "table" or typeof(vm.Model) ~= "Instance" then
-					return
-				end
-				if type(vm.Charm) == "table" and type(vm.Charm.Destroy) == "function" then
-					pcall(function()
-						vm.Charm:Destroy()
-					end)
-				end
-				vm.Charm = nil
-				if not data then
-					return
-				end
-				local pivot = vm._charm_pivot_attachment
-				if typeof(pivot) ~= "Instance" or pivot.Parent == nil then
-					pivot = vm.Model:FindFirstChild("_charm_pivot_attachment", true)
-					vm._charm_pivot_attachment = pivot
-				end
-				if typeof(pivot) ~= "Instance" or type(CharmClass) ~= "table" then
-					return
-				end
-				local class = CharmClass
-				local custom = charmFolder and charmFolder:FindFirstChild(data.Name, true)
-				if custom and custom:IsA("ModuleScript") then
-					local loadOk, loaded = pcall(require, custom)
-					if loadOk and type(loaded) == "table" and type(loaded.new) == "function" then
-						class = loaded
-					end
-				end
-				local charmOk, charm = pcall(function()
-					return class.new(vm, data, pivot)
-				end)
-				if charmOk and type(charm) == "table" then
-					vm.Charm = charm
-					pcall(function()
-						charm:SetParent(vm.Model)
-					end)
-					local meta = type(data) == "table" and data.Metadata
-					if type(meta) == "table" then
-						applyRankToCharm(charm, meta.SonataRankName, meta.SeasonELO, meta.SeasonLeaderboardRank)
-					end
-				end
-			end
-
-			local function stampCharmRank(vm: any, data: any)
-				if type(vm) ~= "table" or type(data) ~= "table" then
-					return
-				end
-				local meta = data.Metadata
-				if type(meta) ~= "table" then
-					return
-				end
-				local charmObj = vm.Charm
-				if type(charmObj) == "table" then
-					applyRankToCharm(charmObj, meta.SonataRankName, meta.SeasonELO, meta.SeasonLeaderboardRank)
-				elseif typeof(vm.Model) == "Instance" then
-					forceSeasonRankOnModel(vm.Model, meta.SonataRankName, meta.SeasonLeaderboardRank)
-				end
-			end
-
-			local charmKey = if charmon[weapon] then charmmap[weapon] else nil
-			local finisherKey = if finisheron[weapon] then finishermap[weapon] else nil
-			local charmData = if charmKey then equippedcosmetic(charmKey) else nil
-			local finisherData = if finisherKey then equippedcosmetic(finisherKey) else nil
-			for _, item in mine.Items do
-				if type(item) == "table" and item.Name == weapon then
-					pcall(function()
-						if charmData then
-							item.Charm = charmData
-						end
-						if finisherData then
-							item.Finisher = finisherData
-						end
-						local vm = item.ViewModel
-						if type(vm) == "table" then
-							if type(vm.SetCharm) == "function" then
-								vm:SetCharm(charmData)
-							else
-								attachcharm(vm, charmData)
-							end
-							stampCharmRank(vm, charmData)
-							if charmData and type(charmData.Metadata) == "table" and charmData.Metadata.SonataRankName then
-								task.defer(stampCharmRank, vm, charmData)
-								task.delay(0.05, stampCharmRank, vm, charmData)
-								task.delay(0.2, stampCharmRank, vm, charmData)
-							end
-							if finisherData then
-								vm.Finisher = finisherData
-							end
-						end
-					end)
-				end
-			end
-		end
-
-		local function apply(weapon: string)
-			local skin = skinmap[weapon]
-			local wrap = wrapmap[weapon]
-			eachviewmodel(weapon, function(vm)
-				local okApply, _errApply = pcall(function()
-					if type(vm) ~= "table" or vm._destroyed or not vm.Model then
-						return
-					end
-					vm._baseName = vm._baseName or vm.Name or weapon
-					local target = skin
-					if vm._shownSkin ~= target and (target or vm._shownSkin) then
-						local cosmeticName = target or vm._baseName
-						local source = modelFor(cosmeticName)
-						if not source and target then
-							source = modelFor(weapon) or modelFor(vm._baseName)
-						end
-						local info = (items.ViewModels and (items.ViewModels[cosmeticName] or items.ViewModels[weapon] or items.ViewModels[vm._baseName])) or nil
-						local root = vm.Model.PrimaryPart or vm.Model:FindFirstChild("HumanoidRootPart") or vm.Model:FindFirstChildWhichIsA("BasePart")
-						if source and root then
-							if typeof(info) ~= "table" then
-								info = {
-									RootPartOffset = CFrame.identity,
-									Animations = {},
-								}
-							end
-							local model = source:Clone()
-							local previousName = vm.Name
-							local previousInfo = vm.Info
-							local builtOk, _builtErr = pcall(function()
-								clearvisual(vm)
-								vm.Name = cosmeticName
-								local infoCopy = table.clone(info)
-								if type(infoCopy.Animations) ~= "table" then
-									infoCopy.Animations = {}
-								end
-								if typeof(infoCopy.RootPartOffset) ~= "CFrame" then
-									infoCopy.RootPartOffset = CFrame.identity
-								end
-								vm.Info = infoCopy
-								vm._root_part_offset_inverse = infoCopy.RootPartOffset:Inverse()
-								local playerName = "???"
-								pcall(function()
-									local fighter = vm.ClientItem and vm.ClientItem.ClientFighter
-									local player = fighter and fighter.Player
-									if player and type(player.Name) == "string" then
-										playerName = player.Name
-									end
-								end)
-								local itemName = weapon
-								pcall(function()
-									if vm.ClientItem and type(vm.ClientItem.Name) == "string" then
-										itemName = vm.ClientItem.Name
-									end
-								end)
-								vm.Model.Name = playerName .. " - " .. tostring(itemName) .. " - " .. tostring(cosmeticName)
-								weld(vm, model)
-								if typeof(vm.ItemModel) ~= "Instance" and model.Parent == nil then
-									error("weld produced no ItemModel")
-								end
-								pcall(loadsounds, vm)
-								pcall(loadanims, vm)
-							end)
-							if builtOk then
-								vm._shownSkin = target
-								vm._shownWrap = nil
-								if target then
-									pcall(function()
-										tracerTemplates[weapon] = collecttracers(source)
-										painttracers(vm.Model, weapon)
-									end)
-								else
-									tracerTemplates[weapon] = nil
-								end
-							else
-								pcall(function()
-									model:Destroy()
-								end)
-								pcall(function()
-									vm.Name = previousName
-									if type(previousInfo) == "table" then
-										vm.Info = previousInfo
-									end
-								end)
-								pcall(function()
-									local fallbackName = vm._baseName or weapon
-									local fallback = modelFor(fallbackName)
-									if fallback and (vm.Model.PrimaryPart or vm.Model:FindFirstChildWhichIsA("BasePart")) then
-										clearvisual(vm)
-										vm.Name = fallbackName
-										local fallbackInfo = (items.ViewModels and items.ViewModels[fallbackName]) or previousInfo
-										if typeof(fallbackInfo) == "table" then
-											local copy = table.clone(fallbackInfo)
-											if type(copy.Animations) ~= "table" then
-												copy.Animations = {}
-											end
-											if typeof(copy.RootPartOffset) ~= "CFrame" then
-												copy.RootPartOffset = CFrame.identity
-											end
-											vm.Info = copy
-											vm._root_part_offset_inverse = copy.RootPartOffset:Inverse()
-										end
-										weld(vm, fallback:Clone())
-										pcall(loadsounds, vm)
-										pcall(loadanims, vm)
-										vm._shownSkin = nil
-									end
-								end)
-								warn("skin said no thanks", weapon, cosmeticName)
-							end
-						end
-					end
-					if vm._shownWrap ~= wrap then
-						pcall(refreshwrap, vm)
-						vm._shownWrap = wrap
-					end
-				end)
-				if not okApply then
-					warn("viewmodel had a moment", weapon)
-				end
-			end)
-			if skin then
-				pcall(paintimages, weapon)
-			end
-			pcall(applyextra, weapon)
-		end
-
-		local function schedule(weapon: string?)
-			if weapon
-				and (
-					skinmap[weapon]
-					or wrapmap[weapon]
-					or charmon[weapon]
-					or finisheron[weapon]
-				)
-			then
-				task.defer(function()
-					apply(weapon)
-				end)
-			end
-		end
-
-		local previousNew = viewclass.new
-		viewclass.new = function(...)
-			local vm = previousNew(...)
-			task.defer(function()
-				if type(vm) ~= "table" or vm._destroyed then
-					return
-				end
-				local clientItem = vm.ClientItem
-				local weaponName = if type(clientItem) == "table" then clientItem.Name else nil
-				if type(weaponName) == "string" then
-					schedule(weaponName)
-				end
-			end)
-			return vm
-		end
-
-		local mine = fighterController.LocalFighter
-		if mine and mine.ItemAdded then
-			mine.ItemAdded:Connect(function(item)
-				local weaponName = if type(item) == "table" then item.Name else nil
-				if type(weaponName) == "string" then
-					schedule(weaponName)
-				end
-			end)
-		end
-
-		getWeapons()
-
-		local function grant(copy: any, name: string, weapon: string)
-			if type(name) ~= "string" or name == "" then
-				return
-			end
-			local current = copy[name]
-			if current == true then
-				return
-			end
-			if type(current) ~= "table" then
-				current = {}
-				copy[name] = current
-			end
-			current[weapon] = true
-		end
-
-		local function spoofinventory(value: any): any
-			if type(value) ~= "table" then
-				return value
-			end
-			local copy = table.clone(value)
-			for weapon, name in next, charmmap do
-				if charmon[weapon] then
-					local rankBase = parseRankCharm(name)
-					grant(copy, rankBase or name, weapon)
-				end
-			end
-			for weapon, name in next, finishermap do
-				if finisheron[weapon] then
-					grant(copy, name, weapon)
-				end
-			end
-			return copy
-		end
-
-		local function hookslot(class: any, method: string, map: { [string]: string }, enabled: { [string]: boolean })
-			if type(class) ~= "table" or type(class[method]) ~= "function" then
-				return
-			end
-			hookGameMethod(class[method], function(previous, self, ...)
-				local ok, original = pcall(previous, self, ...)
-				if not ok or type(original) ~= "table" then
-					original = nil
-				end
-				local clientItem = self.ClientItem
-				local weaponName = if type(clientItem) == "table" then clientItem.Name else self.Name
-				local weapon = if type(weaponName) == "string" then weaponName else nil
-				local picked = if weapon and enabled[weapon] then map[weapon] else nil
-				if type(picked) ~= "string" then
-					return original
-				end
-				local dataOk, data = pcall(equippedcosmetic, picked)
-				if not dataOk or type(data) ~= "table" then
-					return original
-				end
-				return data
-			end)
-		end
-
-		hookslot(viewclass, "GetCharm", charmmap, charmon)
-		hookslot(viewclass, "GetFinisher", finishermap, finisheron)
-
-		pcall(function()
-			local charmClass = require(scripts.Modules.Charm)
-			if type(charmClass) == "table" and type(charmClass._SetupSeasonRankCharm) == "function" and not charmClass.__sonataRankSetup then
-				local hooked = hookGameMethod(charmClass._SetupSeasonRankCharm, function(previousSetup, self, ...)
-					local meta = type(self) == "table" and type(self.EquippedData) == "table" and self.EquippedData.Metadata
-					local rankName = type(meta) == "table" and meta.SonataRankName or nil
-					local elo = type(meta) == "table" and meta.SeasonELO or nil
-					local board = type(meta) == "table" and meta.SeasonLeaderboardRank or nil
-					if type(rankName) == "string" and rankName ~= "" then
-						applyRankToCharm(self, rankName, elo, board)
-						task.defer(applyRankToCharm, self, rankName, elo, board)
-						task.delay(0.05, applyRankToCharm, self, rankName, elo, board)
-						return
-					end
-					local ver = type(self.Name) == "string" and tonumber(string.sub(self.Name, 8)) or nil
-					local seasonOk = type(ver) == "number"
-						and type(seasonLibrary) == "table"
-						and type(seasonLibrary.SeasonsByVersion) == "table"
-						and seasonLibrary.SeasonsByVersion[ver] ~= nil
-					if seasonOk then
-						local okCall = pcall(previousSetup, self, ...)
-						if not okCall and type(elo) == "number" then
-							applyRankToCharm(self, nil, elo, board)
-						end
-						return
-					end
-					if type(elo) == "number" then
-						applyRankToCharm(self, nil, elo, board)
-					end
-				end)
-				if hooked then
-					charmClass.__sonataRankSetup = true
-				end
-			end
-		end)
-
-		if type(viewclass.Get) == "function" and not viewclass.__sonataGet then
-			local hookedGet = hookGameMethod(viewclass.Get, function(previousGet, self, key, ...)
-				local clientItem = self.ClientItem
-				local weaponName = if type(clientItem) == "table" then clientItem.Name else self.Name
-				local weapon = if type(weaponName) == "string" then weaponName else nil
-				if key == "Wrap" then
-					local wrap = if weapon then wrapmap[weapon] else nil
-					local info = if type(wrap) == "string" and wrap ~= "" and type(cosmetics) == "table" and type(cosmetics.Cosmetics) == "table"
-						then cosmetics.Cosmetics[wrap]
-						else nil
-					if type(info) == "table" then
-						local copy = safeWrapTable(info, wrap)
-						if type(info.WrapGroups) == "table" then
-							copy.WrapGroups = info.WrapGroups
-						end
-						return copy
-					end
-					local okWrap, wrapVal = pcall(previousGet, self, key, ...)
-					return if okWrap then wrapVal else nil
-				end
-				if key == "Charm" and weapon and charmon[weapon] then
-					local charm = charmmap[weapon]
-					if type(charm) == "string" then
-						local dataOk, data = pcall(equippedcosmetic, charm)
-						if dataOk and type(data) == "table" then
-							return data
-						end
-					end
-				end
-				if key == "Finisher" and weapon and finisheron[weapon] then
-					local finisher = finishermap[weapon]
-					if type(finisher) == "string" then
-						local dataOk, data = pcall(equippedcosmetic, finisher)
-						if dataOk and type(data) == "table" then
-							return data
-						end
-					end
-				end
-				local ok, value = pcall(previousGet, self, key, ...)
-				if not ok then
-					return nil
-				end
-				if key == "Wrap" and type(value) ~= "table" then
-					return safeWrapTable(nil, nil)
-				end
-				return value
-			end)
-			if hookedGet then
-				viewclass.__sonataGet = true
-			end
-		end
-		pcall(function()
-			local itemclass = require(scripts.Modules.ClientReplicatedClasses.ClientFighter.ClientItem)
-			hookslot(itemclass, "GetCharm", charmmap, charmon)
-			hookslot(itemclass, "GetFinisher", finishermap, finisheron)
-		end)
-		pcall(function()
-			local dataController = require(scripts.Controllers.PlayerDataController)
-			local function installMethodHook(tbl: any, key: string, wrap: any): boolean
-				local current = tbl[key]
-				if type(current) ~= "function" then
-					return false
-				end
-				local old = hookGameMethod(current, function(previous, ...)
-					return wrap(previous, ...)
-				end)
-				return type(old) == "function"
-			end
-			if not dataController.__sonataInventory then
-				local okInv = installMethodHook(dataController, "Get", function(previousData, self, key, ...)
-					local ok, value = pcall(previousData, self, key, ...)
-					if not ok then
-						return nil
-					end
-					if key == "CosmeticInventory" then
-						return spoofinventory(value)
-					end
-					return value
-				end)
-				if okInv then
-					dataController.__sonataInventory = true
-				end
-			end
-			if not dataController.__sonataWeapon then
-				local okWeapon = installMethodHook(dataController, "GetWeaponData", function(previousWeapon, self, weaponName, ...)
-					local ok, data = pcall(previousWeapon, self, weaponName, ...)
-					if not ok then
-						return nil
-					end
-					if type(weaponName) ~= "string" or type(data) ~= "table" then
-						return data
-					end
-					local charmName = if charmon[weaponName] then charmmap[weaponName] else nil
-					local finisherName = if finisheron[weaponName] then finishermap[weaponName] else nil
-					if type(charmName) ~= "string" and type(finisherName) ~= "string" then
-						return data
-					end
-					local copy: { [string]: any } = table.clone(data) :: any
-					if type(charmName) == "string" then
-						local charmOk, charmData = pcall(equippedcosmetic, charmName)
-						if charmOk then
-							copy.Charm = charmData
-						end
-					end
-					if type(finisherName) == "string" then
-						local finOk, finData = pcall(equippedcosmetic, finisherName)
-						if finOk then
-							copy.Finisher = finData
-						end
-					end
-					return copy
-				end)
-				if okWeapon then
-					dataController.__sonataWeapon = true
-				end
-			end
-		end)
-		pcall(function()
-			local entityClass = require(scripts.Modules.ClientReplicatedClasses.ClientEntity)
-			if type(entityClass._PlayFinisher) ~= "function" or entityClass.__sonataFinisher then
-				return
-			end
-			local previousFinisher = hookGameMethod(entityClass._PlayFinisher, function(old, self, name, finalHit, eliminator, ...)
-				local localFighter = fighterController.LocalFighter
-				local equipped = localFighter and localFighter.EquippedItem
-				if type(equipped) ~= "table" and localFighter and type(localFighter.Get) == "function" then
-					local getOk, item = pcall(function()
-						return localFighter:Get("EquippedItem")
-					end)
-					equipped = getOk and item or equipped
-				end
-				local weapon = type(equipped) == "table" and equipped.Name
-				local picked = weapon and finisheron[weapon] and finishermap[weapon]
-				local mineKill = eliminator == client
-					or eliminator == client.UserId
-					or (typeof(eliminator) == "Instance" and eliminator == client)
-					or (type(eliminator) == "table" and (eliminator.Player == client or eliminator.IsLocalPlayer == true))
-				if picked and mineKill then
-					name = picked
-				end
-				local ok, a, b, c, d, e, f = (pcall :: any)(old, self, name, finalHit, eliminator, ...)
-				if not ok then
-					return nil
-				end
-				return a, b, c, d, e, f
-			end)
-			if previousFinisher then
-				entityClass.__sonataFinisher = true
-			end
-		end)
-
-		Workspace.DescendantAdded:Connect(function(obj)
-			if not istracer(obj) then
-				return
-			end
-			local weapon = heldweapon()
-			if not weapon or not tracerTemplates[weapon] then
-				return
-			end
-			for _, from in next, tracerTemplates[weapon] do
-				if from.ClassName == obj.ClassName then
-					copytracer(from, obj)
-					return
-				end
-			end
-		end)
-
-		local gui = client:FindFirstChild("PlayerGui")
-		if gui then
-			gui.DescendantAdded:Connect(function(obj)
-				if not (obj:IsA("ImageLabel") or obj:IsA("ImageButton")) then
-					return
-				end
-				local nextImage = imagewatch[obj.Image]
-				if nextImage then
-					obj.Image = nextImage
-				end
-			end)
-		end
-
-		applyFn = apply
-		applyExtraFn = applyextra
-		return true
-	end
-
-	api = {
-		ready = false,
-		skinmap = skinmap,
-		wrapmap = wrapmap,
-		charmmap = charmmap,
-		finishermap = finishermap,
-		charmon = charmon,
-		finisheron = finisheron,
-		weapons = weapons,
-		wraps = wraps,
-		charms = charms,
-		finishers = finishers,
-		install = function(self)
-			if self.ready or installing then
-				return self.ready
-			end
-			installing = true
-			local ok, result = pcall(installskins)
-			installing = false
-			self.ready = ok and result == true
-			return self.ready
-		end,
-		getWeapons = function(_self)
-			return getWeapons()
-		end,
-		getWraps = function(_self)
-			return getWraps()
-		end,
-		getCharms = function(_self)
-			return getCharms()
-		end,
-		getFinishers = function(_self)
-			return getFinishers()
-		end,
-		skinsFor = function(_self, weapon)
-			return skinsfor(weapon)
-		end,
-		rarityColor = function(_self, name)
-			if name == "default" or name == "none" then
-				return Color3.fromRGB(180, 180, 180)
-			end
-			local rankBase = parseRankCharm(name)
-			local lookup = rankBase or name
-			local data = cosmetics and cosmetics.Cosmetics and cosmetics.Cosmetics[lookup]
-			return raritycolor(data)
-		end,
-		entryImage = function(_self, name)
-			if not name or name == "" or name == "default" or name == "none" then
-				return nil
-			end
-			if imageCache[name] ~= nil then
-				return imageCache[name]
-			end
-			local rankBase = parseRankCharm(name)
-			local lookup = rankBase or name
-			local data = cosmetics and cosmetics.Cosmetics and cosmetics.Cosmetics[lookup]
-			local image, tint = resolveCosmeticImage(name, data)
-			imageCache[name] = image
-			if tint ~= nil then
-				tintCache[name] = tint
-			end
-			return image
-		end,
-		entryTint = function(_self, name)
-			if not name or name == "" or name == "default" or name == "none" then
-				return nil
-			end
-			if tintCache[name] ~= nil then
-				return tintCache[name]
-			end
-			local rankBase = parseRankCharm(name)
-			local lookup = rankBase or name
-			local data = cosmetics and cosmetics.Cosmetics and cosmetics.Cosmetics[lookup]
-			local image, tint = resolveCosmeticImage(name, data)
-			if image ~= nil then
-				imageCache[name] = image
-			end
-			tintCache[name] = tint
-			return tint
-		end,
-		previewImage = function(self, weapon, mode)
-			if mode == "skins" then
-				local skin = skinmap[weapon]
-				if skin then
-					return self:entryImage(skin)
-				end
-				return entryimage(items and items.Items and items.Items[weapon])
-			elseif mode == "wraps" then
-				local wrap = wrapmap[weapon]
-				return if wrap then self:entryImage(wrap) else nil
-			elseif mode == "charms" then
-				local charm = charmmap[weapon]
-				return if charm then self:entryImage(charm) else nil
-			elseif mode == "finishers" then
-				local finisher = finishermap[weapon]
-				return if finisher then self:entryImage(finisher) else nil
-			end
-			return nil
-		end,
-		heldWeapon = function(_self)
-			if heldWeaponFn then
-				local ok, result = pcall(heldWeaponFn)
-				if ok and type(result) == "string" and result ~= "" then
-					return result
-				end
-			end
-			return nil
-		end,
-		apply = function(_self, weapon)
-			if applyFn then
-				pcall(applyFn, weapon)
-			end
-		end,
-		applyExtra = function(_self, weapon)
-			if applyExtraFn then
-				pcall(applyExtraFn, weapon)
-			end
-		end,
-		setSelection = function(self, mode, weapon, option)
-			if not weapon or weapon == "" then
-				return
-			end
-			local cleared = option == nil or option == "" or option == "default" or option == "none"
-			if mode == "skins" then
-				if cleared then
-					skinmap[weapon] = nil :: any
-				elseif type(option) == "string" then
-					skinmap[weapon] = option
-				end
-				self:apply(weapon)
-			elseif mode == "wraps" then
-				if cleared then
-					wrapmap[weapon] = nil :: any
-				elseif type(option) == "string" then
-					wrapmap[weapon] = option
-				end
-				self:apply(weapon)
-			elseif mode == "charms" then
-				if cleared then
-					charmmap[weapon] = nil :: any
-					charmon[weapon] = nil :: any
-				elseif type(option) == "string" then
-					charmmap[weapon] = option
-					charmon[weapon] = true
-				end
-				self:applyExtra(weapon)
-			elseif mode == "finishers" then
-				if cleared then
-					finishermap[weapon] = nil :: any
-					finisheron[weapon] = nil :: any
-				elseif type(option) == "string" then
-					finishermap[weapon] = option
-					finisheron[weapon] = true
-				end
-				self:applyExtra(weapon)
-			end
-		end,
-		restore = function(self, config)
-			if type(config) ~= "table" then
-				return
-			end
-			table.clear(skinmap)
-			table.clear(wrapmap)
-			table.clear(charmmap)
-			table.clear(finishermap)
-			table.clear(charmon)
-			table.clear(finisheron)
-			if type(config.skins) == "table" then
-				for weapon, skin in next, config.skins do
-					if type(weapon) == "string" and type(skin) == "string" and skin ~= "" and skin ~= "default" then
-						skinmap[weapon] = skin
-					end
-				end
-			end
-			if type(config.wraps) == "table" then
-				for weapon, wrap in next, config.wraps do
-					if type(weapon) == "string" and type(wrap) == "string" and wrap ~= "" and wrap ~= "default" then
-						wrapmap[weapon] = wrap
-					end
-				end
-			end
-			if type(config.charms) == "table" then
-				for weapon, name in next, config.charms do
-					if type(weapon) == "string" and type(name) == "string" and name ~= "" then
-						charmmap[weapon] = name
-						charmon[weapon] = true
-					end
-				end
-			end
-			if type(config.finishers) == "table" then
-				for weapon, name in next, config.finishers do
-					if type(weapon) == "string" and type(name) == "string" and name ~= "" then
-						finishermap[weapon] = name
-						finisheron[weapon] = true
-					end
-				end
-			end
-			local pending: { [string]: boolean } = {}
-			for weapon in next, skinmap do
-				pending[weapon] = true
-			end
-			for weapon in next, wrapmap do
-				pending[weapon] = true
-			end
-			for weapon in next, charmon do
-				pending[weapon] = true
-			end
-			for weapon in next, finisheron do
-				pending[weapon] = true
-			end
-			task.defer(function()
-				for weapon in next, pending do
-					pcall(function()
-						self:apply(weapon)
-						if charmon[weapon] or finisheron[weapon] then
-							self:applyExtra(weapon)
-						end
-					end)
-				end
-			end)
-		end,
-		export = function(_self)
-			local skins = {}
-			local wrapsOut = {}
-			local charmsOut = {}
-			local finishersOut = {}
-			for weapon, skin in next, skinmap do
-				skins[weapon] = skin
-			end
-			for weapon, wrap in next, wrapmap do
-				wrapsOut[weapon] = wrap
-			end
-			for weapon, name in next, charmmap do
-				if charmon[weapon] then
-					charmsOut[weapon] = name
-				end
-			end
-			for weapon, name in next, finishermap do
-				if finisheron[weapon] then
-					finishersOut[weapon] = name
-				end
-			end
-			return skins, wrapsOut, charmsOut, finishersOut
-		end,
-		clearAll = function(self)
-			local pending: { [string]: boolean } = {}
-			for _, map in { skinmap, wrapmap, charmon, finisheron } do
-				for weapon in next, map do
-					pending[weapon] = true
-				end
-			end
-			table.clear(skinmap)
-			table.clear(wrapmap)
-			table.clear(charmmap)
-			table.clear(finishermap)
-			table.clear(charmon)
-			table.clear(finisheron)
-			for weapon in next, pending do
-				pcall(function()
-					self:apply(weapon)
-					self:applyExtra(weapon)
-				end)
-			end
-		end,
-		randomizeAll = function(self)
-			local allWeapons = getWeapons()
-			local allWraps = getWraps()
-			local allCharms = getCharms()
-			local allFinishers = getFinishers()
-			local rng = Random.new()
-			local validCharms: { string } = {}
-			for _, name in allCharms do
-				if name ~= "none" and name ~= "default" and name ~= "" then
-					table.insert(validCharms, name)
-				end
-			end
-			local validFinishers: { string } = {}
-			for _, name in allFinishers do
-				if name ~= "none" and name ~= "default" and name ~= "" then
-					table.insert(validFinishers, name)
-				end
-			end
-			local validWraps: { string } = {}
-			for _, name in allWraps do
-				if name ~= "default" and name ~= "none" and name ~= "" then
-					table.insert(validWraps, name)
-				end
-			end
-
-			for _, weapon in allWeapons do
-				local wSkins = skinsfor(weapon)
-				local candidateSkins: { string } = {}
-				for _, s in wSkins do
-					if s ~= "default" and s ~= "" then
-						table.insert(candidateSkins, s)
-					end
-				end
-				if #candidateSkins > 0 then
-					skinmap[weapon] = candidateSkins[rng:NextInteger(1, #candidateSkins)]
-				else
-					skinmap[weapon] = nil :: any
-				end
-
-				if #validWraps > 0 then
-					wrapmap[weapon] = validWraps[rng:NextInteger(1, #validWraps)]
-				else
-					wrapmap[weapon] = nil :: any
-				end
-
-				if #validCharms > 0 then
-					charmmap[weapon] = validCharms[rng:NextInteger(1, #validCharms)]
-					charmon[weapon] = true
-				else
-					charmmap[weapon] = nil :: any
-					charmon[weapon] = nil :: any
-				end
-
-				if #validFinishers > 0 then
-					finishermap[weapon] = validFinishers[rng:NextInteger(1, #validFinishers)]
-					finisheron[weapon] = true
-				else
-					finishermap[weapon] = nil :: any
-					finisheron[weapon] = nil :: any
-				end
-
-				pcall(function()
-					self:apply(weapon)
-					self:applyExtra(weapon)
-				end)
-			end
-		end,
-	}
-
-	return api
-end
-
-local Cosmetics = createCosmetics()
-task.defer(function()
-	pcall(function()
-		if not game:IsLoaded() then
-			pcall(function()
-				game.Loaded:Wait()
-			end)
-		end
-		Cosmetics:install()
-	end)
-end)
 
 local function element(className: string, props: { [string]: any }, children: { Instance }?): Instance
 	local object = Instance.new(className) :: any
@@ -2684,6846 +442,14 @@ local function resolveParent(parent: Instance?): Instance
 	return cloneRef(player:WaitForChild("PlayerGui"))
 end
 
-local EMBEDDED_OCTOHOOK = [=[local startupArgs = ({...})[1] or {}
 
-local function envTable()
-    if typeof(getgenv) == 'function' then
-        local ok, env = pcall(getgenv)
-        if ok and type(env) == 'table' then
-            return env
-        end
-    end
-    return _G
-end
 
-do
-    local env = envTable()
-    if type(env.library) == 'table' and type(env.library.Unload) == 'function' then
-        pcall(function()
-            env.library:Unload()
-        end)
-    end
-end
-
-if not game:IsLoaded() then
-    game.Loaded:Wait()
-end
-
-local function safeClone(obj)
-    local ok, cloned = pcall(function()
-        if cloneref then return cloneref(obj) end
-        if clonereference then return clonereference(obj) end
-        return obj
-    end)
-    return ok and cloned or obj
-end
-local function gs(a)
-    return safeClone(game:GetService(a))
-end
-
-local function safeB64Decode(str)
-    if type(str) ~= 'string' or str == '' then
-        return ''
-    end
-    local candidates = {
-        function()
-            return syn.crypt.base64.decode(str)
-        end,
-        function()
-            return crypt.base64decode(str)
-        end,
-        function()
-            return crypt.base64.decode(str)
-        end,
-        function()
-            return base64_decode(str)
-        end,
-        function()
-            return base64.decode(str)
-        end,
-    }
-    for _, fn in candidates do
-        local ok, decoded = pcall(fn)
-        if ok and type(decoded) == 'string' and #decoded > 0 then
-            return decoded
-        end
-    end
-    local alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-    local data = string.gsub(str, '[^' .. alphabet .. '=]', '')
-    local okLua, decoded = pcall(function()
-        return (data:gsub('.', function(x)
-            if x == '=' then
-                return ''
-            end
-            local r, f = '', (alphabet:find(x, 1, true) - 1)
-            for i = 6, 1, -1 do
-                r = r .. (f % 2 ^ i - f % 2 ^ (i - 1) > 0 and '1' or '0')
-            end
-            return r
-        end):gsub('%d%d%d?%d?%d?%d?%d?%d?', function(x)
-            if #x ~= 8 then
-                return ''
-            end
-            local c = 0
-            for i = 1, 8 do
-                c = c + (x:sub(i, i) == '1' and 2 ^ (8 - i) or 0)
-            end
-            return string.char(c)
-        end))
-    end)
-    return (okLua and type(decoded) == 'string') and decoded or ''
-end
-
-local WHITE_PIXEL_PNG = safeB64Decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==')
-
-local players, http, runservice, inputservice, tweenService, stats, actionservice = gs('Players'), gs('HttpService'), gs('RunService'), gs('UserInputService'), gs('TweenService'), gs('Stats'), gs('ContextActionService')
-local localplayer = players.LocalPlayer
-
-local setByConfig = false
-local floor, ceil, huge, pi, clamp = math.floor, math.ceil, math.huge, math.pi, math.clamp
-local c3new, fromrgb, fromhsv = Color3.new, Color3.fromRGB, Color3.fromHSV
-local next, newInstance, newUDim2, newVector2 = next, Instance.new, UDim2.new, Vector2.new
-local isexecutorclosure = isexecutorclosure or is_synapse_function or is_sirhurt_closure or iskrnlclosure;
-local executor = (
-    syn and 'syn' or
-    getexecutorname and getexecutorname() or
-    'unknown'
-)
-
-local library = {
-    windows = {};
-    indicators = {};
-    flags = {};
-    options = {};
-    connections = {};
-    drawings = {};
-    instances = {};
-    utility = {};
-    notifications = {};
-    tweens = {};
-    theme = {};
-    anim = {
-        sliderDrag = 0.08;
-        sliderSet = 0.28;
-        menuOpen = 0.26;
-        menuClose = 0.22;
-        notify = 0.24;
-        notifyStack = 0.2;
-        scrollLerp = 14;
-        scrollStep = 22;
-        openLock = 0.28;
-        easing = Enum.EasingStyle.Quart;
-        direction = Enum.EasingDirection.Out;
-    };
-    zindexOrder = {
-        ['indicator'] = 950;
-        ['window'] = 1000;
-        ['dropdown'] = 1200;
-        ['colorpicker'] = 1100;
-        ['watermark'] = 1300;
-        ['notification'] = 1400;
-        ['cursor'] = 1500;
-    },
-    stats = {
-        ['fps'] = 0;
-        ['ping'] = 0;
-    };
-    images = {
-        ['gradientp90'] = 'https://raw.githubusercontent.com/portallol/luna/main/modules/gradient90.png';
-        ['gradientp45'] = 'https://raw.githubusercontent.com/portallol/luna/main/modules/gradient45.png';
-        ['colorhue'] = 'https://raw.githubusercontent.com/portallol/luna/main/modules/lgbtqshit.png';
-        ['colortrans'] = 'https://raw.githubusercontent.com/portallol/luna/main/modules/trans.png';
-        ['pixel'] = WHITE_PIXEL_PNG;
-    };
-    numberStrings = {['Zero'] = 0, ['One'] = 1, ['Two'] = 2, ['Three'] = 3, ['Four'] = 4, ['Five'] = 5, ['Six'] = 6, ['Seven'] = 7, ['Eight'] = 8, ['Nine'] = 9};
-    signal = (function()
-        local Signal = {}
-        Signal.__index = Signal
-        function Signal.new()
-            return setmetatable({ _bindings = {} }, Signal)
-        end
-        function Signal:Connect(fn)
-            local binding = { fn = fn, connected = true }
-            table.insert(self._bindings, binding)
-            if self._drawing then
-                self._drawing._interactive = true
-                if library.interactiveDrawings and self._drawing.Object then
-                    library.interactiveDrawings[self._drawing.Object] = self._drawing
-                end
-            end
-            return {
-                Disconnect = function()
-                    if not binding.connected then
-                        return
-                    end
-                    binding.connected = false
-                    binding.fn = nil
-                    local idx = table.find(self._bindings, binding)
-                    if idx then
-                        table.remove(self._bindings, idx)
-                    end
-                end,
-            }
-        end
-        function Signal:Fire(...)
-            local snapshot = {}
-            for i, binding in self._bindings do
-                snapshot[i] = binding
-            end
-            for _, binding in snapshot do
-                if binding.connected and binding.fn then
-                    binding.fn(...)
-                end
-            end
-        end
-        return Signal
-    end)();
-    open = false;
-    opening = false;
-    hasInit = false;
-    uiDragging = false;
-    uiRadius = 5;
-    cheatname = startupArgs.cheatname or 'sonata';
-    gamename = startupArgs.gamename or 'rivals';
-    fileext = startupArgs.fileext or '.txt';
-}
-
-do
-    local function shade(c3, delta)
-        local r = clamp((c3.R * 255) + delta, 0, 255)
-        local g = clamp((c3.G * 255) + delta, 0, 255)
-        local b = clamp((c3.B * 255) + delta, 0, 255)
-        return fromrgb(r, g, b)
-    end
-
-    local function buildTheme(accent, bg, surface, light)
-        surface = surface or shade(bg, light and -8 or 10)
-        local section = shade(bg, light and -4 or 4)
-        local option = shade(bg, light and -12 or 17)
-        local border1 = shade(bg, light and -30 or 37)
-        local border2 = shade(bg, light and -10 or 14)
-        local border3 = shade(bg, light and -40 or -8)
-        local text = light and fromrgb(16, 16, 18) or fromrgb(235, 235, 235)
-        local textMid = light and fromrgb(52, 52, 58) or fromrgb(195, 195, 195)
-        local textDim = light and fromrgb(98, 98, 108) or fromrgb(145, 145, 145)
-        return {
-            ['Accent'] = accent;
-            ['Background'] = bg;
-            ['Border'] = light and fromrgb(214, 214, 220) or fromrgb(0, 0, 0);
-            ['Border 1'] = border1;
-            ['Border 2'] = border2;
-            ['Border 3'] = border3;
-            ['Primary Text'] = text;
-            ['Group Background'] = surface;
-            ['Selected Tab Background'] = shade(surface, light and -4 or 4);
-            ['Unselected Tab Background'] = bg;
-            ['Selected Tab Text'] = text;
-            ['Unselected Tab Text'] = textDim;
-            ['Section Background'] = section;
-            ['Option Text 1'] = text;
-            ['Option Text 2'] = textMid;
-            ['Option Text 3'] = textDim;
-            ['Option Border 1'] = shade(bg, light and -24 or 32);
-            ['Option Border 2'] = light and fromrgb(210, 210, 216) or fromrgb(0, 0, 0);
-            ['Option Background'] = option;
-            ['Risky Text'] = fromrgb(175, 21, 21);
-            ['Risky Text Enabled'] = fromrgb(255, 41, 41);
-        }
-    end
-
-    local function T(name, accent, bg, surface, light)
-        return { name = name, theme = buildTheme(accent, bg, surface, light) }
-    end
-
-    local function kanagawaDefault()
-        local theme = buildTheme(fromrgb(235,163,255), fromrgb(31,31,40), fromrgb(42,42,55))
-        theme['Border 1'] = fromrgb(54,54,70)
-        theme['Border 2'] = fromrgb(42,42,55)
-        theme['Border 3'] = fromrgb(22,22,29)
-        theme['Section Background'] = fromrgb(35,35,46)
-        theme['Selected Tab Background'] = fromrgb(46,46,60)
-        theme['Unselected Tab Background'] = fromrgb(31,31,40)
-        theme['Option Background'] = fromrgb(49,49,64)
-        theme['Option Border 1'] = fromrgb(54,54,70)
-        theme['Risky Text'] = fromrgb(195,64,67)
-        theme['Risky Text Enabled'] = fromrgb(232,36,36)
-        return { name = 'Default', theme = theme }
-    end
-
-    library.themes = {
-        kanagawaDefault();
-        T('Dark', fromrgb(130, 160, 255), fromrgb(18, 18, 20), fromrgb(30, 30, 34));
-        T('Light', fromrgb(70, 90, 200), fromrgb(246, 246, 248), fromrgb(232, 232, 236), true);
-        T('Tokyo Night', fromrgb(122, 162, 247), fromrgb(26, 27, 38), fromrgb(36, 40, 59));
-        T('Catppuccin Mocha', fromrgb(203, 166, 247), fromrgb(30, 30, 46), fromrgb(49, 50, 68));
-        T('One Dark', fromrgb(97, 175, 239), fromrgb(40, 44, 52), fromrgb(50, 56, 66));
-        T('Dracula', fromrgb(189, 147, 249), fromrgb(40, 42, 54), fromrgb(68, 71, 90));
-        T('Nord', fromrgb(136, 192, 208), fromrgb(46, 52, 64), fromrgb(59, 66, 82));
-        T('GitHub Dark', fromrgb(88, 166, 255), fromrgb(13, 17, 23), fromrgb(22, 27, 34));
-        T('VS Code Light', fromrgb(0, 122, 204), fromrgb(250, 250, 250), fromrgb(243, 243, 243), true);
-    }
-    library.currentTheme = 'Default'
-end
-
-function library:SelectTheme(name)
-    if typeof(name) ~= 'string' then
-        return false
-    end
-    for _, entry in self.themes do
-        if entry.name == name then
-            self.currentTheme = name
-            if type(self.SetTheme) == 'function' then
-                self:SetTheme(entry.theme)
-            else
-                for k, v in next, entry.theme do
-                    self.theme[k] = v
-                end
-                if type(self.UpdateThemeColors) == 'function' then
-                    self.UpdateThemeColors()
-                end
-            end
-            local accentOpt = self.options and self.options.ui_accent
-            if accentOpt and type(accentOpt.SetColor) == 'function' then
-                pcall(function()
-                    accentOpt:SetColor(self.theme.Accent, true)
-                end)
-            end
-            return true
-        end
-    end
-    return false
-end
-
-local blacklistedKeys = {
-    Enum.KeyCode.Unknown,
-    Enum.KeyCode.W,
-    Enum.KeyCode.A,
-    Enum.KeyCode.S,
-    Enum.KeyCode.D,
-    Enum.KeyCode.Slash,
-    Enum.KeyCode.Tab,
-    Enum.KeyCode.Escape
-}
-
-local whitelistedBoxKeys = {
-    Enum.KeyCode.Zero,
-    Enum.KeyCode.One,
-    Enum.KeyCode.Two,
-    Enum.KeyCode.Three,
-    Enum.KeyCode.Four,
-    Enum.KeyCode.Five,
-    Enum.KeyCode.Six,
-    Enum.KeyCode.Seven,
-    Enum.KeyCode.Eight,
-    Enum.KeyCode.Nine,
-    Enum.KeyCode.Period,
-    Enum.KeyCode.Slash,
-    Enum.KeyCode.Comma,
-    Enum.KeyCode.Semicolon,
-    Enum.KeyCode.Quote,
-    Enum.KeyCode.LeftBracket,
-    Enum.KeyCode.RightBracket,
-    Enum.KeyCode.BackSlash,
-    Enum.KeyCode.Minus,
-    Enum.KeyCode.Equals,
-    Enum.KeyCode.Backquote,
-    Enum.KeyCode.Space,
-}
-
-local boxKeyChars = {
-    [Enum.KeyCode.Space] = {' ', ' '},
-    [Enum.KeyCode.Period] = {'.', '>'},
-    [Enum.KeyCode.Slash] = {'/', '?'},
-    [Enum.KeyCode.Comma] = {',', '<'},
-    [Enum.KeyCode.Semicolon] = {';', ':'},
-    [Enum.KeyCode.Quote] = {"'", '"'},
-    [Enum.KeyCode.LeftBracket] = {'[', '{'},
-    [Enum.KeyCode.RightBracket] = {']', '}'},
-    [Enum.KeyCode.BackSlash] = {'\\', '|'},
-    [Enum.KeyCode.Minus] = {'-', '_'},
-    [Enum.KeyCode.Equals] = {'=', '+'},
-    [Enum.KeyCode.Backquote] = {'`', '~'},
-    [Enum.KeyCode.Zero] = {'0', ')'},
-    [Enum.KeyCode.One] = {'1', '!'},
-    [Enum.KeyCode.Two] = {'2', '@'},
-    [Enum.KeyCode.Three] = {'3', '#'},
-    [Enum.KeyCode.Four] = {'4', '$'},
-    [Enum.KeyCode.Five] = {'5', '%'},
-    [Enum.KeyCode.Six] = {'6', '^'},
-    [Enum.KeyCode.Seven] = {'7', '&'},
-    [Enum.KeyCode.Eight] = {'8', '*'},
-    [Enum.KeyCode.Nine] = {'9', '('},
-}
-
-local function boxKeyToChar(keyCode)
-    if typeof(keyCode) ~= 'EnumItem' then
-        return nil
-    end
-    local shifted = inputservice:IsKeyDown(Enum.KeyCode.LeftShift) or inputservice:IsKeyDown(Enum.KeyCode.RightShift)
-    local pair = boxKeyChars[keyCode]
-    if pair then
-        return shifted and pair[2] or pair[1]
-    end
-    local name = keyCode.Name
-    if type(name) == 'string' and #name == 1 then
-        return shifted and string.upper(name) or string.lower(name)
-    end
-    return nil
-end
-
-local keyNames = {
-    [Enum.KeyCode.LeftControl] = 'LCTRL';
-    [Enum.KeyCode.RightControl] = 'RCTRL';
-    [Enum.KeyCode.LeftShift] = 'LSHIFT';
-    [Enum.KeyCode.RightShift] = 'RSHIFT';
-    [Enum.UserInputType.MouseButton1] = 'MB1';
-    [Enum.UserInputType.MouseButton2] = 'MB2';
-    [Enum.UserInputType.MouseButton3] = 'MB3';
-}
-
-library.interactiveDrawings = {}
-library.button1down = library.signal.new()
-library.button1up   = library.signal.new()
-library.mousemove   = library.signal.new()
-library.unloaded    = library.signal.new();
-
-local button1down, button1up, mousemove = library.button1down, library.button1up, library.mousemove
-local mb1down = false;
-
-local utility = library.utility
-do
-
-    function utility:Connection(signal, func)
-        local c = signal:Connect(func)
-        table.insert(library.connections, c)
-        return c
-    end
-
-    function utility:Instance(class, properties)
-        local inst = newInstance(class)
-        for prop, val in next, properties or {} do
-            local s,e = pcall(function()
-                inst[prop] = val
-            end)
-            if not s then
-                if printconsole then printconsole(e, 255,0,0) end
-            end
-        end
-        return inst
-    end
-
-    function utility:HasProperty(obj, prop)
-        return ({(pcall(function() local a = obj[prop] end))})[1]
-    end
-
-    function utility:ToRGB(c3)
-        return c3.R*255,c3.G*255,c3.B*255
-    end
-
-    function utility:AddRGB(a,b)
-        local r1,g1,b1 = self:ToRGB(a);
-        local r2,g2,b2 = self:ToRGB(b);
-        return fromrgb(clamp(r1+r2,0,255),clamp(g1+g2,0,255),clamp(b1+b2,0,255))
-    end
-
-    function utility:ConvertNumberRange(val,oldmin,oldmax,newmin,newmax)
-        return (((val - oldmin) * (newmax - newmin)) / (oldmax - oldmin)) + newmin
-    end
-
-    function utility:UDim2ToVector2(udim2, vector2)
-        local x,y
-        x = udim2.X.Offset + self:ConvertNumberRange(udim2.X.Scale,0,1,0,vector2.X)
-        y = udim2.Y.Offset + self:ConvertNumberRange(udim2.Y.Scale,0,1,0,vector2.Y)
-        return newVector2(x,y)
-    end
-
-    function utility:Lerp(a,b,c)
-        return a + (b-a) * c
-    end
-
-    function utility:Tween(obj, prop, val, time, direction, style)
-        if self:HasProperty(obj, prop) then
-            if library.uiDragging or time == 0 then
-                pcall(function()
-                    obj[prop] = val
-                end)
-                return
-            end
-            if library.tweens[obj] then
-                if library.tweens[obj][prop] then
-                    library.tweens[obj][prop]:Cancel()
-                end
-            end
-
-            local startVal = obj[prop];
-            local a = 0;
-            local duration = math.max(typeof(time) == 'number' and time or 0.2, 0.001);
-            local easeStyle = style or (library.anim and library.anim.easing) or Enum.EasingStyle.Quart;
-            local easeDir = direction or (library.anim and library.anim.direction) or Enum.EasingDirection.Out;
-            local tween = {
-                Completed = library.signal.new();
-            };
-
-            library.tweens[obj] = library.tweens[obj] or {};
-            library.tweens[obj][prop] = tween;
-
-            tween.Connection = self:Connection(runservice.RenderStepped, function(dt)
-                a = math.clamp(a + (dt / duration), 0, 1);
-                local done = a >= 1 or obj == nil;
-                pcall(function()
-                    local progress = tweenService:GetValue(a, easeStyle, easeDir)
-                    local newVal
-                    if typeof(startVal) == 'number' then
-                        newVal = utility:Lerp(startVal, val, progress);
-                    else
-                        newVal = startVal:Lerp(val, progress);
-                    end
-                    obj[prop] = newVal;
-                end)
-                if done then
-                    pcall(function()
-                        obj[prop] = val;
-                    end)
-                    tween:Cancel();
-                end
-            end)
-
-            function tween:Cancel()
-                if tween.Connection then
-                    tween.Connection:Disconnect();
-                end
-                tween.Completed:Fire();
-                table.clear(tween);
-                if library.tweens[obj] then
-                    library.tweens[obj][prop] = nil;
-                end
-            end
-
-            return tween;
-        else
-            if printconsole then printconsole('unable to tween: invalid property '..tostring(prop)..' for object '..tostring(obj), 255,0,0) end
-        end
-    end
-
-    function utility:DetectTableChange(indexcallback,newindexcallback)
-        if indexcallback == nil then
-            warn('DetectTableChange: Argument #1 (indexcallback) is nil, function may not work as expected.')
-        elseif newindexcallback == nil then
-            warn('DetectTableChange: Argument #2 (newindexcallback) is nil, function may not work as expected.')
-        end
-        local proxy = newproxy(true);
-        local mt = getmetatable(proxy);
-        mt.__index = indexcallback
-        mt.__newindex = newindexcallback
-        return proxy
-    end
-
-    function utility:MouseOver(obj, mPos)
-        local mousePos = mPos or utility:MouseLocation();
-        local p = obj.Position
-        local s = obj.Size
-        local x1 = p.X
-        local y1 = p.Y
-        return (mousePos.X >= x1 and mousePos.Y >= y1 and mousePos.X <= x1 + s.X and mousePos.Y <= y1 + s.Y)
-    end
-
-    function utility:GetHoverObject(mPos)
-        if library.uiDragging then
-            return nil
-        end
-        local mousePos = mPos or utility:MouseLocation()
-        local mx = mousePos.X
-        local my = mousePos.Y
-        local bestObj = nil
-        local bestZ = -math.huge
-        local list = library.interactiveDrawings or library.drawings
-        for _, v in next, list do
-            local obj = v.Object
-            if obj and obj.Visible and v.Class == 'Square' then
-                local z = obj.ZIndex
-                if z > bestZ then
-                    local p = obj.Position
-                    local s = obj.Size
-                    local x1 = p.X
-                    local y1 = p.Y
-                    if mx >= x1 and my >= y1 and mx <= x1 + s.X and my <= y1 + s.Y then
-                        bestObj = obj
-                        bestZ = z
-                    end
-                end
-            end
-        end
-        return bestObj
-    end
-
-    function utility:ApplyThemeColor(drawing)
-        if not drawing or not drawing.Object then
-            return
-        end
-        if drawing.ThemeColor and library.theme[drawing.ThemeColor] then
-            drawing.Object.Color = utility:AddRGB(
-                library.theme[drawing.ThemeColor],
-                fromrgb(drawing.ThemeColorOffset or 0, drawing.ThemeColorOffset or 0, drawing.ThemeColorOffset or 0)
-            )
-        end
-        local outlineKey = drawing.OutlineThemeColor or drawing.ThemeColorOutline
-        if outlineKey and library.theme[outlineKey] then
-            local offset = drawing.OutlineThemeColorOffset or 0
-            drawing.Object.OutlineColor = utility:AddRGB(
-                library.theme[outlineKey],
-                fromrgb(offset, offset, offset)
-            )
-        end
-        if drawing._roundGeom then
-            utility:SyncRoundGeometry(drawing)
-        end
-    end
-
-    function utility:DestroyRoundGeometry(drawing)
-        if not drawing or type(drawing._roundGeom) ~= 'table' then
-            return
-        end
-        for _, part in next, drawing._roundGeom do
-            pcall(function()
-                part:Remove()
-            end)
-        end
-        drawing._roundGeom = nil
-    end
-
-    function utility:EnsureRoundGeometry(drawing)
-        if not drawing or drawing._roundGeom or not drawing.Object then
-            return
-        end
-        local geom = {}
-        local function makeSquare()
-            local s = Drawing.new('Square')
-            s.Filled = true
-            s.Thickness = 0
-            s.Visible = false
-            return s
-        end
-        local function makeCircle()
-            local c = Drawing.new('Circle')
-            c.Filled = true
-            c.Thickness = 0
-            c.NumSides = 24
-            c.Visible = false
-            return c
-        end
-        geom.mid = makeSquare()
-        geom.top = makeSquare()
-        geom.bottom = makeSquare()
-        geom.left = makeSquare()
-        geom.right = makeSquare()
-        geom.tl = makeCircle()
-        geom.tr = makeCircle()
-        geom.bl = makeCircle()
-        geom.br = makeCircle()
-        drawing._roundGeom = geom
-        drawing._roundBaseTransparency = 1
-    end
-
-    function utility:SyncRoundGeometry(drawing)
-        local geom = drawing and drawing._roundGeom
-        local obj = drawing and drawing.Object
-        if not geom or not obj then
-            return
-        end
-        local pos, size = utility:RealRect(obj)
-        if typeof(size) ~= 'Vector2' or typeof(pos) ~= 'Vector2' then
-            return
-        end
-        local want = math.floor((library.uiRadius or 5) * (library.dpi or 1) + 0.5)
-        local r = math.min(want, math.floor(math.min(size.X, size.Y) * 0.5))
-        local baseT = drawing._roundBaseTransparency
-        if typeof(baseT) ~= 'number' then
-            baseT = 1
-        end
-        if r < 2 or size.X < 4 or size.Y < 4 or baseT <= 0.001 then
-            obj.Transparency = baseT
-            for _, part in next, geom do
-                part.Visible = false
-            end
-            return
-        end
-
-        local color = obj.Color
-        local z = obj.ZIndex
-        local w, h = size.X, size.Y
-        local innerW = math.max(0, w - 2 * r)
-        local innerH = math.max(0, h - 2 * r)
-
-        obj.Transparency = 0
-
-        local function paintSquare(part, p, s)
-            part.Color = color
-            part.ZIndex = z
-            part.Transparency = baseT
-            part.Position = p
-            part.Size = s
-            part.Visible = obj.Visible and s.X > 0 and s.Y > 0
-        end
-        local function paintCircle(part, center)
-            part.Color = color
-            part.ZIndex = z
-            part.Transparency = baseT
-            part.Radius = r
-            part.Position = center
-            part.Visible = obj.Visible
-        end
-
-        paintSquare(geom.mid, pos + newVector2(r, r), newVector2(innerW, innerH))
-        paintSquare(geom.bottom, pos + newVector2(r, h - r), newVector2(innerW, r))
-        paintSquare(geom.left, pos + newVector2(0, r), newVector2(r, innerH))
-        paintSquare(geom.right, pos + newVector2(w - r, r), newVector2(r, innerH))
-        paintCircle(geom.bl, pos + newVector2(r, h - r))
-        paintCircle(geom.br, pos + newVector2(w - r, h - r))
-        if drawing._roundTop == false then
-            paintSquare(geom.top, pos, newVector2(w, r))
-            geom.tl.Visible = false
-            geom.tr.Visible = false
-        else
-            paintSquare(geom.top, pos + newVector2(r, 0), newVector2(innerW, r))
-            paintCircle(geom.tl, pos + newVector2(r, r))
-            paintCircle(geom.tr, pos + newVector2(w - r, r))
-        end
-    end
-
-    function utility:DetachChild(parent, child)
-        if type(parent) ~= 'table' or type(child) ~= 'table' or type(parent.Children) ~= 'table' then
-            return
-        end
-        local kids = parent.Children
-        for i = #kids, 1, -1 do
-            if kids[i] == child then
-                table.remove(kids, i)
-            end
-        end
-        kids[child] = nil
-        if child.Object then
-            kids[child.Object] = nil
-        end
-    end
-
-    function utility:OffsetDrawingTree(rootDrawing, delta)
-        if not rootDrawing or not rootDrawing.Object then
-            return
-        end
-        local seen = {}
-        local stack = { rootDrawing }
-        while #stack > 0 do
-            local node = table.remove(stack)
-            if seen[node] then
-                continue
-            end
-            seen[node] = true
-            local obj = node.Object
-            if obj then
-                obj.Position = obj.Position + delta
-            end
-            if node._roundGeom then
-                pcall(utility.SyncRoundGeometry, utility, node)
-            end
-            local children = node.Children
-            if children then
-                for _, child in next, children do
-                    if typeof(child) == 'table' and not seen[child] then
-                        stack[#stack + 1] = child
-                    end
-                end
-            end
-        end
-    end
-
-    library.dpi = library.dpi or 1
-    library.dpiChanged = library.dpiChanged or library.signal.new()
-    local objectMeta = setmetatable({}, { __mode = 'k' })
-    library.objectMeta = objectMeta
-    local ZERO2 = newVector2(0, 0)
-
-    local function snap(v)
-        return math.floor(v + 0.5)
-    end
-
-    local function scaleOffset(v, d)
-        if v > -2.5 and v < 2.5 then
-            return snap(v)
-        end
-        return snap(v * d)
-    end
-
-    function utility:Viewport()
-        local cam = workspace.CurrentCamera
-        local vp = cam and cam.ViewportSize or newVector2(1920, 1080)
-        local d = library.dpi or 1
-        return d == 1 and vp or vp / d
-    end
-
-    function utility:MouseLocation()
-        local pos = inputservice:GetMouseLocation()
-        local d = library.dpi or 1
-        return d == 1 and pos or pos / d
-    end
-
-    function utility:RealRect(obj)
-        local meta = objectMeta[obj]
-        if meta and meta.rpos then
-            return meta.rpos, meta.rsize or ZERO2
-        end
-        return obj.Position, obj.Size
-    end
-
-    local function parentMetaOf(meta)
-        local owner = meta.owner
-        local parent = owner and owner.Parent
-        local parentObj = parent and parent.Object
-        return parentObj and objectMeta[parentObj] or nil
-    end
-
-    local function applyRect(meta)
-        local raw = meta.raw
-        local d = library.dpi or 1
-        local L = meta.pos or ZERO2
-        local pm = parentMetaOf(meta)
-        local rx, ry
-        if pm and pm.rpos then
-            local pl = pm.pos or ZERO2
-            rx = pm.rpos.X + scaleOffset(L.X - pl.X, d)
-            ry = pm.rpos.Y + scaleOffset(L.Y - pl.Y, d)
-        else
-            rx = snap(L.X * d)
-            ry = snap(L.Y * d)
-        end
-        local rpos = newVector2(rx, ry)
-        meta.rpos = rpos
-        if meta.hasRect then
-            local W = meta.size or ZERO2
-            local rw, rh
-            if pm and pm.rsize and pm.size then
-                local dw = W.X - pm.size.X
-                local dh = W.Y - pm.size.Y
-                rw = (dw > -4.5 and dw < 4.5) and (pm.rsize.X + snap(dw)) or snap(W.X * d)
-                rh = (dh > -4.5 and dh < 4.5) and (pm.rsize.Y + snap(dh)) or snap(W.Y * d)
-            else
-                rw = snap(W.X * d)
-                rh = snap(W.Y * d)
-            end
-            local rsize = newVector2(math.max(0, rw), math.max(0, rh))
-            meta.rsize = rsize
-            if raw.Size ~= rsize then
-                raw.Size = rsize
-            end
-        end
-        if raw.Position ~= rpos then
-            raw.Position = rpos
-        end
-    end
-
-    local function applyScalar(meta, key)
-        local raw = meta.raw
-        local d = library.dpi or 1
-        local v = meta.scalars[key]
-        if v == nil then
-            return
-        end
-        if key == 'TextSize' then
-            raw.Size = math.max(1, snap(v * d))
-        elseif key == 'Radius' then
-            raw.Radius = v * d
-        elseif typeof(v) == 'Vector2' then
-            raw[key] = v * d
-        end
-    end
-
-    local pointKeys = { PointA = true, PointB = true, PointC = true, PointD = true, From = true, To = true }
-
-    function utility:NewObject(class, owner)
-        local raw = Drawing.new(class)
-        local meta = {
-            raw = raw,
-            owner = owner,
-            class = class,
-            hasRect = class == 'Square' or class == 'Image',
-            scalars = {},
-        }
-        local wrapper = {}
-        local function remove()
-            pcall(function()
-                raw:Remove()
-            end)
-        end
-        meta.reapply = function()
-            for key in next, meta.scalars do
-                applyScalar(meta, key)
-            end
-            if meta.pos or meta.size then
-                applyRect(meta)
-            end
-        end
-        setmetatable(wrapper, {
-            __index = function(_, k)
-                if k == 'Position' then
-                    if meta.pos then
-                        return meta.pos
-                    end
-                    local d = library.dpi or 1
-                    return raw.Position / d
-                elseif k == 'Size' then
-                    if class == 'Text' then
-                        return meta.scalars.TextSize or raw.Size
-                    end
-                    if meta.size then
-                        return meta.size
-                    end
-                    local d = library.dpi or 1
-                    return raw.Size / d
-                elseif k == 'TextBounds' then
-                    local d = library.dpi or 1
-                    local tb = raw.TextBounds
-                    return d == 1 and tb or tb / d
-                elseif k == 'Radius' then
-                    return meta.scalars.Radius or raw.Radius
-                elseif pointKeys[k] then
-                    return meta.scalars[k] or raw[k]
-                elseif k == 'Remove' or k == 'Destroy' then
-                    return remove
-                end
-                return raw[k]
-            end,
-            __newindex = function(_, k, v)
-                if k == 'Position' and typeof(v) == 'Vector2' then
-                    meta.pos = v
-                    applyRect(meta)
-                elseif k == 'Size' and class == 'Text' and typeof(v) == 'number' then
-                    meta.scalars.TextSize = v
-                    applyScalar(meta, 'TextSize')
-                elseif k == 'Size' and meta.hasRect and typeof(v) == 'Vector2' then
-                    meta.size = v
-                    applyRect(meta)
-                elseif k == 'Radius' and typeof(v) == 'number' then
-                    meta.scalars.Radius = v
-                    applyScalar(meta, 'Radius')
-                elseif pointKeys[k] and typeof(v) == 'Vector2' then
-                    meta.scalars[k] = v
-                    applyScalar(meta, k)
-                else
-                    raw[k] = v
-                end
-            end,
-        })
-        objectMeta[wrapper] = meta
-        return wrapper
-    end
-
-    function library:SetDPI(scale)
-        scale = math.clamp(tonumber(scale) or 1, 0.5, 2)
-        if math.abs(scale - (self.dpi or 1)) < 1e-3 then
-            return
-        end
-        self.dpi = scale
-        for _, meta in next, objectMeta do
-            for key in next, meta.scalars do
-                pcall(applyScalar, meta, key)
-            end
-        end
-        for _, drawing in next, self.drawings do
-            if type(drawing) == 'table' and drawing.Parent == nil and drawing.Update then
-                pcall(drawing.Update, drawing)
-            end
-        end
-        local vp = utility:Viewport()
-        for _, window in next, self.windows or {} do
-            pcall(function()
-                local bg = window.objects.background
-                local obj = bg.Object
-                local maxX = math.max(0, vp.X - obj.Size.X)
-                local maxY = math.max(0, vp.Y - obj.Size.Y)
-                local x = math.clamp(obj.Position.X, 0, maxX)
-                local y = math.clamp(obj.Position.Y, 0, maxY)
-                if x ~= obj.Position.X or y ~= obj.Position.Y then
-                    bg.Position = newUDim2(0, math.floor(x + 0.5), 0, math.floor(y + 0.5))
-                end
-                window:UpdateTabs()
-            end)
-        end
-        for _, indicator in next, self.indicators or {} do
-            pcall(function()
-                indicator:Update()
-            end)
-        end
-        pcall(function()
-            if self.watermark and self.watermark.Update then
-                self.watermark:Update()
-            end
-        end)
-        pcall(function()
-            self.dpiChanged:Fire(scale)
-        end)
-    end
-
-    function utility:Draw(class, properties)
-        local blacklistedProperties = {'Object','Children','Class','_rounded','_roundGeom','_roundBaseTransparency','_roundTop','Rounded','RoundCorners','RoundTop'}
-        properties = typeof(properties) == 'table' and properties or {}
-
-        if class == 'Square' and properties.Filled == nil then
-            properties.Filled = true;
-        end
-        if properties.Visible == nil then
-            properties.Visible = true;
-        end
-
-        local wantRound = class == 'Square'
-            and (properties.Rounded == true or properties.RoundCorners == true)
-            and properties.Filled ~= false
-            and properties.Transparency ~= 0
-        local roundTop = properties.RoundTop
-        if roundTop == nil then
-            roundTop = true
-        end
-        properties.Rounded = nil
-        properties.RoundCorners = nil
-        properties.RoundTop = nil
-
-        local drawing = {
-            Children = {};
-            ThemeColor = '';
-            OutlineThemeColor = '';
-            ThemeColorOffset = 0;
-            OutlineThemeColorOffset = 0;
-            Parent = nil;
-            Size = newUDim2(0,0,0,0);
-            Position = newUDim2(0,0,0,0);
-            AbsoluteSize = newVector2(0,0);
-            AbsolutePosition = newVector2(0,0);
-            Hover = false;
-            Visible = true;
-            MouseButton1Down = library.signal.new();
-            MouseButton2Down = library.signal.new();
-            MouseButton1Up = library.signal.new();
-            MouseButton2Up = library.signal.new();
-            MouseEnter = library.signal.new();
-            MouseLeave = library.signal.new();
-            Class = class;
-            _rounded = wantRound;
-            _roundTop = roundTop ~= false;
-            _roundBaseTransparency = 1;
-        }
-        drawing.MouseButton1Down._drawing = drawing
-        drawing.MouseButton2Down._drawing = drawing
-        drawing.MouseButton1Up._drawing = drawing
-        drawing.MouseButton2Up._drawing = drawing
-        drawing.MouseEnter._drawing = drawing
-        drawing.MouseLeave._drawing = drawing
-        drawing.Object = utility:NewObject(class, drawing)
-
-        if wantRound then
-            utility:EnsureRoundGeometry(drawing)
-        end
-
-        function drawing:Update()
-            local parent = drawing.Parent ~= nil and library.drawings[drawing.Parent.Object] or nil
-            local parentSize,parentPos,parentVis = utility:Viewport(), Vector2.new(0,0), true;
-            if parent ~= nil then
-                parentSize = (parent.Class == 'Square' or parent.Class == 'Image') and parent.Object.Size or parent.Class == 'Text' and parent.Object.TextBounds or utility:Viewport()
-                parentPos = parent.Object.Position
-                parentVis = parent.Object.Visible
-            end
-
-            if drawing.Class == 'Square' or drawing.Class == 'Image' then
-                drawing.Object.Size = typeof(drawing.Size) == 'Vector2' and drawing.Size or typeof(drawing.Size) == 'UDim2' and utility:UDim2ToVector2(drawing.Size,parentSize)
-            end
-
-            if drawing.Class == 'Square' or drawing.Class == 'Image' or drawing.Class == 'Circle' or drawing.Class == 'Text' then
-                drawing.Object.Position = parentPos + (typeof(drawing.Position) == 'Vector2' and drawing.Position or utility:UDim2ToVector2(drawing.Position,parentSize))
-            end
-
-            drawing.Object.Visible = (parentVis and drawing.Visible) and true or false
-            if drawing._roundGeom then
-                utility:SyncRoundGeometry(drawing)
-            end
-            drawing:UpdateChildren()
-        end
-
-        function drawing:UpdateChildren()
-            for i,v in next, drawing.Children do
-                if typeof(v) == 'table' and v.Update then
-                    v:Update()
-                end
-            end
-        end
-
-        function drawing:GetDescendants()
-            local descendants = {};
-            local seen = {}
-            local function a(t)
-                for _,v in next, t.Children do
-                    if typeof(v) == 'table' and not seen[v] then
-                        seen[v] = true
-                        table.insert(descendants, v);
-                        a(v)
-                    end
-                end
-            end
-            a(self)
-            return descendants;
-        end
-
-        library.drawings[drawing.Object] = drawing
-
-        local proxy = utility:DetectTableChange(
-        function(obj,i)
-            return drawing[i] == nil and drawing.Object[i] or drawing[i]
-        end,
-        function(obj,i,v)
-            if not table.find(blacklistedProperties,i) then
-
-                local lastval = drawing[i]
-
-                if i == 'Size' and (class == 'Square' or class == 'Image') then
-                    drawing.Object.Size = utility:UDim2ToVector2(v,drawing.Parent == nil and utility:Viewport() or drawing.Parent.Object.Size);
-                    drawing.AbsoluteSize = drawing.Object.Size;
-                elseif i == 'Position' and (class == 'Square' or class == 'Image' or class == 'Text') then
-                    drawing.Object.Position =  utility:UDim2ToVector2(v,drawing.Parent == nil and newVector2(0,0) or drawing.Parent.Object.Position);
-                    drawing.AbsolutePosition = drawing.Object.Position;
-                elseif i == 'Parent' then
-                    if drawing.Parent == v then
-                        drawing[i] = v
-                        return
-                    end
-                    if drawing.Parent ~= nil then
-                        utility:DetachChild(drawing.Parent, drawing)
-                    end
-                    if v ~= nil then
-                        table.insert(v.Children, drawing)
-                    end
-                elseif i == 'Visible' then
-                    drawing.Visible = v
-                elseif i == 'Transparency' and drawing._roundGeom then
-                    drawing._roundBaseTransparency = v
-                elseif i == 'Font' and v == 2 and executor == 'ScriptWare' then
-                    v = 1
-                end
-
-                if i ~= 'Parent' or drawing.Parent ~= v then
-                    pcall(function()
-                        drawing.Object[i] = v
-                    end)
-                end
-                if drawing[i] ~= nil or i == 'Parent' then
-                    drawing[i] = v
-                end
-
-                if table.find({'Size','Position','Visible','Parent','Transparency','Color','ZIndex'},i) then
-                    drawing:Update()
-                end
-                if table.find({'ThemeColor','OutlineThemeColor','ThemeColorOffset','OutlineThemeColorOffset'},i) and lastval ~= v then
-                    utility:ApplyThemeColor(drawing)
-                end
-
-            end
-        end)
-
-        function drawing:Remove()
-            for i,v in next, self.Children do
-                if typeof(v) == 'table' and v.Remove then
-                    v:Remove();
-                end
-            end
-
-            if drawing.Parent then
-                utility:DetachChild(drawing.Parent, drawing)
-            end
-
-            utility:DestroyRoundGeometry(drawing)
-            library.drawings[drawing.Object] = nil;
-            if library.interactiveDrawings then
-                library.interactiveDrawings[drawing.Object] = nil
-            end
-            drawing.Object:Remove();
-            table.clear(drawing);
-
-        end
-
-        for i,v in next, properties do
-            proxy[i] = v
-        end
-
-        if drawing._roundGeom then
-            if typeof(properties.Transparency) == 'number' then
-                drawing._roundBaseTransparency = properties.Transparency
-            end
-            utility:SyncRoundGeometry(drawing)
-        else
-            local r = library.uiRadius or 5
-            pcall(function()
-                drawing.Object.Radius = r
-            end)
-            pcall(function()
-                drawing.Object.Roundness = r
-            end)
-        end
-
-        drawing:Update()
-        return proxy
-    end
-end
-
-library.utility = utility
-
-function library:Unload()
-    library.unloaded:Fire();
-    for _,c in next, self.connections do
-        c:Disconnect()
-    end
-    for obj, drawing in next, self.drawings do
-        if type(drawing) == 'table' then
-            utility:DestroyRoundGeometry(drawing)
-        end
-        pcall(function()
-            obj:Remove()
-        end)
-    end
-    table.clear(self.drawings)
-    envTable().library = nil
-end
-
-function library:init()
-    if self.hasInit then
-        return
-    end
-
-    local tooltipObjects = {};
-
-    local function ensureFolder(path)
-        if typeof(makefolder) ~= 'function' then
-            return
-        end
-        if typeof(isfolder) == 'function' then
-            local ok, exists = pcall(isfolder, path)
-            if ok and exists then
-                return
-            end
-        end
-        pcall(makefolder, path)
-    end
-    ensureFolder(self.cheatname)
-    ensureFolder(self.cheatname..'/assets')
-    ensureFolder(self.cheatname..'/'..self.gamename)
-    ensureFolder(self.cheatname..'/'..self.gamename..'/configs');
-
-    function self:SetTheme(theme)
-        for i,v in next, theme do
-            self.theme[i] = v;
-        end
-        self.UpdateThemeColors();
-    end
-
-    function self:GetConfig(name)
-        if isfile(self.cheatname..'/'..self.gamename..'/configs/'..name..self.fileext) then
-            return readfile(self.cheatname..'/'..self.gamename..'/configs/'..name..self.fileext);
-        end
-    end
-
-    function self:LoadConfig(name)
-        local cfg = self:GetConfig(name)
-        if not cfg then
-            self:SendNotification('missing · '..tostring(name), 3.5);
-            return
-        end
-
-        local s,e = pcall(function()
-            setByConfig = true
-            for flag,value in next, http:JSONDecode(cfg) do
-                local option = library.options[flag]
-                if option ~= nil then
-                    if option.class == 'toggle' then
-                        option:SetState(value == nil and false or (value == 1 and true or false));
-                    elseif option.class == 'slider' then
-                        option:SetValue(value == nil and 0 or value)
-                    elseif option.class == 'bind' then
-                        option:SetBind(value == nil and 'none' or (utility:HasProperty(Enum.KeyCode, value) and Enum.KeyCode[value] or Enum.UserInputType[value]));
-                    elseif option.class == 'color' then
-                        option:SetColor(value == nil and c3new(1,1,1) or c3new(value[1], value[2], value[3]));
-                        option:SetTrans(value == nil and 1 or value[4]);
-                    elseif option.class == 'list' then
-                        option:Select(value == nil and '' or value);
-                    elseif option.class == 'box' then
-                        option:SetInput(value == nil and '' or value)
-                    end
-                end
-            end
-            setByConfig = false
-        end)
-
-        if s then
-            self:SendNotification('loaded · '..tostring(name), 3.5);
-        else
-            self:SendNotification('load failed · '..tostring(name), 4);
-        end
-    end
-
-    function self:SaveConfig(name)
-        if not self:GetConfig(name) then
-            self:SendNotification('missing · '..tostring(name), 3.5);
-            return
-        end
-
-        local s,e = pcall(function()
-            local cfg = {};
-            for flag,option in next, self.options do
-                if option.class == 'toggle' then
-                    cfg[flag] = option.state and 1 or 0;
-                elseif option.class == 'slider' then
-                    cfg[flag] = option.value;
-                elseif option.class == 'bind' then
-                    cfg[flag] = option.bind.Name;
-                elseif option.class == 'color' then
-                    cfg[flag] = {
-                        option.color.r,
-                        option.color.g,
-                        option.color.b,
-                        option.trans,
-                    }
-                elseif option.class == 'list' then
-                    cfg[flag] = option.selected;
-                elseif option.class == 'box' then
-                    cfg[flag] = option.input
-                end
-            end
-            writefile(self.cheatname..'/'..self.gamename..'/configs/'..name..self.fileext, http:JSONEncode(cfg));
-        end)
-
-        if s then
-            self:SendNotification('saved · '..tostring(name), 3.5);
-        else
-            self:SendNotification('save failed · '..tostring(name), 4);
-        end
-    end
-
-    for i,v in next, self.images do
-        if type(v) == 'string' and not string.find(v, '^https?://') then
-            if v == '' and i == 'pixel' and type(WHITE_PIXEL_PNG) == 'string' then
-                self.images[i] = WHITE_PIXEL_PNG
-            end
-            continue
-        end
-        local path = self.cheatname..'/assets/'..i..'.oh'
-        local hasFile = false
-        if typeof(isfile) == 'function' then
-            local okFile, exists = pcall(isfile, path)
-            hasFile = okFile and exists == true
-        end
-        if not hasFile and typeof(writefile) == 'function' then
-            local okGet, body = pcall(function()
-                return game:HttpGet(v)
-            end)
-            if okGet and type(body) == 'string' and #body > 0 then
-                pcall(writefile, path, body)
-                hasFile = true
-            end
-        end
-        if hasFile and typeof(readfile) == 'function' then
-            local okRead, data = pcall(readfile, path)
-            if okRead and type(data) == 'string' then
-                self.images[i] = data
-            else
-                self.images[i] = ''
-            end
-        else
-            self.images[i] = ''
-        end
-    end
-
-    local CURSOR_RADIUS = 2.2
-    local CURSOR_OUTLINE = 1.1
-    local CURSOR_A = newVector2(2.4, 2.4)
-    local CURSOR_B = newVector2(13.5, 7.2)
-    local CURSOR_C = newVector2(7.2, 13.5)
-
-    local function newCursorShape(color, z)
-        local shape = { quads = {}, dots = {} }
-        shape.tri = utility:Draw('Triangle', {Filled = true, Thickness = 1, Color = color, ZIndex = z})
-        for i = 1, 3 do
-            shape.quads[i] = utility:Draw('Quad', {Filled = true, Thickness = 1, Color = color, ZIndex = z})
-            shape.dots[i] = utility:Draw('Circle', {Filled = true, Thickness = 1, NumSides = 24, Color = color, ZIndex = z})
-        end
-        return shape
-    end
-
-    local function setCursorShapeVisible(shape, visible)
-        shape.tri.Visible = visible
-        for i = 1, 3 do
-            shape.quads[i].Visible = visible
-            shape.dots[i].Visible = visible
-        end
-    end
-
-    local function layoutCursorShape(shape, a, b, c, r)
-        local pts = {a, b, c}
-        local centroid = (a + b + c) / 3
-        shape.tri.PointA = a
-        shape.tri.PointB = b
-        shape.tri.PointC = c
-        for i = 1, 3 do
-            local p, q = pts[i], pts[i % 3 + 1]
-            local d = q - p
-            local n = newVector2(-d.Y, d.X).Unit
-            if n:Dot(centroid - p) > 0 then
-                n = -n
-            end
-            local o = n * r
-            local quad = shape.quads[i]
-            quad.PointA = p
-            quad.PointB = q
-            quad.PointC = q + o
-            quad.PointD = p + o
-            local dot = shape.dots[i]
-            dot.Position = p
-            dot.Radius = r
-        end
-    end
-
-    self.cursorFill = nil
-    self.cursorOutline = nil
+local Cosmetics = _G.AtomwareRivalsCosmetics
+if not Cosmetics then
     pcall(function()
-        self.cursorOutline = newCursorShape(fromrgb(14,14,18), self.zindexOrder.cursor - 1)
-        self.cursorFill = newCursorShape(fromrgb(255,255,255), self.zindexOrder.cursor)
+        local cMod = require("cosmetics")
+        if cMod then Cosmetics = cMod end
     end)
-
-    local lastCursorX, lastCursorY = -1, -1
-    local function updateCursor(mPos)
-        local fill, outline = self.cursorFill, self.cursorOutline
-        if not fill or not outline then
-            return
-        end
-        local show = self.open
-        setCursorShapeVisible(fill, show)
-        setCursorShapeVisible(outline, show)
-        if show then
-            local pos = mPos or utility:MouseLocation()
-            local px, py = pos.X, pos.Y
-            if px == lastCursorX and py == lastCursorY then
-                return
-            end
-            lastCursorX, lastCursorY = px, py
-            local a, b, c = pos + CURSOR_A, pos + CURSOR_B, pos + CURSOR_C
-            layoutCursorShape(outline, a, b, c, CURSOR_RADIUS + CURSOR_OUTLINE)
-            layoutCursorShape(fill, a, b, c, CURSOR_RADIUS)
-        else
-            lastCursorX, lastCursorY = -1, -1
-        end
-    end
-
-    local screenGui = Instance.new('ScreenGui');
-    screenGui.Name = 'sonata_drawing_input';
-    screenGui.ResetOnSpawn = false;
-    screenGui.IgnoreGuiInset = true;
-    screenGui.DisplayOrder = 999999999;
-    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling;
-    pcall(function()
-        if syn and syn.protect_gui then syn.protect_gui(screenGui) end
-    end)
-    local inputSink = utility:Instance('TextButton', {
-        Parent = screenGui,
-        Name = 'InputSink',
-        Text = '',
-        AutoButtonColor = false,
-        Modal = true,
-        Active = true,
-        Selectable = false,
-        Size = UDim2.new(1,0,1,0),
-        BackgroundTransparency = 1,
-        TextTransparency = 1,
-        ZIndex = 1,
-    });
-    pcall(function()
-        inputSink.Interactable = true
-    end)
-
-    local function applyMenuCursor(open)
-        pcall(function()
-            if open then
-                inputservice.MouseIconEnabled = false
-                inputservice.MouseBehavior = Enum.MouseBehavior.Default
-                pcall(function()
-                    inputservice.OverrideMouseIconBehavior = Enum.OverrideMouseIconBehavior.ForceHide
-                end)
-            else
-                pcall(function()
-                    inputservice.OverrideMouseIconBehavior = Enum.OverrideMouseIconBehavior.None
-                end)
-                inputservice.MouseIconEnabled = true
-            end
-        end)
-        local lp = players.LocalPlayer
-        local mouse = lp and lp:GetMouse()
-        if mouse then
-            pcall(function()
-                mouse.Icon = ''
-            end)
-        end
-    end
-
-    screenGui.Parent = gs('CoreGui');
-    screenGui.Enabled = true;
-    applyMenuCursor(true)
-
-    local cursorApplied = false
-    utility:Connection(runservice.RenderStepped, function()
-        if library.open then
-            if not cursorApplied or inputservice.MouseIconEnabled or inputservice.MouseBehavior ~= Enum.MouseBehavior.Default then
-                cursorApplied = true
-                applyMenuCursor(true)
-            end
-            updateCursor()
-        else
-            cursorApplied = false
-        end
-    end)
-
-    utility:Connection(library.unloaded, function()
-        applyMenuCursor(false)
-        screenGui:Destroy()
-    end)
-
-    utility:Connection(inputservice.InputBegan, function(input, gpe)
-        if self.hasInit then
-            if input.KeyCode == self.toggleKey and not library.opening and not gpe then
-                self:SetOpen(not self.open)
-                task.spawn(function()
-                    library.opening = true;
-                    task.wait((library.anim and library.anim.openLock) or 0.28);
-                    library.opening = false;
-                end)
-            end
-            if library.open then
-                local hoverObj = utility:GetHoverObject();
-                local hoverObjData = library.drawings[hoverObj];
-                if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                    mb1down = true;
-                    button1down:Fire()
-                    if hoverObj and hoverObjData then
-                        hoverObjData.MouseButton1Down:Fire(utility:MouseLocation())
-                    end
-
-                    if library.draggingSlider ~= nil then
-                        local rel = utility:MouseLocation() - library.draggingSlider.objects.background.Object.Position;
-                        local val = utility:ConvertNumberRange(rel.X, 0 , library.draggingSlider.objects.background.Object.Size.X, library.draggingSlider.min, library.draggingSlider.max);
-                        library.draggingSlider:SetValue(val)
-                    end
-
-                elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
-                    if hoverObj and hoverObjData then
-                        hoverObjData.MouseButton2Down:Fire(utility:MouseLocation())
-                    end
-                end
-            end
-        end
-    end)
-
-    utility:Connection(inputservice.InputEnded, function(input, gpe)
-        if self.hasInit and library.open then
-            local hoverObj = utility:GetHoverObject();
-            local hoverObjData = library.drawings[hoverObj];
-
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                mb1down = false;
-                button1up:Fire();
-                if hoverObj and hoverObjData then
-                    hoverObjData.MouseButton1Up:Fire(utility:MouseLocation())
-                end
-            elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
-                if hoverObj and hoverObjData then
-                    hoverObjData.MouseButton2Up:Fire(utility:MouseLocation())
-                end
-            end
-        end
-    end)
-
-    utility:Connection(inputservice.InputChanged, function(input, gpe)
-        if input.UserInputType == Enum.UserInputType.MouseMovement then
-            if library.open then
-                local mousePos = utility:MouseLocation()
-                mousemove:Fire(mousePos);
-                updateCursor(mousePos);
-
-                if library.uiDragging then
-                    return
-                end
-
-                if library.CurrentTooltip ~= nil then
-                    tooltipObjects.background.Position = UDim2.new(0,mousePos.X + 15,0,mousePos.Y + 15)
-                    tooltipObjects.background.Size = UDim2.new(0,tooltipObjects.text.TextBounds.X + 6 + (library.CurrentTooltip.risky and 60 or 0),0,tooltipObjects.text.TextBounds.Y + 2)
-                end
-
-                local hoverObj = utility:GetHoverObject(mousePos);
-                if hoverObj ~= library._lastHoverObj then
-                    local prevData = library._lastHoverData
-                    if prevData and prevData.Hover then
-                        prevData.Hover = false
-                        prevData.MouseLeave:Fire(mousePos)
-                    end
-                    local nextData = hoverObj and library.drawings[hoverObj]
-                    if nextData and not nextData.Hover then
-                        nextData.Hover = true
-                        nextData.MouseEnter:Fire(mousePos)
-                    end
-                    library._lastHoverObj = hoverObj
-                    library._lastHoverData = nextData
-                end
-
-                if mb1down and library.draggingSlider ~= nil then
-                    local rel = mousePos - library.draggingSlider.objects.background.Object.Position;
-                    local val = utility:ConvertNumberRange(rel.X, 0 , library.draggingSlider.objects.background.Object.Size.X, library.draggingSlider.min, library.draggingSlider.max);
-                    library.draggingSlider:SetValue(val)
-                end
-            end
-        end
-    end)
-
-    function self:SetOpen(bool)
-        self.open = bool;
-        screenGui.Enabled = bool;
-        applyMenuCursor(bool);
-
-        if bool and library.flags.disablemenumovement then
-            actionservice:BindAction(
-                'FreezeMovement',
-                function()
-                    return Enum.ContextActionResult.Sink
-                end,
-                false,
-                unpack(Enum.PlayerActions:GetEnumItems())
-            )
-        else
-            actionservice:UnbindAction('FreezeMovement');
-        end
-
-        updateCursor();
-        for _,window in next, self.windows do
-            window:SetOpen(bool);
-        end
-
-        library.CurrentTooltip = nil;
-        tooltipObjects.background.Visible = false
-    end
-
-    function self.UpdateThemeColors()
-        for _,v in next, library.drawings do
-            utility:ApplyThemeColor(v)
-        end
-    end
-
-    function self:SendNotification(message, time, _color)
-        time = typeof(time) == 'number' and math.clamp(time, 0.75, 20) or 4
-        if typeof(message) ~= 'string' then
-            return error(string.format('invalid message type, got %s, expected string', typeof(message)))
-        end
-        message = string.gsub(message, '^Successfully%s+', '')
-        message = string.gsub(message, '^Error%s+', '')
-        message = string.gsub(message, '%s+', ' ')
-        message = string.gsub(message, '^%s+', '')
-        message = string.gsub(message, '%s+$', '')
-
-        local notification = {};
-        self.notifications[notification] = true
-
-        do
-            local z = self.zindexOrder.notification;
-
-            notification.holder = utility:Draw('Square', {
-                Position = newUDim2(0, 0, 0, 72);
-                Transparency = 0;
-            })
-
-            notification.background = utility:Draw('Square', {
-                Size = newUDim2(1, 0, 1, 0);
-                Position = newUDim2(0, -420, 0, 0);
-                Parent = notification.holder;
-                ThemeColor = 'Background';
-                ZIndex = z;
-                Rounded = true;
-            })
-
-            notification.border1 = utility:Draw('Square', {
-                Size = newUDim2(1, 2, 1, 2);
-                Position = newUDim2(0, -1, 0, -1);
-                ThemeColor = 'Border 2';
-                Parent = notification.background;
-                ZIndex = z - 1;
-                Rounded = true;
-            })
-
-            notification.border2 = utility:Draw('Square', {
-                Size = newUDim2(1, 2, 1, 2);
-                Position = newUDim2(0, -1, 0, -1);
-                ThemeColor = 'Border 3';
-                Parent = notification.border1;
-                ZIndex = z - 2;
-                Rounded = true;
-            })
-
-            notification.text = utility:Draw('Text', {
-                Position = newUDim2(0, 12, 0, 6);
-                ThemeColor = 'Primary Text';
-                Text = message;
-                Outline = true;
-                Font = 2;
-                Size = 13;
-                ZIndex = z + 4;
-                Parent = notification.background;
-            })
-
-            notification.timerTrack = utility:Draw('Square', {
-                Size = newUDim2(1, 0, 0, 2);
-                Position = newUDim2(0, 0, 1, -2);
-                Parent = notification.background;
-                ThemeColor = 'Border 2';
-                ZIndex = z + 5;
-            })
-
-            notification.timerBar = utility:Draw('Square', {
-                Size = newUDim2(1, 0, 0, 2);
-                Position = newUDim2(0, 0, 1, -2);
-                Parent = notification.background;
-                ThemeColor = 'Accent';
-                ZIndex = z + 6;
-            })
-        end
-
-        function notification:Remove()
-            library.notifications[notification] = nil;
-            self.holder:Remove();
-            library:UpdateNotifications()
-        end
-
-        task.spawn(function()
-            self:UpdateNotifications();
-            local width = math.clamp(notification.text.TextBounds.X + 24, 120, 420)
-            local height = 28
-            notification.background.Size = newUDim2(0, width, 0, height)
-            task.wait();
-            local anim = library.anim or {}
-            local notifyDur = anim.notify or 0.24
-            utility:Tween(notification.background, 'Position', newUDim2(0, 12, 0, 0), notifyDur, Enum.EasingDirection.Out, Enum.EasingStyle.Quart);
-            utility:Tween(notification.timerBar, 'Size', newUDim2(0, 0, 0, 2), time, Enum.EasingDirection.In, Enum.EasingStyle.Linear);
-            task.wait(time);
-            for _, v in next, notification do
-                if typeof(v) ~= 'function' and typeof(v) ~= 'boolean' then
-                    pcall(function()
-                        utility:Tween(v, 'Transparency', 0, notifyDur * 0.7);
-                    end)
-                end
-            end
-            utility:Connection(utility:Tween(notification.background, 'Position', newUDim2(0, -420, 0, 0), notifyDur, Enum.EasingDirection.In, Enum.EasingStyle.Quart).Completed, function()
-                notification:Remove();
-            end)
-        end)
-    end
-
-    function self:UpdateNotifications()
-        local i = 0
-        local stackDur = (library.anim and library.anim.notifyStack) or 0.2
-        for v in next, self.notifications do
-            utility:Tween(v.holder, 'Position', newUDim2(0, 0, 0, 72 + (i * 34)), stackDur, Enum.EasingDirection.Out, Enum.EasingStyle.Quart)
-            i += 1
-        end
-    end
-
-    function self.NewIndicator(data)
-        local indicator = {
-            title = data.title or 'indicator',
-            enabled = data.enabled or false,
-            position = data.position or newUDim2(0,15,0,300),
-            values = {},
-            objects = {valueObjects = {}},
-            spacing = '   ',
-        };
-
-        table.insert(self.indicators, indicator)
-
-        do
-            local z = self.zindexOrder.indicator;
-            local objs = indicator.objects;
-
-            objs.background = utility:Draw('Square', {
-                Size = newUDim2(0, 200, 0, 16);
-                Position = indicator.position;
-                ThemeColor = 'Background';
-                ZIndex = z;
-            })
-
-            objs.border1 = utility:Draw('Square', {
-                Size = newUDim2(1,2,1,2);
-                Position = newUDim2(0,-1,0,-1);
-                ThemeColor = 'Border 2';
-                Parent = objs.background;
-                ZIndex = z-1;
-            })
-
-            objs.border2 = utility:Draw('Square', {
-                Size = newUDim2(1,2,1,2);
-                Position = newUDim2(0,-1,0,-1);
-                ThemeColor = 'Border 3';
-                Parent = objs.border1;
-                ZIndex = z-2;
-            })
-
-            objs.topborder = utility:Draw('Square', {
-                Size = newUDim2(1,0,0,1);
-                ThemeColor = 'Accent';
-                Parent = objs.background;
-                ZIndex = z+1;
-            })
-
-            objs.textlabel = utility:Draw('Text', {
-                Position = newUDim2(.5,0,0,1);
-                ThemeColor = 'Primary Text';
-                Text = indicator.title;
-                Size = 13;
-                Font = 2;
-                ZIndex = z+2;
-                Center = true;
-                Outline = true;
-                Parent = objs.background;
-            });
-
-        end
-
-        function indicator:Update()
-            local xSize  = 125
-            local yPos  = 0
-            table.sort(self.values, function(a,b)
-                return a.order < b.order;
-            end)
-
-            for _,v in next, self.values do
-                v.objects.keyLabel.Text = tostring(v.key);
-                v.objects.valueLabel.Text = tostring(v.value);
-
-                v.objects.valueLabel.Position = newUDim2(1,-(v.objects.valueLabel.TextBounds.X + 3),0,0)
-                v.objects.background.Position = newUDim2(0,0,1,3 + yPos)
-                v.objects.background.Visible = v.enabled
-
-                if v.enabled then
-                    yPos = yPos + 16 + 3
-                    local x = (v.objects.keyLabel.TextBounds.X + 10 + v.objects.valueLabel.TextBounds.X)
-                    if x > xSize then
-                        xSize = x
-                    end
-                end
-            end
-
-            self.objects.background.Size = newUDim2(0,xSize + 8,0,16)
-            self.objects.background.Position = self.position
-        end
-
-        function indicator:AddValue(data)
-            local value = {
-                key = data.key or '',
-                value = data.value or '',
-                order = data.order or #self.values+1,
-                enabled = data.enabled == nil and true or data.enabled,
-                objects = {},
-            }
-
-            table.insert(self.values, value);
-
-            do
-                local z = library.zindexOrder.indicator;
-                local objs = value.objects;
-
-                objs.background = utility:Draw('Square', {
-                    Size = newUDim2(1, 0, 0, 16);
-                    ThemeColor = 'Background';
-                    ZIndex = z;
-                    Parent = indicator.objects.background;
-                })
-
-                objs.border1 = utility:Draw('Square', {
-                    Size = newUDim2(1,2,1,2);
-                    Position = newUDim2(0,-1,0,-1);
-                    ThemeColor = 'Border 2';
-                    Parent = objs.background;
-                    ZIndex = z-1;
-                })
-
-                objs.border2 = utility:Draw('Square', {
-                    Size = newUDim2(1,2,1,2);
-                    Position = newUDim2(0,-1,0,-1);
-                    ThemeColor = 'Border 3';
-                    Parent = objs.border1;
-                    ZIndex = z-2;
-                })
-
-                objs.keyLabel = utility:Draw('Text', {
-                    Position = newUDim2(0,3,0,1);
-                    ThemeColor = 'Option Text 2';
-                    Size = 13;
-                    Font = 2;
-                    ZIndex = z+2;
-                    Outline = true;
-                    Parent = objs.background;
-                });
-
-                objs.valueLabel = utility:Draw('Text', {
-                    Position = newUDim2(0,0,0,1);
-                    ThemeColor = 'Option Text 2';
-                    Size = 13;
-                    Font = 2;
-                    ZIndex = z+2;
-                    Outline = true;
-                    Parent = objs.background;
-                });
-
-            end
-
-            function value:Remove()
-                table.remove(indicator.values, table.find(indicator.values, value))
-                self.objects.background:Remove()
-                table.clear(self)
-                indicator:Update();
-            end
-
-            function value:SetEnabled(bool)
-                if typeof(bool) == 'boolean' then
-                    self.enabled = bool
-                    indicator:Update()
-                end
-            end
-
-            function value:SetValue(str)
-                if typeof(str) == 'string' then
-                    self.value = str
-                    indicator:Update()
-                end
-            end
-
-            function value:SetKey(str)
-                if typeof(str) == 'string' then
-                    self.key = str
-                    indicator:Update()
-                end
-            end
-
-            self:Update()
-            return value
-        end
-
-        function indicator:GetValue(idx)
-            if typeof(idx) == 'number' then
-                return self.values[idx]
-            else
-                for i,v in next, self.values do
-                    if v.key == idx then
-                        return v
-                    end
-                end
-            end
-        end
-
-        function indicator:SetEnabled(bool)
-            if typeof(bool) == 'boolean' then
-                self.enabled = bool;
-                self.objects.background.Visible = bool;
-                self:Update();
-            end
-        end
-
-        function indicator:SetPosition(udim2)
-            if typeof(udim2) == 'UDim2' then
-                self.position = udim2
-                self.objects.background.Position = udim2;
-            end
-        end
-
-        for i,v in next, data.values or {} do
-            indicator:AddValue({key = tostring(i), value = tostring(v)})
-        end
-
-        indicator:SetEnabled(indicator.enabled);
-        return indicator
-    end
-
-    function self.NewWindow(data)
-        local window = {
-            title = data.title or '',
-            selectedTab = nil;
-            tabs = {},
-            objects = {},
-            columnScroll = { [1] = 0, [2] = 0 },
-            columnScrollTarget = { [1] = 0, [2] = 0 },
-            columnContent = { [1] = 0, [2] = 0 },
-            colorpicker = {
-                objects = {};
-                color = c3new(1,0,0);
-                trans = 0;
-            };
-            dropdown = {
-                objects = {
-                    values = {};
-                };
-                max = 10;
-                scroll = 0;
-            }
-        };
-
-        table.insert(library.windows, window);
-
-        do
-            local size = data.size or newUDim2(0, 600, 0, 499);
-            local position = data.position or newUDim2(0, 250, 0, 150);
-            local objs = window.objects;
-            local z = library.zindexOrder.window;
-
-            objs.background = utility:Draw('Square', {
-                Size = size;
-                Position = position;
-                ThemeColor = 'Background';
-                ZIndex = z;
-                Rounded = true;
-            })
-
-            objs.innerBorder1 = utility:Draw('Square', {
-                Size = newUDim2(1,2,1,2);
-                Position = newUDim2(0,-1,0,-1);
-                ThemeColor = 'Border 3';
-                ZIndex = z-1;
-                Parent = objs.background;
-                Rounded = true;
-            })
-
-            objs.innerBorder2 = utility:Draw('Square', {
-                Size = newUDim2(1,2,1,2);
-                Position = newUDim2(0,-1,0,-1);
-                ThemeColor = 'Border 1';
-                ZIndex = z-2;
-                Parent = objs.innerBorder1;
-                Rounded = true;
-            })
-
-            objs.midBorder = utility:Draw('Square', {
-                Size = newUDim2(1,10,1,25);
-                Position = newUDim2(0,-5,0,-20);
-                ThemeColor = 'Border 2';
-                ZIndex = z-3;
-                Parent = objs.innerBorder2;
-                Rounded = true;
-            })
-
-            objs.outerBorder1 = utility:Draw('Square', {
-                Size = newUDim2(1,2,1,2);
-                Position = newUDim2(0,-1,0,-1);
-                ThemeColor = 'Border 1';
-                ZIndex = z-4;
-                Parent = objs.midBorder;
-                Rounded = true;
-            })
-
-            objs.outerBorder2 = utility:Draw('Square', {
-                Size = newUDim2(1,2,1,2);
-                Position = newUDim2(0,-1,0,-1);
-                ThemeColor = 'Border 3';
-                ZIndex = z-5;
-                Parent = objs.outerBorder1;
-                Rounded = true;
-            })
-
-            objs.topBorder = utility:Draw('Square', {
-                Size = newUDim2(1,0,0,1);
-                ThemeColor = 'Accent';
-                ZIndex = z+55;
-                Parent = objs.background;
-            })
-
-            objs.titleGet = utility:Draw('Text', {
-                Position = newUDim2(0,7,0,2);
-                Color = fromrgb(255,255,255);
-                ThemeColor = 'Primary Text';
-                Text = 'get';
-                Font = 2;
-                Size = 13;
-                ZIndex = z+55;
-                Outline = true;
-                Parent = objs.midBorder;
-            })
-            objs.titleName = utility:Draw('Text', {
-                Position = newUDim2(0,26,0,2);
-                ThemeColor = 'Accent';
-                Text = 'sonata';
-                Font = 2;
-                Size = 13;
-                ZIndex = z+55;
-                Outline = true;
-                Parent = objs.midBorder;
-            })
-            objs.titleSuffix = utility:Draw('Text', {
-                Position = newUDim2(0,68,0,2);
-                Color = fromrgb(255,255,255);
-                ThemeColor = 'Primary Text';
-                Text = '.xyz';
-                Font = 2;
-                Size = 13;
-                ZIndex = z+55;
-                Outline = true;
-                Parent = objs.midBorder;
-            })
-            objs.titleRole = utility:Draw('Text', {
-                Position = newUDim2(1,-70,0,3);
-                Color = fromrgb(255,255,255);
-                ThemeColor = 'Primary Text';
-                Text = 'developer';
-                Font = 2;
-                Size = 13;
-                ZIndex = z+55;
-                Outline = true;
-                Parent = objs.midBorder;
-            })
-
-            objs.groupBackground = utility:Draw('Square', {
-                Size = newUDim2(1,-16,1,-(16+23));
-                Position = newUDim2(0,8,0,8+23);
-                ThemeColor = 'Group Background';
-                ZIndex = z+5;
-                Parent = objs.background;
-            })
-
-            objs.groupInnerBorder = utility:Draw('Square', {
-                Size = newUDim2(1,2,1,2);
-                Position = newUDim2(0,-1,0,-1);
-                ThemeColor = 'Border 1';
-                ZIndex = z+4;
-                Parent = objs.groupBackground;
-            })
-
-            objs.groupOuterBorder = utility:Draw('Square', {
-                Size = newUDim2(1,2,1,2);
-                Position = newUDim2(0,-1,0,-1);
-                ThemeColor = 'Border 3';
-                ZIndex = z+3;
-                Parent = objs.groupInnerBorder;
-            })
-
-            objs.tabHolder = utility:Draw('Square', {
-                Size = newUDim2(1,0,0,20);
-                Position = newUDim2(0,0,0,-21);
-                Parent = objs.groupBackground;
-                Transparency = 0;
-                ZIndex = z+55;
-            })
-
-            local contentTop = 18;
-            objs.columnholder1 = utility:Draw('Square', {
-                Size = newUDim2(.48, 0, 1, -(contentTop + 8));
-                Position = newUDim2(.01, 0, 0, contentTop);
-                Transparency = 0;
-                ZIndex = z+6;
-                Parent = objs.groupBackground;
-            })
-
-            objs.columnholder2 = utility:Draw('Square', {
-                Size = newUDim2(.48, 0, 1, -(contentTop + 8));
-                Position = newUDim2(1 - (.48 + .01), 0, 0, contentTop);
-                Transparency = 0;
-                ZIndex = z+6;
-                Parent = objs.groupBackground;
-            })
-
-            objs.contentClipTop = utility:Draw('Square', {
-                Size = newUDim2(1, 0, 0, contentTop);
-                Position = newUDim2(0, 0, 0, 0);
-                ThemeColor = 'Group Background';
-                ZIndex = z+130;
-                Parent = objs.groupBackground;
-            })
-            objs.contentClipBottom = utility:Draw('Square', {
-                Size = newUDim2(1, 0, 0, 8);
-                Position = newUDim2(0, 0, 1, -8);
-                ThemeColor = 'Group Background';
-                ZIndex = z+130;
-                Parent = objs.groupBackground;
-            })
-
-            local contentBottom = 12;
-            function window:ApplyColumnLayout(topPad)
-                topPad = typeof(topPad) == 'number' and topPad or 18
-                window._topPad = topPad
-                objs.columnholder1.Position = newUDim2(.01, 0, 0, topPad)
-                objs.columnholder2.Position = newUDim2(1 - (.48 + .01), 0, 0, topPad)
-                objs.columnholder1.Size = newUDim2(.48, 0, 1, -(topPad + contentBottom))
-                objs.columnholder2.Size = newUDim2(.48, 0, 1, -(topPad + contentBottom))
-                objs.contentClipTop.Position = newUDim2(0, 0, 0, 0)
-                objs.contentClipTop.Size = newUDim2(1, 0, 0, math.max(0, topPad))
-                local gb = objs.groupBackground.Object
-                local c1 = objs.columnholder1.Object
-                if gb and c1 then
-                    local bottomY = (c1.Position.Y - gb.Position.Y) + c1.Size.Y
-                    local bottomH = math.max(0, gb.Size.Y - bottomY)
-                    objs.contentClipBottom.Position = newUDim2(0, 0, 0, bottomY)
-                    objs.contentClipBottom.Size = newUDim2(1, 0, 0, math.max(contentBottom, bottomH))
-                    window._clipBottom = math.max(contentBottom, bottomH)
-                end
-            end
-            window:ApplyColumnLayout(contentTop)
-
-            function window:ClipSectionToColumn(section, colObj, viewH)
-                if window._uiDragging then
-                    return
-                end
-                if not section or not colObj or not section.objects or not section.objects.background then
-                    return
-                end
-                local sec = section.objects.background
-                local objs = section.objects
-                if not sec.Object then
-                    return
-                end
-                local fullH = section._layoutHeight
-                if typeof(fullH) ~= 'number' or fullH <= 0 then
-                    fullH = sec.Object.Size.Y
-                end
-                local y = section._layoutY
-                if typeof(y) ~= 'number' then
-                    y = (sec.Position and sec.Position.Y and sec.Position.Y.Offset) or 0
-                end
-
-                local function hideAllOptions()
-                    for _, opt in next, section.options do
-                        if opt.objects and opt.objects.holder then
-                            opt.objects.holder.Visible = false
-                        end
-                    end
-                end
-
-                if y >= viewH or (y + fullH) <= 0 then
-                    sec.Visible = false
-                    if objs.textlabel then objs.textlabel.Visible = false end
-                    if objs.topBorder1 then objs.topBorder1.Visible = false end
-                    if objs.topBorder2 then objs.topBorder2.Visible = false end
-                    hideAllOptions()
-                    return
-                end
-
-                local optHolder = objs.optionholder
-                local topRoom = window._topPad or 10
-                local bottomRoom = window._clipBottom or 8
-                local showTitle = (topRoom + y - 7) >= 0
-                if y < 0 then
-                    local visibleH = math.min(fullH + y, viewH)
-                    if visibleH <= 1 then
-                        sec.Visible = false
-                        if objs.textlabel then objs.textlabel.Visible = false end
-                        if objs.topBorder1 then objs.topBorder1.Visible = false end
-                        if objs.topBorder2 then objs.topBorder2.Visible = false end
-                        hideAllOptions()
-                        return
-                    end
-                    sec.Visible = true
-                    sec.Position = newUDim2(0, 0, 0, 0)
-                    local wScale = (section.span == 2 and sec.Size and sec.Size.X.Scale) or 1
-                    if typeof(wScale) ~= 'number' or wScale <= 0 then
-                        wScale = 1
-                    end
-                    sec.Size = newUDim2(wScale, 0, 0, visibleH)
-                    if optHolder then
-                        optHolder.Position = newUDim2(.015, 0, 0, 13 + y)
-                    end
-                else
-                    local visibleH = math.min(fullH, viewH - y)
-                    if visibleH <= 1 then
-                        sec.Visible = false
-                        if objs.textlabel then objs.textlabel.Visible = false end
-                        if objs.topBorder1 then objs.topBorder1.Visible = false end
-                        if objs.topBorder2 then objs.topBorder2.Visible = false end
-                        hideAllOptions()
-                        return
-                    end
-                    sec.Visible = true
-                    sec.Position = newUDim2(0, 0, 0, y)
-                    local wScale = (section.span == 2 and sec.Size and sec.Size.X.Scale) or 1
-                    if typeof(wScale) ~= 'number' or wScale <= 0 then
-                        wScale = 1
-                    end
-                    sec.Size = newUDim2(wScale, 0, 0, visibleH)
-                    if optHolder then
-                        optHolder.Position = newUDim2(.015, 0, 0, 13)
-                    end
-                end
-
-                local underLip = y < 0
-                local showAccent = showTitle and sec.Visible and not underLip
-                local titleZ = library.zindexOrder.window + 160
-                local borderZ = library.zindexOrder.window + 159
-                if objs.textlabel then
-                    objs.textlabel.Visible = showAccent
-                    if objs.textlabel.ZIndex ~= titleZ then
-                        objs.textlabel.ZIndex = titleZ
-                    end
-                end
-                if objs.topBorder1 then
-                    objs.topBorder1.Visible = showAccent
-                    if objs.topBorder1.ZIndex ~= borderZ then objs.topBorder1.ZIndex = borderZ end
-                end
-                if objs.topBorder2 then
-                    objs.topBorder2.Visible = showAccent
-                    if objs.topBorder2.ZIndex ~= borderZ then objs.topBorder2.ZIndex = borderZ end
-                end
-
-                local colTop = colObj.Position.Y
-                local colBottom = colTop + viewH
-                local footerTop = window._footerTop
-                if section.span ~= 2 and typeof(footerTop) == 'number' then
-                    bottomRoom = 0
-                end
-                for _, opt in next, section.options do
-                    local holder = opt.objects and opt.objects.holder
-                    if not holder or not holder.Object then
-                        continue
-                    end
-                    if opt.enabled == false then
-                        holder.Visible = false
-                        continue
-                    end
-                    holder:Update()
-                    local ht = holder.Object.Position.Y
-                    local hb = ht + holder.Object.Size.Y
-                    holder.Visible = (hb > colTop + 1) and (ht < colBottom - 1)
-                        and (ht >= colTop - topRoom) and (hb <= colBottom + bottomRoom)
-                end
-            end
-
-            objs.dragdetector = utility:Draw('Square',{
-                Size = newUDim2(1,0,1,0);
-                Parent = objs.midBorder;
-                Transparency = 0;
-                ZIndex = z+2;
-            })
-
-            local dragging, mouseStart, objStart, lastDelta;
-            local rootDrawing = nil;
-
-            utility:Connection(objs.dragdetector.MouseButton1Down, function(pos)
-                dragging = true;
-                window._uiDragging = true;
-                library.uiDragging = true;
-                mouseStart = pos;
-                lastDelta = newVector2(0, 0);
-                objStart = objs.background.Position;
-                rootDrawing = library.drawings[objs.background.Object];
-            end)
-
-            utility:Connection(button1up, function()
-                if dragging then
-                    local delta = lastDelta or newVector2(0, 0);
-                    objs.background.Position = objStart + newUDim2(0, delta.X, 0, delta.Y);
-                end
-                dragging = false;
-                window._uiDragging = false;
-                library.uiDragging = false;
-                rootDrawing = nil;
-                lastDelta = nil;
-            end)
-
-            utility:Connection(mousemove, function(pos)
-                if not dragging then
-                    return
-                end
-                if not window.open then
-                    dragging = false
-                    window._uiDragging = false
-                    library.uiDragging = false
-                    rootDrawing = nil
-                    return
-                end
-                local delta = pos - mouseStart
-                local step = delta - (lastDelta or newVector2(0, 0))
-                lastDelta = delta
-                if step.X ~= 0 or step.Y ~= 0 then
-                    if rootDrawing then
-                        utility:OffsetDrawingTree(rootDrawing, step)
-                    else
-                        objs.background.Position = objStart + newUDim2(0, delta.X, 0, delta.Y)
-                    end
-                end
-            end)
-
-        end
-
-        do
-            do
-                local objs = window.colorpicker.objects;
-                local z = library.zindexOrder.colorpicker;
-
-                objs.background = utility:Draw('Square', {
-                    Visible = false;
-                    Size = newUDim2(0,200,0,222);
-                    Position = newUDim2(1,-200,1,10);
-                    ThemeColor = 'Background';
-                    Rounded = true;
-                    ZIndex = z;
-                    Parent = window.objects.background;
-                })
-
-                objs.border1 = utility:Draw('Square', {
-                    Size = newUDim2(1,2,1,2);
-                    Position = newUDim2(0,-1,0,-1);
-                    ThemeColor = 'Border';
-                    ZIndex = z-1;
-                    Parent = objs.background;
-                })
-
-                objs.border2 = utility:Draw('Square', {
-                    Size = newUDim2(1,2,1,2);
-                    Position = newUDim2(0,-1,0,-1);
-                    ThemeColor = 'Border 1';
-                    ZIndex = z-2;
-                    Parent = objs.border1;
-                })
-
-                objs.border3 = utility:Draw('Square', {
-                    Size = newUDim2(1,2,1,2);
-                    Position = newUDim2(0,-1,0,-1);
-                    ThemeColor = 'Border';
-                    ZIndex = z-3;
-                    Parent = objs.border2;
-                })
-
-                objs.statusText = utility:Draw('Text', {
-                    Position = newUDim2(0,5,0,4);
-                    Text = 'colorpicker_status_text';
-                    ThemeColor = 'Option Text 1';
-                    Size = 13;
-                    Font = 2;
-                    Outline = true;
-                    ZIndex = z+1;
-                    Parent = objs.background;
-                })
-
-                objs.mainColor = utility:Draw('Square', {
-                    Size = newUDim2(0, 175, 0, 175);
-                    Position = newUDim2(0, 5, 0, 25);
-                    Color = c3new(1,0,0);
-                    ZIndex = z+2;
-                    Parent = objs.background;
-                })
-
-                objs.sat1 = utility:Draw('Image', {
-                    Size = newUDim2(1,0,1,0);
-                    Data = safeB64Decode("iVBORw0KGgoAAAANSUhEUgAAAaQAAAGkCAQAAADURZm+AAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JQAAgIMAAPn/AACA6QAAdTAAAOpgAAA6mAAAF2+SX8VGAAAAAmJLR0QA/4ePzL8AAAAJcEhZcwAACxMAAAsTAQCanBgAAAAHdElNRQflBwwSLzK3wl3KAAADrElEQVR42u3TORLCMBBFwT+6/50hMqXSZgonBN0BWCDGYPwqeSWVZPWYVHd0Pc5H86v9areu4Sz9u7XZXT/vvtZtu6dtJtYw525iGya05afnWW17ltPE8fzfTZy/yf3vmCes59xf0Sf/42l3lnvGOyyH+y/bo/X689wCPCYkEBIICYQECAmEBEICIQFCAiGBkEBIgJBASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZAAIYGQQEggJEBIICQQEggJEBIICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIICRASCAmEBAgJhARCAiEBQgIhgZBASICQQEggJBASICQQEggJhAQICYQEQgIhAUICIYGQQEguAQgJhARCAoQEQgIhgZAAIYGQQEggJEBIICQQEggJEBIICYQEQgKEBEICIYGQACGBkEBIgJBASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZBASICQQEggJBASICQQEggJhAQICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIICRASCAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASICQQEggJhAQICYQEQgIhAUICIYGQQEiAkEBIICQQEiAkEBIICYQECAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASCAkQEggJhARCAoQEQgIhgZAAIYGQQEggJEBIICQQEiAkEBIICYQECAmEBEICIQFCAiGBkEBIgJBASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZAAIYGQQEggJEBIICQQEggJEBIICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZBASICQQEggJBASICQQEggJhAQICYQEQgIhAUICIYGQACGBkEBIICRASCAkEBIICRASCAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASCAkQEggJhAQICYQEQgIhAUICIYGQQEiAkEBIICQQEiAkEBIICYQECAmEBEICIQFCAiGBkEBILgEICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIICRASCAmEBEIChARCAiGBkAAhgZBASICQQEggJBASICQQEggJhAQICYQEQgIhAUICIYGQQEiAkEBIICQQEiAkEBIICYQECAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASCAkQEggJhARCAoQEQgIhgZAAIYGQQEggJEBIICQQEiAkEBL8lzft9AVFFzN+ywAAACV0RVh0ZGF0ZTpjcmVhdGUAMjAyMS0wNy0xMlQxODo0Nzo1MCswMDowMIxlM90AAAAldEVYdGRhdGU6bW9kaWZ5ADIwMjEtMDctMTJUMTg6NDc6NTArMDA6MDD9OIthAAAAAElFTkSuQmCC");
-                    ZIndex = z+3;
-                    Parent = objs.mainColor;
-                })
-
-                objs.sat2 = utility:Draw('Image', {
-                    Size = newUDim2(1,0,1,0);
-                    Data = safeB64Decode("iVBORw0KGgoAAAANSUhEUgAAAaQAAAGkCAQAAADURZm+AAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JQAAgIMAAPn/AACA6QAAdTAAAOpgAAA6mAAAF2+SX8VGAAAAAmJLR0QA/4ePzL8AAAAJcEhZcwAACxMAAAsTAQCanBgAAAAHdElNRQflBwwSLyBEeyyCAAAD4klEQVR42u3YwQnAQAhFQTek/5pz9eBtEYzMlBD4PDcRADDBieMjwK3HJwBDghFepx0oEhgSOO0ARQJDAqcdKBJgSGBI4I0EhgQ47cCQwJDAGwlQJDAkcNqBIgGKBIoEhgROO0CRQJFAkQBDAqcdGBI47QBFAkUCQwKnHaBIoEigSKBIgCKBIYHTDhQJUCQwJHDagSIBigSGBE47UCRAkcCQwGkHKBIoEigSGBLgtANDAkMCbyTAkMBpB4oEigQoEhgSOO1AkQBDAqcdKBIoEqBIYEjgtANFUiRQJFAkMCTAaQeKBIoEigQYEjjtQJFAkQBFAkMCpx0oEmBI4LQDRQJFAhQJDAmcdqBIgCKBIoEhAU47UCRQJFAkwJDAaQeKBIYEOO1AkUCRYHuRTAmcduC0A0UCFAkUCQwJnHaAIoEigSKBIQFOO2gvkimBIoE3EhgS4LQDRQJDAqcdoEigSKBIYEiAIYEhwXx+NoAigSGB0w5QJDAkMCQwJKDiZwMoEhgSOO0ARQJFgnlFMiVw2oHTDhQJUCRQJDAkcNoBVZFMCRQJvJHAkACnHSgSKBIoElANSZPAaQdOOzAkwGkHigSGBIYEGBK08LMBFAkUCRQJMCQwJDAkWMjPBlAkMCRw2gG5SKYEigTeSGBIgNMOFAkMCQwJMCRo4WcDKBIYEjjtgFwkUwJFAm8kMCTAaQeKBIoEigRUQ9IkcNqB0w4MCXDagSKBIsHCIpkSOO3AaQeKBCgSKBIYEhgSYEjQws8GUCQwJHDaAblIpgSKBN5IYEiA0w4UCQwJDAkwJGjhZwMoEhgSOO0ARQJDAkMCQwIqfjaAIoEigSIBhgROO5hXJFMCpx047UCRAEUCRQJDAqcdUBXJlECRwBsJDAlw2oEigSKBIgGGBIYEhgSL+dkAigSGBE47QJHAkMBpB4oEGBIYEhgSrOZnAygSKBIoEmBI4LQDRQJFAhQJDAmcdrC8SKYEigTeSGBIgNMOFAkMCZx2gCKBIoEigSEBTjtQJFAkUCTAkMBpB4oEigQoEhgSOO1AkQBDAqcdKBKgSKBIYEjgtAMUCRQJFAkMCXDagSKBIoEiAYYETjtQJFAkQJHAkMBpB4oEGBI47UCRQJEARQJDAqcdoEigSGBI4LQDFAkUCRQJFAkwJHDagSKBIQFOOzAkMCTwRgIMCZx2oEigSIAigSKBIYHTzkcARQJFAkMCnHZgSGBI4I0EGBI47UCRQJEAQwKnHSgSKBKgSGBI4LQDRQIUCRQJDAmcdoAigSGB0w5QJFAkUCQwJMBpB4oEhgROO0CRwJDAkMAbCVAkMCT4gw/reQYigE05fAAAACV0RVh0ZGF0ZTpjcmVhdGUAMjAyMS0wNy0xMlQxODo0NzozMiswMDowMN2VK3MAAAAldEVYdGRhdGU6bW9kaWZ5ADIwMjEtMDctMTJUMTg6NDc6MzIrMDA6MDCsyJPPAAAAAElFTkSuQmCC");
-                    ZIndex = z+4;
-                    Parent = objs.mainColor;
-                })
-
-                objs.colorBorder = utility:Draw('Square', {
-                    Size = newUDim2(1,2,1,2);
-                    Position = newUDim2(0,-1,0,-1);
-                    ThemeColor = 'Border';
-                    ZIndex = z+1;
-                    Parent = objs.mainColor;
-                })
-
-                objs.mainDetector = utility:Draw('Square',{
-                    Size = newUDim2(1,0,1,0);
-                    Transparency = 0;
-                    ZIndex = z+10;
-                    Parent = objs.mainColor;
-                })
-
-                objs.hue = utility:Draw('Image', {
-                    Size = newUDim2(0,175,0,10);
-                    Position = newUDim2(0,5,0,205);
-                    Data = library.images.colorhue;
-                    ZIndex = z+2;
-                    Parent = objs.background;
-                })
-
-                objs.hueBorder = utility:Draw('Square', {
-                    Size = newUDim2(1,2,1,2);
-                    Position = newUDim2(0,-1,0,-1);
-                    ThemeColor = 'Border';
-                    ZIndex = z+1;
-                    Parent = objs.hue;
-                })
-
-                objs.hueDetector = utility:Draw('Square',{
-                    Size = newUDim2(1,0,1,0);
-                    Transparency = 0;
-                    ZIndex = z+10;
-                    Parent = objs.hue;
-                })
-
-                objs.transColor = utility:Draw('Square', {
-                    Size = newUDim2(0,10,0,175);
-                    Position = newUDim2(0,185,0,25);
-                    Color = c3new(1,0,0);
-                    ZIndex = z+2;
-                    Parent = objs.background;
-                })
-
-                objs.trans = utility:Draw('Image', {
-                    Size = newUDim2(1,0,1,0);
-                    Data = library.images.colortrans;
-                    ZIndex = z+3;
-                    Parent = objs.transColor;
-                })
-
-                objs.transBorder = utility:Draw('Square', {
-                    Size = newUDim2(1,2,1,2);
-                    Position = newUDim2(0,-1,0,-1);
-                    ThemeColor = 'Border';
-                    ZIndex = z+1;
-                    Parent = objs.transColor;
-                })
-
-                objs.transDetector = utility:Draw('Square',{
-                    Size = newUDim2(1,0,1,0);
-                    Transparency = 0;
-                    ZIndex = z+10;
-                    Parent = objs.transColor;
-                })
-
-                objs.pointer = utility:Draw('Square', {
-                    Size = newUDim2(0,2,0,2);
-                    Position = newUDim2(0,0,0,0);
-                    Color = c3new(1,1,1);
-                    ZIndex = z+6;
-                    Parent = objs.mainColor;
-                })
-
-                objs.pointerBorder = utility:Draw('Square', {
-                    Size = newUDim2(1,2,1,2);
-                    Position = newUDim2(0,-1,0,-1);
-                    Color = c3new(0,0,0);
-                    ZIndex = z+5;
-                    Parent = objs.pointer;
-                })
-
-                objs.hueSlider = utility:Draw('Square', {
-                    Size = newUDim2(0,1,1,0);
-                    Color = c3new(1,1,1);
-                    ZIndex = z+4;
-                    Parent = objs.hue;
-                })
-
-                objs.hueSliderBorder = utility:Draw('Square', {
-                    Size = newUDim2(1,2,1,2);
-                    Position = newUDim2(0,-1,0,-1);
-                    Color = c3new(0,0,0);
-                    ZIndex = z+3;
-                    Parent = objs.hueSlider;
-                })
-
-                objs.transSlider = utility:Draw('Square', {
-                    Size = newUDim2(1,0,0,1);
-                    Color = c3new(1,1,1);
-                    ZIndex = z+5;
-                    Parent = objs.trans;
-                })
-
-                objs.transSliderBorder = utility:Draw('Square', {
-                    Size = newUDim2(1,2,1,2);
-                    Position = newUDim2(0,-1,0,-1);
-                    Color = c3new(0,0,0);
-                    ZIndex = z+4;
-                    Parent = objs.transSlider;
-                })
-
-                local draggingHue, draggingSat, draggingTrans = false, false, false;
-
-                local function updateSatVal(pos)
-                    if window.colorpicker.selected ~= nil then
-                        local hue, sat, val = window.colorpicker.selected.color:ToHSV()
-                        X = (objs.mainColor.Object.Position.X + objs.mainColor.Object.Size.X) - objs.mainColor.Object.Position.X
-                        Y = (objs.mainColor.Object.Position.Y + objs.mainColor.Object.Size.Y) - objs.mainColor.Object.Position.Y
-                        X = math.clamp((pos.X - objs.mainColor.Object.Position.X) / X, 0, 0.995)
-                        Y = math.clamp((pos.Y - objs.mainColor.Object.Position.Y) / Y, 0, 0.995)
-                        sat, val = 1 - X, 1 - Y;
-                        window.colorpicker.selected:SetColor(fromhsv(hue,sat,val));
-                        window.colorpicker:Visualize(fromhsv(hue, sat, val), window.colorpicker.selected.trans);
-                    end
-                end
-
-                local function updateHue(pos)
-                    if window.colorpicker.selected ~= nil then
-                        local hue, sat, val = window.colorpicker.selected.color:ToHSV()
-                        X = (objs.hue.Object.Position.X + objs.hue.Object.Size.X) - objs.hue.Object.Position.X
-                        X = math.clamp((pos.X - objs.hue.Object.Position.X) / X, 0, 0.995)
-                        hue = 1 - X
-                        window.colorpicker.selected:SetColor(fromhsv(hue,sat,val));
-                        window.colorpicker:Visualize(fromhsv(hue, sat, val), window.colorpicker.selected.trans);
-                    end
-                end
-
-                local function updateTrans(pos)
-                    if window.colorpicker.selected ~= nil then
-                        Y = (objs.trans.Object.Position.Y + objs.trans.Object.Size.Y) - objs.trans.Object.Position.Y
-                        Y = math.clamp((pos.Y - objs.transColor.Object.Position.Y) / Y, 0, 0.995)
-                        window.colorpicker.selected:SetTrans(Y);
-                        window.colorpicker:Visualize(window.colorpicker.selected.color, Y);
-                    end
-                end
-
-                utility:Connection(objs.mainDetector.MouseButton1Down, function(pos)
-                    draggingSat = true;
-                    updateSatVal(pos)
-                end)
-
-                utility:Connection(objs.hueDetector.MouseButton1Down, function(pos)
-                    draggingHue = true;
-                    updateHue(pos)
-                end)
-
-                utility:Connection(objs.transDetector.MouseButton1Down, function(pos)
-                    draggingTrans = true;
-                    updateTrans(pos)
-                end)
-
-                utility:Connection(mousemove, function(pos)
-                    if library.open then
-                        if draggingSat then
-                            updateSatVal(pos)
-                        elseif draggingHue then
-                            updateHue(pos)
-                        elseif draggingTrans then
-                            updateTrans(pos)
-                        end
-                    end
-                end)
-
-                utility:Connection(button1up, function()
-                    draggingSat = false;
-                    draggingHue = false;
-                    draggingTrans = false;
-                end)
-
-            end
-
-            function window.colorpicker:Visualize(c3, a)
-                if typeof(c3) ~= 'Color3' then return end
-                if typeof(a) ~= 'number' then return end
-                local h,s,v = c3:ToHSV();
-                h = h == 0 and 1 or h;
-                self.color = c3;
-                self.trans = a;
-                self.objects.mainColor.Color = fromhsv(h,1,1);
-                self.objects.transColor.Color = fromhsv(h,s,v);
-                self.objects.hueSlider.Position = newUDim2(1 - h, 0,0,0);
-                self.objects.transSlider.Position = newUDim2(0,0,a,0);
-                self.objects.pointer.Position = newUDim2(1 - s, 0, 1 - v, 0);
-                self.objects.statusText.Text = 'Editing : Unknown';
-                if self.selected ~= nil then
-                    local txt = 'Editing : Unknown';
-                    if self.selected.text ~= nil and self.selected.text ~= '' then
-                        txt = tostring(self.selected.text)
-                    elseif self.selected.flag ~= nil and self.selected.flag ~= '' then
-                        txt = tostring(self.selected.flag)
-                    end
-                    self.objects.statusText.Text = tostring(txt);
-                end
-            end
-
-            window.colorpicker:Visualize(window.colorpicker.color, window.colorpicker.trans)
-
-        end
-
-        do
-            do
-                local objs = window.dropdown.objects;
-                local z = library.zindexOrder.dropdown;
-
-                objs.background = utility:Draw('Square', {
-                    Visible = false;
-                    Size = newUDim2(1,-3,0,50);
-                    Position = newUDim2(0,3,1,0);
-                    ThemeColor = 'Background';
-                    ZIndex = z;
-                    Parent = window.objects.background;
-                    Rounded = true;
-                })
-
-                objs.border1 = utility:Draw('Square', {
-                    Size = newUDim2(1,2,1,2);
-                    Position = newUDim2(0,-1,0,-1);
-                    ThemeColor = 'Border';
-                    ZIndex = z-1;
-                    Parent = objs.background;
-                    Rounded = true;
-                })
-
-                objs.border2 = utility:Draw('Square', {
-                    Size = newUDim2(1,2,1,2);
-                    Position = newUDim2(0,-1,0,-1);
-                    ThemeColor = 'Border 1';
-                    ZIndex = z-2;
-                    Parent = objs.border1;
-                    Rounded = true;
-                })
-
-                objs.border3 = utility:Draw('Square', {
-                    Size = newUDim2(1,2,1,2);
-                    Position = newUDim2(0,-1,0,-1);
-                    ThemeColor = 'Border';
-                    ZIndex = z-3;
-                    Parent = objs.border2;
-                })
-
-            end
-
-            function window.dropdown:Refresh()
-                if self.selected == nil then
-                    return
-                end
-                local list = self.selected
-                local values = list.values
-                local rowH, padding = 18, 2
-                local maxVisible = self.max or 10
-                local maxScroll = math.max(0, #values - maxVisible)
-                self.scroll = math.clamp(self.scroll or 0, 0, maxScroll)
-
-                for slot = 1, maxVisible do
-                    local valueObject = self.objects.values[slot]
-                    if valueObject == nil then
-                        valueObject = {};
-                        valueObject.slot = slot
-                        valueObject.background = utility:Draw('Square', {
-                            Size = newUDim2(1,-4,0,rowH);
-                            Color = Color3.new(.25,.25,.25);
-                            Transparency = 0;
-                            ZIndex = library.zindexOrder.dropdown+1;
-                            Parent = self.objects.background;
-                        })
-                        valueObject.text = utility:Draw('Text', {
-                            Position = newUDim2(0,3,0,1);
-                            ThemeColor = 'Option Text 2';
-                            Text = '';
-                            Size = 13;
-                            Font = 2;
-                            ZIndex = library.zindexOrder.dropdown+2;
-                            Parent = valueObject.background;
-                        })
-                        valueObject.connection = utility:Connection(valueObject.background.MouseButton1Down, function()
-                            local currentList = self.selected
-                            if not currentList then
-                                return
-                            end
-                            local realIdx = (self.scroll or 0) + valueObject.slot
-                            local val = currentList.values[realIdx]
-                            if val == nil then
-                                return
-                            end
-                            local currentSelected = currentList.selected;
-                            local newSelected = currentList.multi and {} or val;
-
-                            if currentList.multi then
-                                for i,v in next, currentSelected do
-                                    if v == "none" then continue end
-                                    newSelected[i] = v;
-                                end
-                                if table.find(newSelected, val) then
-                                    table.remove(newSelected, table.find(newSelected, val));
-                                else
-                                    table.insert(newSelected, val)
-                                end
-                            end
-
-                            currentList:Select(newSelected);
-                            if not currentList.multi then
-                                currentList.open = false;
-                                currentList.objects.openText.Text = '+';
-                                window.dropdown.selected = nil;
-                                window.dropdown.objects.background.Visible = false;
-                            else
-                                window.dropdown:Refresh()
-                            end
-                        end)
-                        self.objects.values[slot] = valueObject
-                    end
-                end
-
-                for slot, obj in next, self.objects.values do
-                    if typeof(slot) == 'number' and slot > maxVisible then
-                        obj.background.Visible = false
-                    end
-                end
-
-                local shown = 0
-                for slot = 1, maxVisible do
-                    local realIdx = self.scroll + slot
-                    local valueStr = values[realIdx]
-                    local obj = self.objects.values[slot]
-                    if valueStr ~= nil then
-                        shown += 1
-                        obj.background.Visible = true
-                        obj.background.Position = newUDim2(0,2,0,2 + (slot-1)*(rowH+padding));
-                        obj.text.Text = tostring(valueStr);
-                        local selected = (typeof(list.selected) == 'table' and table.find(list.selected, valueStr) or list.selected == valueStr)
-                        obj.background.Transparency = selected and 1 or 0
-                    else
-                        obj.background.Visible = false
-                    end
-                end
-
-                self.objects.background.Size = newUDim2(1,-6,0, math.max(22, 2 + shown*(rowH+padding) + 2));
-            end
-
-            utility:Connection(inputservice.InputChanged, function(input)
-                if not library.open or window.dropdown.selected == nil then
-                    return
-                end
-                if input.UserInputType == Enum.UserInputType.MouseWheel then
-                    local list = window.dropdown.selected
-                    local maxVisible = window.dropdown.max or 10
-                    local maxScroll = math.max(0, #list.values - maxVisible)
-                    local delta = input.Position.Z
-                    if delta > 0 then
-                        window.dropdown.scroll = math.clamp((window.dropdown.scroll or 0) - 1, 0, maxScroll)
-                    elseif delta < 0 then
-                        window.dropdown.scroll = math.clamp((window.dropdown.scroll or 0) + 1, 0, maxScroll)
-                    end
-                    window.dropdown:Refresh()
-                end
-            end)
-
-            window.dropdown:Refresh();
-        end
-
-        local function tooltip(option)
-            utility:Connection(option.objects.holder.MouseEnter, function()
-                tooltipObjects.background.Visible = (not (option.tooltip == '' or option.tooltip == nil)) and true or false;
-                tooltipObjects.riskytext.Visible = option.risky;
-                tooltipObjects.text.Position = option.risky and newUDim2(0,60,0,0) or newUDim2(0,3,0,0)
-                tooltipObjects.text.Text = tostring(option.tooltip);
-                library.CurrentTooltip = option;
-            end)
-            utility:Connection(option.objects.holder.MouseLeave, function()
-                if library.CurrentTooltip == option then
-                    library.CurrentTooltip = nil;
-                    tooltipObjects.background.Visible = false
-                end
-            end)
-        end
-
-        local visValues = {};
-
-        function window:SetOpen(bool)
-            if typeof(bool) == 'boolean' then
-                self.open = bool;
-                self.objects.background.Visible = bool;
-                if library.tweens then
-                    for obj, props in next, library.tweens do
-                        for _, tween in next, props do
-                            pcall(function()
-                                tween:Cancel()
-                            end)
-                        end
-                    end
-                    table.clear(library.tweens)
-                end
-            end
-        end
-
-        function window:AddTab(text, order)
-            local tab = {
-                text = text;
-                order = order or #self.tabs+1;
-                callback = function() end;
-                objects = {};
-                sections = {};
-            }
-
-            table.insert(self.tabs, tab);
-
-            do
-                local objs = tab.objects;
-                local z = library.zindexOrder.window + 56;
-
-                objs.background = utility:Draw('Square', {
-                    Size = newUDim2(0,50,1,0);
-                    Parent = self.objects.tabHolder;
-                    ThemeColor = 'Unselected Tab Background';
-                    ZIndex = z;
-                })
-
-                objs.innerBorder = utility:Draw('Square', {
-                    Size = newUDim2(1,2,1,2);
-                    Position = newUDim2(0,-1,0,-1);
-                    ThemeColor = 'Border 1';
-                    ZIndex = z-1;
-                    Parent = objs.background;
-                })
-
-                objs.outerBorder = utility:Draw('Square', {
-                    Size = newUDim2(1,2,1,2);
-                    Position = newUDim2(0,-1,0,-1);
-                    ThemeColor = 'Border 3';
-                    ZIndex = z-2;
-                    Parent = objs.innerBorder;
-                })
-
-                objs.topBorder = utility:Draw('Square', {
-                    Size = newUDim2(1,0,0,1);
-                    ThemeColor = 'Unselected Tab Background';
-                    ZIndex = z+1;
-                    Parent = objs.background;
-                })
-
-                objs.text = utility:Draw('Text', {
-                    ThemeColor = 'Unselected Tab Text';
-                    Text = text;
-                    Size = 13;
-                    Font = 2;
-                    ZIndex = z+1;
-                    Outline = true;
-                    Center = true;
-                    Parent = objs.background;
-                })
-
-                utility:Connection(objs.background.MouseButton1Down, function()
-                    tab:Select();
-                end)
-
-            end
-
-            function tab:AddSection(text, side, order)
-                local section = {
-                    text = tostring(text);
-                    side = side == nil and 1 or clamp(side,1,2);
-                    span = 1;
-                    order = order or #self.sections+1;
-                    enabled = true;
-                    objects = {};
-                    options = {};
-                };
-
-                table.insert(self.sections, section);
-
-                do
-                    local objs = section.objects;
-                    local z = library.zindexOrder.window+15;
-
-                    objs.background = utility:Draw('Square', {
-                        ThemeColor = 'Section Background';
-                        ZIndex = z;
-                        Parent = window.objects['columnholder'..(section.side)];
-                        Rounded = true;
-                        RoundTop = false;
-                    })
-
-                    objs.innerBorder = utility:Draw('Square', {
-                        Size = newUDim2(1,2,1,1);
-                        Position = newUDim2(0,-1,0,0);
-                        ThemeColor = 'Border 3';
-                        ZIndex = z-1;
-                        Parent = objs.background;
-                        Rounded = true;
-                        RoundTop = false;
-                    })
-
-                    objs.outerBorder = utility:Draw('Square', {
-                        Size = newUDim2(1,2,1,1);
-                        Position = newUDim2(0,-1,0,0);
-                        ThemeColor = 'Border 1';
-                        ZIndex = z-2;
-                        Parent = objs.innerBorder;
-                        Rounded = true;
-                        RoundTop = false;
-                    })
-
-                    objs.topBorder1 = utility:Draw('Square', {
-                        Size = newUDim2(.025,1,0,1);
-                        Position = newUDim2(0,-1,0,0);
-                        ThemeColor = 'Accent';
-                        ZIndex = library.zindexOrder.window+159;
-                        Parent = objs.background;
-                    })
-
-                    objs.topBorder2 = utility:Draw('Square', {
-                        ThemeColor = 'Accent';
-                        ZIndex = library.zindexOrder.window+159;
-                        Parent = objs.background;
-                    })
-
-                    objs.textlabel = utility:Draw('Text', {
-                        Position = newUDim2(.0425,0,0,-7);
-                        ThemeColor = 'Primary Text';
-                        Size = 13;
-                        Font = 2;
-                        Outline = true;
-                        ZIndex = library.zindexOrder.window+160;
-                        Parent = objs.background;
-                    })
-
-                    objs.optionholder = utility:Draw('Square',{
-                        Size = newUDim2(1-.03,0,1,-15);
-                        Position = newUDim2(.015,0,0,13);
-                        Transparency = 0;
-                        ZIndex = z+1;
-                        Parent = objs.background;
-                    })
-
-                end
-
-                function section:SetText(text)
-                    self.text = tostring(text);
-                    self.objects.textlabel.Text = self.text;
-                    local boxW = self.objects.background.Object.Size.X
-                    local labelW = self.objects.textlabel.TextBounds.X
-                    local x = math.max(0, boxW - labelW - 13)
-                    self.objects.topBorder2.Size = newUDim2(0, x, 0, 1)
-                    self.objects.topBorder2.Position = newUDim2(1, 1 - x, 0, 0)
-                end
-
-                function section:UpdateOptions()
-                    table.sort(self.options, function(a,b)
-                        return a.order < b.order
-                    end)
-
-                    local ySize, padding = 15, 0;
-                    for i,option in next, self.options do
-                        option.objects.holder.Visible = option.enabled
-                        if option.enabled then
-                            option.objects.holder.Position = newUDim2(0,0,0,ySize-15);
-                            ySize += option.objects.holder.Object.Size.Y + padding;
-                        end
-                    end
-
-                    self.objects.background.Size = newUDim2(1,0,0,ySize);
-
-                end
-
-                function section:SetEnabled(bool)
-                    if typeof(bool) == 'boolean' then
-                        section.enabled = bool;
-                        tab:UpdateSections();
-                    end
-                end
-
-                function section:AddToggle(data)
-                    local toggle = {
-                        class = 'toggle';
-                        flag = data.flag;
-                        text = '';
-                        tooltip = '';
-                        order = #self.options+1;
-                        state = false;
-                        risky = false;
-                        callback = function() end;
-                        enabled = true;
-                        options = {};
-                        objects = {};
-                        colorScroll = 0;
-                    };
-
-                    local blacklist = {'objects'};
-                    for i,v in next, data do
-                        if not table.find(blacklist, i) ~= toggle[i] ~= nil then
-                            toggle[i] = v
-                        end
-                    end
-
-                    table.insert(self.options, toggle)
-
-                    if toggle.flag then
-                        library.flags[toggle.flag] = toggle.state;
-                        library.options[toggle.flag] = toggle;
-                    end
-
-                    do
-                        local objs = toggle.objects;
-                        local z = library.zindexOrder.window+25;
-
-                        objs.holder = utility:Draw('Square', {
-                            Size = newUDim2(1,0,0,18);
-                            Transparency = 0;
-                            ZIndex = z+5;
-                            Parent = section.objects.optionholder;
-                        })
-
-                        objs.background = utility:Draw('Square', {
-                            Size = newUDim2(0,10,0,10);
-                            Position = newUDim2(0,2,0,4);
-                            ThemeColor = 'Option Background';
-                            ZIndex = z+3;
-                            Parent = objs.holder;
-                        })
-
-                        objs.gradient = utility:Draw('Image', {
-                            Size = newUDim2(1,0,1,0);
-                            Data = library.images.gradientp45;
-                            Transparency = .35;
-                            ZIndex = z+4;
-                            Parent = objs.background;
-                        })
-
-                        objs.border1 = utility:Draw('Square', {
-                            Size = newUDim2(1,2,1,2);
-                            Position = newUDim2(0,-1,0,-1);
-                            ThemeColor = 'Option Border 1';
-                            ZIndex = z+2;
-                            Parent = objs.background;
-                        })
-
-                        objs.border2 = utility:Draw('Square', {
-                            Size = newUDim2(1,2,1,2);
-                            Position = newUDim2(0,-1,0,-1);
-                            ThemeColor = 'Option Border 2';
-                            ZIndex = z+1;
-                            Parent = objs.border1;
-                        })
-
-                        objs.text = utility:Draw('Text', {
-                            Position = newUDim2(0,20,0,2);
-                            ThemeColor = 'Option Text 3';
-                            Size = 13;
-                            Font = 2;
-                            ZIndex = z+1;
-                            Outline = true;
-                            Parent = objs.holder;
-                        })
-
-                        utility:Connection(objs.holder.MouseEnter, function()
-                            objs.border1.ThemeColor = 'Accent';
-                        end)
-
-                        utility:Connection(objs.holder.MouseLeave, function()
-                            objs.border1.ThemeColor = toggle.state and 'Accent' or 'Option Border 1';
-                        end)
-
-                        utility:Connection(objs.holder.MouseButton1Down, function()
-                            toggle:SetState(not toggle.state);
-                        end)
-
-                        pcall(function()
-                            utility:Connection(objs.holder.MouseWheelForward, function()
-                                toggle.colorScroll = math.max(0, (toggle.colorScroll or 0) - 21)
-                                toggle:UpdateOptions()
-                            end)
-                            utility:Connection(objs.holder.MouseWheelBackward, function()
-                                toggle.colorScroll = (toggle.colorScroll or 0) + 21
-                                toggle:UpdateOptions()
-                            end)
-                        end)
-
-                    end
-
-                    function toggle:SetState(bool, nocallback)
-                        if typeof(bool) == 'boolean' then
-                            self.state = bool;
-                            if self.flag then
-                                library.flags[self.flag] = bool;
-                            end
-
-                            self.objects.border1.ThemeColor = bool and 'Accent' or (self.objects.holder.Hover and 'Accent' or 'Option Border 1');
-                            self.objects.text.ThemeColor = bool and (self.risky and 'Risky Text Enabled' or 'Option Text 1') or (self.risky and 'Risky Text' or 'Option Text 3');
-                            self.objects.background.ThemeColor = bool and 'Accent' or 'Option Background';
-                            self.objects.background.ThemeColorOffset = bool and -55 or 0
-
-                            if not nocallback then
-                                self.callback(bool);
-                            end
-
-                        end
-                    end
-
-                    function toggle:SetText(str)
-                        if typeof(str) == 'string' then
-                            self.text = str;
-                            self.objects.text.Text = str;
-                        end
-                    end
-
-                    function toggle:UpdateOptions()
-                        table.sort(self.options, function(a,b)
-                            return a.order < b.order
-                        end)
-
-                        local x, y = 0, 0
-                        local chipW = 0
-                        for i,option in next, self.options do
-                            if option.enabled and (option.class == 'color' or option.class == 'bind') then
-                                chipW = chipW + option.objects.holder.Object.Size.X
-                            end
-                        end
-                        local rowW = self.objects.holder.Object.Size.X
-                        local textW = (self.objects.text and self.objects.text.TextBounds and self.objects.text.TextBounds.X) or 80
-                        local room = math.max(40, rowW - textW - 28)
-                        local maxScroll = math.max(0, chipW - room)
-                        self.colorScroll = math.clamp(self.colorScroll or 0, 0, maxScroll)
-                        local scroll = self.colorScroll
-                        for i,option in next, self.options do
-                            option.objects.holder.Visible = option.enabled
-                            if option.enabled then
-                                if option.class == 'color' or option.class == 'bind' then
-                                    option.objects.holder.Position = newUDim2(1,-option.objects.holder.Object.Size.X-x + scroll,0,0);
-                                    x = x + option.objects.holder.Object.Size.X;
-                                elseif option.class == 'slider' or option.class == 'list' then
-                                    option.objects.holder.Position = newUDim2(0,0,1,-option.objects.holder.Object.Size.Y-y);
-                                    y = y + option.objects.holder.Object.Size.Y;
-                                end
-                            end
-                        end
-
-                        self.objects.holder.Size = newUDim2(1,0,0,18 + y);
-                        section:UpdateOptions()
-
-                    end
-
-                    function toggle:AddColor(data)
-                        local color = {
-                            class = 'color';
-                            flag = data.flag;
-                            text = '';
-                            tooltip = '';
-                            order = #self.options+1;
-                            callback = function() end;
-                            color = Color3.new(1,1,1);
-                            trans = 0;
-                            open = false;
-                            enabled = true;
-                            objects = {};
-                        };
-
-                        local blacklist = {'objects'};
-                        for i,v in next, data do
-                            if not table.find(blacklist, i) and color[i] ~= nil then
-                                color[i] = v
-                            end
-                        end
-
-                        table.insert(self.options, color)
-
-                        if color.flag then
-                            library.flags[color.flag] = color.color;
-                            library.options[color.flag] = color;
-                        end
-
-                        do
-                            local objs = color.objects;
-                            local z = library.zindexOrder.window+25;
-
-                            objs.holder = utility:Draw('Square', {
-                                Size = newUDim2(0,21,0,17);
-                                Transparency = 0;
-                                ZIndex = z+6;
-                                Parent = self.objects.holder;
-                            })
-
-                            objs.background = utility:Draw('Square', {
-                                Size = newUDim2(0,15,0,13);
-                                Position = newUDim2(0,4,0,2);
-                                ZIndex = z+3;
-                                Parent = objs.holder;
-                            })
-
-                            objs.gradient = utility:Draw('Image', {
-                                Size = newUDim2(1,0,1,0);
-                                Data = library.images.gradientp45;
-                                Transparency = .25;
-                                ZIndex = z+4;
-                                Parent = objs.background;
-                            })
-
-                            objs.border1 = utility:Draw('Square', {
-                                Size = newUDim2(1,2,1,2);
-                                Position = newUDim2(0,-1,0,-1);
-                                ThemeColor = 'Option Border 1';
-                                ZIndex = z+2;
-                                Parent = objs.background;
-                            })
-
-                            objs.border2 = utility:Draw('Square', {
-                                Size = newUDim2(1,2,1,2);
-                                Position = newUDim2(0,-1,0,-1);
-                                ThemeColor = 'Option Border 2';
-                                ZIndex = z+1;
-                                Parent = objs.border1;
-                            })
-
-                            utility:Connection(objs.holder.MouseEnter, function()
-                                objs.border1.ThemeColor = 'Accent';
-                            end)
-
-                            utility:Connection(objs.holder.MouseLeave, function()
-                                objs.border1.ThemeColor = color.state and 'Accent' or 'Option Border 1';
-                            end)
-
-                            utility:Connection(objs.holder.MouseButton1Down, function()
-                                color:SetOpen(not color.open);
-                            end)
-
-                        end
-
-                        function color:SetColor(c3, nocallback)
-                            if typeof(c3) == 'Color3' then
-                                local h,s,v = c3:ToHSV(); c3 = fromhsv(h, clamp(s,.005,.995), clamp(v,.005,.995))
-                                self.color = c3;
-                                self.objects.background.Color = c3;
-                                if not nocallback then
-                                    self.callback(c3, self.trans);
-                                end
-                                if self.open then
-                                    window.colorpicker:Visualize(self.color, self.trans);
-                                end
-                                if self.flag then
-                                    library.flags[self.flag] = c3;
-                                end
-                            end
-                        end
-
-                        function color:SetTrans(trans, nocallback)
-                            if typeof(trans) == 'number' then
-                                self.trans = trans;
-                                if not nocallback then
-                                    self.callback(self.color, trans);
-                                end
-                                if self.open then
-                                    window.colorpicker:Visualize(self.color, self.trans);
-                                end
-                            end
-                        end
-
-                        function color:SetOpen(bool)
-                            if typeof(bool) == 'boolean' then
-                                self.open = bool
-                                if bool then
-                                    if window.colorpicker.selected then
-                                        window.colorpicker.selected.open = false;
-                                    end
-                                    window.colorpicker.selected = color
-                                    window.colorpicker.objects.background.Parent = self.objects.background;
-                                    window.colorpicker.objects.background.Visible = true;
-                                    window.colorpicker:Visualize(color.color, color.trans)
-                                elseif window.colorpicker.selected == color then
-                                    window.colorpicker.selected = nil;
-                                    window.colorpicker.objects.background.Parent = window.objects.background;
-                                    window.colorpicker.objects.background.Visible = false;
-                                end
-                            end
-                        end
-
-                        tooltip(color);
-                        color:SetColor(color.color, true);
-                        color:SetTrans(color.trans, true);
-                        self:UpdateOptions();
-                        return color
-                    end
-
-                    function toggle:AddBind(data)
-                        local bind = {
-                            class = 'bind';
-                            flag = data.flag;
-                            text = '';
-                            tooltip = '';
-                            bind = 'none';
-                            mode = 'toggle';
-                            order = #self.options+1;
-                            callback = function() end;
-                            keycallback = function() end;
-                            indicatorValue = library.keyIndicator:AddValue({value = 'value', key = 'key', enabled = false});
-                            noindicator = false;
-                            invertindicator = false;
-                            state = false;
-                            nomouse = false;
-                            enabled = true;
-                            binding = false;
-                            objects = {};
-                        };
-
-                        local blacklist = {'objects'};
-                        for i,v in next, data do
-                            if not table.find(blacklist, i) and bind[i] ~= nil then
-                                bind[i] = v
-                            end
-                        end
-
-                        table.insert(self.options, bind)
-
-                        if bind.flag then
-                            library.options[bind.flag] = bind;
-                        end
-
-                        if bind.bind == 'none' then
-                            bind.state = true
-                            if bind.flag then
-                                library.flags[bind.flag] = bind.state;
-                            end
-                            bind.callback(true)
-                            local display = bind.state; if bind.invertindicator then display = not bind.state; end
-                            bind.indicatorValue:SetEnabled(display and not bind.noindicator);
-                            bind.indicatorValue:SetKey((bind.text == nil or bind.text == '') and (bind.flag == nil and 'unknown' or bind.flag) or bind.text);
-                            bind.indicatorValue:SetValue('[Always]');
-                        end
-
-                        do
-                            local objs = bind.objects;
-                            local z = library.zindexOrder.window+25;
-
-                            objs.holder = utility:Draw('Square', {
-                                Size = newUDim2(0,0,0,17);
-                                Transparency = 0;
-                                ZIndex = z+6;
-                                Parent = self.objects.holder;
-                            })
-
-                            objs.keyText = utility:Draw('Text', {
-                                ThemeColor = 'Option Text 3';
-                                Size = 13;
-                                Font = 2;
-                                ZIndex = z+1;
-                                Parent = objs.holder;
-                            })
-
-                            utility:Connection(objs.holder.MouseEnter, function()
-                                objs.keyText.ThemeColor = 'Accent';
-                            end)
-
-                            utility:Connection(objs.holder.MouseLeave, function()
-                                objs.keyText.ThemeColor = bind.binding and 'Accent' or 'Option Text 3';
-                            end)
-
-                            utility:Connection(objs.holder.MouseButton1Down, function()
-                                if not bind.binding then
-                                    bind:SetKeyText('...');
-                                    bind.binding = true;
-                                end
-                            end)
-
-                        end
-
-                        local c
-                        function bind:SetBind(keybind)
-                            if c then
-                                c:Disconnect();
-                                if bind.flag then
-                                    library.flags[bind.flag] = false;
-                                end
-                                bind.callback(false);
-                            end
-                            local keyName = 'NONE'
-                            self.bind = (keybind and keybind) or keybind or self.bind
-                            if self.bind == Enum.KeyCode.Backspace then
-                                self.bind = 'none';
-                                bind.state = true
-                                if bind.flag then
-                                    library.flags[bind.flag] = bind.state;
-                                end
-                                self.callback(true)
-                                local display = bind.state; if bind.invertindicator then display = not bind.state; end
-                                bind.indicatorValue:SetEnabled(display and not bind.noindicator);
-                            else
-                                keyName = keyNames[keybind] or keybind.Name or keybind
-                            end
-                            if self.bind ~= 'none' then
-                                bind.state = false
-                                if bind.flag then
-                                    library.flags[bind.flag] = bind.state;
-                                end
-                                self.callback(false)
-                                local display = bind.state; if bind.invertindicator then display = not bind.state; end
-                                bind.indicatorValue:SetEnabled(display and not bind.noindicator);
-                            end
-                            self.keycallback(self.bind);
-                            self:SetKeyText(keyName:upper());
-                            self.indicatorValue:SetKey((self.text == nil or self.text == '') and (self.flag == nil and 'unknown' or self.flag) or self.text);
-                            self.indicatorValue:SetValue('['..keyName:upper()..']');
-                            if self.bind == 'none' then
-                                self.indicatorValue:SetValue('[Always]');
-                            end
-                            self.objects.keyText.ThemeColor = self.objects.holder.Hover and 'Accent' or 'Option Text 3';
-                        end
-
-                        function bind:SetKeyText(str)
-                            str = tostring(str);
-                            self.objects.keyText.Text = '['..str..']';
-                            self.objects.keyText.Position = newUDim2(0, 2, 0, 2);
-                            self.objects.holder.Size = newUDim2(0,self.objects.keyText.TextBounds.X+2,0,17)
-                            toggle:UpdateOptions();
-                        end
-
-                        utility:Connection(inputservice.InputBegan, function(inp)
-                            if inputservice:GetFocusedTextBox() then
-                                return
-                            elseif bind.binding then
-                                local key = (table.find({Enum.UserInputType.MouseButton1, Enum.UserInputType.MouseButton2, Enum.UserInputType.MouseButton3}, inp.UserInputType) and not bind.nomouse) and inp.UserInputType
-                                bind:SetBind(key or (not table.find(blacklistedKeys, inp.KeyCode)) and inp.KeyCode)
-                                bind.binding = false
-                            elseif not bind.binding and self.bind == 'none' then
-                                bind.state = true
-                                library.flags[bind.flag] = bind.state
-                                local display = bind.state; if bind.invertindicator then display = not bind.state; end
-                                bind.indicatorValue:SetEnabled(display and not bind.noindicator)
-                            elseif (inp.KeyCode == bind.bind or inp.UserInputType == bind.bind) and not bind.binding then
-                                if bind.mode == 'toggle' then
-                                    bind.state = not bind.state
-                                    if bind.flag then
-                                        library.flags[bind.flag] = bind.state;
-                                    end
-                                    bind.callback(bind.state)
-                                    local display = bind.state; if bind.invertindicator then display = not bind.state; end
-                                    bind.indicatorValue:SetEnabled(display and not bind.noindicator);
-                                elseif bind.mode == 'hold' then
-                                    if bind.flag then
-                                        library.flags[bind.flag] = true;
-                                    end
-                                    bind.indicatorValue:SetEnabled((not bind.invertindicator and true or false) and not bind.noindicator);
-                                    c = utility:Connection(runservice.RenderStepped, function()
-                                        if bind.callback then
-                                            bind.callback(true);
-                                        end
-                                    end)
-                                end
-                            end
-                        end)
-
-                        utility:Connection(inputservice.InputEnded, function(inp)
-                            if bind.bind ~= 'none' then
-                                if inp.KeyCode == bind.bind or inp.UserInputType == bind.bind then
-                                    if c then
-                                        c:Disconnect();
-                                        if bind.flag then
-                                            library.flags[bind.flag] = false;
-                                        end
-                                        if bind.callback then
-                                            bind.callback(false);
-                                        end
-                                        bind.indicatorValue:SetEnabled(bind.invertindicator and true or false);
-                                    end
-                                end
-                            end
-                        end)
-
-                        tooltip(bind);
-                        bind:SetBind(bind.bind);
-                        self:UpdateOptions();
-                        return bind
-                    end
-
-                    function toggle:AddSlider(data)
-                        local slider = {
-                            class = 'slider';
-                            flag = data.flag;
-                            suffix = '';
-                            tooltip = '';
-                            order = #self.options+1;
-                            value = 0;
-                            min = 0;
-                            max = 100;
-                            increment = 1;
-                            callback = function() end;
-                            enabled = true;
-                            dragging = false;
-                            focused = false;
-                            objects = {};
-                        };
-
-                        local blacklist = {'objects', 'dragging'};
-                        for i,v in next, data do
-                            if not table.find(blacklist, i) and (slider[i] ~= nil and typeof(slider[i]) == typeof(v)) then
-                                slider[i] = v;
-                            end
-                        end
-
-                        table.insert(self.options, slider)
-
-                        if slider.flag then
-                            library.flags[slider.flag] = slider.value;
-                            library.options[slider.flag] = slider;
-                        end
-
-                        do
-                            local objs = slider.objects;
-                            local z = library.zindexOrder.window+25;
-
-                            objs.holder = utility:Draw('Square', {
-                                Size = newUDim2(1,0,0,20);
-                                Transparency = 0;
-                                ZIndex = z+6;
-                                Parent = toggle.objects.holder;
-                            })
-
-                            objs.background = utility:Draw('Square', {
-                                Size = newUDim2(1,-4,1,-8);
-                                Position = newUDim2(0,2,0,4);
-                                ThemeColor = 'Option Background';
-                                ZIndex = z+2;
-                                Parent = objs.holder;
-                            })
-
-                            objs.slider = utility:Draw('Square', {
-                                Size = newUDim2(0,0,1,0);
-                                ThemeColor = 'Accent';
-                                ZIndex = z+3;
-                                Parent = objs.background;
-                            })
-
-                            objs.border1 = utility:Draw('Square', {
-                                Size = newUDim2(1,2,1,2);
-                                Position = newUDim2(0,-1,0,-1);
-                                ThemeColor = 'Option Border 1';
-                                ZIndex = z+1;
-                                Parent = objs.background;
-                            })
-
-                            objs.border2 = utility:Draw('Square', {
-                                Size = newUDim2(1,2,1,2);
-                                Position = newUDim2(0,-1,0,-1);
-                                ThemeColor = 'Option Border 2';
-                                ZIndex = z;
-                                Parent = objs.border1;
-                            })
-
-                            objs.gradient = utility:Draw('Image', {
-                                Size = newUDim2(1,0,1,0);
-                                Data = library.images.gradientp90;
-                                Transparency = .78;
-                                ZIndex = z+4;
-                                Parent = objs.background;
-                            })
-
-                            objs.text = utility:Draw('Text', {
-                                Position = newUDim2(.5,0,0,-1);
-                                ThemeColor = 'Option Text 3';
-                                Size = 13;
-                                Font = 2;
-                                ZIndex = z+5;
-                                Outline = true;
-                                Center = true;
-                                Parent = objs.background;
-                            })
-
-                            utility:Connection(objs.holder.MouseEnter, function()
-                                objs.border1.ThemeColor = 'Accent';
-                            end)
-
-                            utility:Connection(objs.holder.MouseLeave, function()
-                                objs.border1.ThemeColor = slider.dragging and 'Accent' or 'Option Border 1';
-                            end)
-
-                            local c;
-                            local inputNumber = '';
-                            utility:Connection(slider.objects.holder.MouseButton1Down, function()
-                                if inputservice:IsKeyDown(Enum.KeyCode.LeftControl) then
-                                    if slider.focused then
-                                        slider.focused = false;
-                                        c:Disconnect();
-                                    else
-                                        objs.text.Text = tostring(slider.value)..tostring(slider.suffix)..'/'..tostring(slider.max)..tostring(slider.suffix)..' []';
-                                        slider.focused = true;
-                                        inputNumber = '';
-                                        c = utility:Connection(inputservice.InputBegan, function(inp)
-                                            if library.numberStrings[inp.KeyCode.Name] then
-                                                local number = library.numberStrings[inp.KeyCode.Name];
-                                                inputNumber = inputNumber..tostring(number);
-                                                objs.text.Text = string.format("%.14g", slider.value) .. tostring(slider.suffix) .. "/" .. slider.max .. tostring(slider.suffix) .. " [" .. inputNumber .. "]";
-                                            elseif inp.KeyCode == Enum.KeyCode.Backspace then
-                                                inputNumber = inputNumber:sub(1,-2);
-                                                objs.text.Text = string.format("%.14g", slider.value)..tostring(slider.suffix)..'/'..slider.max..tostring(slider.suffix)..' ['..inputNumber..']';
-                                            elseif inp.KeyCode == Enum.KeyCode.Return then
-                                                slider:SetValue(tonumber(inputNumber))
-                                                slider.focused = false;
-                                                c:Disconnect();
-                                            elseif inp.KeyCode == Enum.KeyCode.Escape then
-                                                slider:SetValue(slider.value, true)
-                                                slider.focused = false;
-                                                c:Disconnect();
-                                            end
-                                        end)
-                                    end
-                                else
-                                    slider.dragging = true;
-                                    library.draggingSlider = slider;
-                                end
-                            end)
-
-                            utility:Connection(button1up, function()
-                                objs.border1.ThemeColor = objs.holder.Hover and 'Accent' or 'Option Border 1';
-                                slider.dragging = false;
-                                library.draggingSlider = nil;
-                            end)
-
-                        end
-
-                        function slider:SetValue(value, nocallback)
-                            if typeof(value) == 'number' then
-                                local newValue = clamp(self.increment * floor(value/self.increment), self.min, self.max);
-                                local range = self.max - self.min
-                                if range == 0 then
-                                    range = 1
-                                end
-                                local valueT = math.clamp((newValue - self.min) / range, 0, 1)
-                                local size, pos
-                                if self.min < 0 and self.max > 0 then
-                                    local zeroT = -self.min / range
-                                    local leftT = math.min(valueT, zeroT)
-                                    size = newUDim2(math.abs(valueT - zeroT), 0, 1, 0)
-                                    pos = newUDim2(leftT, 0, 0, 0)
-                                else
-                                    size = newUDim2(valueT, 0, 1, 0)
-                                    pos = newUDim2(0, 0, 0, 0)
-                                end
-
-                                local anim = library.anim or {}
-                                local dur = self.dragging and (anim.sliderDrag or 0.08) or (anim.sliderSet or 0.28)
-                                utility:Tween(self.objects.slider, 'Size', size, dur, Enum.EasingDirection.Out, Enum.EasingStyle.Quart);
-                                utility:Tween(self.objects.slider, 'Position', pos, dur, Enum.EasingDirection.Out, Enum.EasingStyle.Quart);
-
-                                self.value = newValue;
-                                library.flags[self.flag] = newValue;
-                                self.objects.text.Text = string.format("%.14g",newValue)..tostring(self.suffix)..'/'..self.max..tostring(self.suffix);
-                                self.objects.text.ThemeColor = (self.min < 0 and newValue == 0 or newValue == self.min)  and (self.risky and 'Risky Text' or 'Option Text 3') or (self.risky and 'Risky Text Enabled' or 'Option Text 1');
-
-                                if not nocallback then
-                                    self.callback(newValue);
-                                end
-
-                            end
-                        end
-
-                        tooltip(slider);
-                        slider:SetValue(slider.value, true);
-                        self:UpdateOptions();
-                        return slider
-                    end
-
-                    function toggle:AddList(data)
-                        local list = {
-                            class = 'list';
-                            flag = data.flag;
-                            text = '';
-                            selected = '';
-                            tooltip = '';
-                            order = #self.options+1;
-                            callback = function() end;
-                            enabled = true;
-                            multi = false;
-                            open = false;
-                            values = {};
-                            objects = {};
-                        }
-
-                        table.insert(self.options, list);
-
-                        local blacklist = {'objects'};
-                        for i,v in next, data do
-                            if not table.find(blacklist, i) ~= list[i] ~= nil then
-                                list[i] = v
-                            end
-                        end
-
-                        if list.flag then
-                            library.flags[list.flag] = list.selected;
-                            library.options[list.flag] = list;
-                        end
-
-                        do
-                            local objs = list.objects;
-                            local z = library.zindexOrder.window+25;
-
-                            objs.holder = utility:Draw('Square', {
-                                Size = newUDim2(1,0,0,22);
-                                Transparency = 0;
-                                ZIndex = z+6;
-                                Parent = toggle.objects.holder;
-                            })
-
-                            objs.background = utility:Draw('Square', {
-                                Size = newUDim2(1,-4,1,-8);
-                                Position = newUDim2(0,2,0,4);
-                                ThemeColor = 'Option Background';
-                                ZIndex = z+2;
-                                Parent = objs.holder;
-                            })
-
-                            objs.border1 = utility:Draw('Square', {
-                                Size = newUDim2(1,2,1,2);
-                                Position = newUDim2(0,-1,0,-1);
-                                ThemeColor = 'Option Border 1';
-                                ZIndex = z+1;
-                                Parent = objs.background;
-                            })
-
-                            objs.border2 = utility:Draw('Square', {
-                                Size = newUDim2(1,2,1,2);
-                                Position = newUDim2(0,-1,0,-1);
-                                ThemeColor = 'Option Border 2';
-                                ZIndex = z;
-                                Parent = objs.border1;
-                            })
-
-                            objs.gradient = utility:Draw('Image', {
-                                Size = newUDim2(1,0,1,0);
-                                Data = library.images.gradientp90;
-                                Transparency = .78;
-                                ZIndex = z+4;
-                                Parent = objs.background;
-                            })
-
-                            objs.inputText = utility:Draw('Text', {
-                                Position = newUDim2(0,4,0,0);
-                                ThemeColor = 'Option Text 2';
-                                Text = 'none',
-                                Size = 13;
-                                Font = 2;
-                                ZIndex = z+5;
-                                Outline = true;
-                                Parent = objs.background;
-                            })
-
-                            objs.openText = utility:Draw('Text', {
-                                Position = newUDim2(1,-10,0,0);
-                                ThemeColor = 'Option Text 3';
-                                Text = '+';
-                                Size = 13;
-                                Font = 2;
-                                ZIndex = z+5;
-                                Outline = true;
-                                Parent = objs.background;
-                            })
-
-                            utility:Connection(objs.holder.MouseEnter, function()
-                                objs.border1.ThemeColor = 'Accent';
-                            end)
-
-                            utility:Connection(objs.holder.MouseLeave, function()
-                                objs.border1.ThemeColor = 'Option Border 1';
-                            end)
-
-                            utility:Connection(objs.holder.MouseButton1Down, function()
-                                if list.open then
-                                    list.open = false;
-                                    objs.openText.Text = '+';
-                                    if window.dropdown.selected == list then
-                                        window.dropdown.selected = nil;
-                                        window.dropdown.objects.background.Visible = false;
-                                    end
-                                else
-                                    if window.dropdown.selected ~= nil then
-                                        window.dropdown.selected.open = false
-                                    end
-                                    list.open = true;
-                                    objs.openText.Text = '-';
-                                    window.dropdown.selected = list;
-                                    window.dropdown.objects.background.Visible = true;
-                                    window.dropdown.objects.background.Parent = objs.holder;
-                                    do
-                                        local scrollTo = 0
-                                        local sel = list.selected
-                                        if typeof(sel) == 'string' then
-                                            local found = table.find(list.values, sel)
-                                            if found then scrollTo = math.max(0, found - 1) end
-                                        end
-                                        window.dropdown.scroll = scrollTo
-                                    end
-                                    window.dropdown:Refresh();
-                                end
-                            end)
-
-                        end
-
-                        function list:Select(option, nocallback)
-                            option = typeof(option) == 'table' and (self.multi == true and option or (#option == 0 and nil or option[1])) or self.multi == true and {option} or option;
-                            if option ~= nil then
-                                self.selected = option;
-                                local text = typeof(option) == 'table' and (#option == 0 and "none" or table.concat(option, ', ')) or tostring(option);
-                                local label = self.objects.inputText
-                                label.Text = text;
-                                if label.TextBounds.X > self.objects.background.Object.Size.X - 10 then
-                                    local split = text:split('');
-                                    for i = 1,#split do
-                                        label.Text = table.concat(split, '', 1, i)
-                                        if label.TextBounds.X > self.objects.background.Object.Size.X - 10 then
-                                            label.Text = label.Text:sub(1,-6)..'...';
-                                            break
-                                        end
-                                    end
-                                end
-                                if self.flag then
-                                    library.flags[self.flag] = self.selected
-                                end
-                                if not nocallback then
-                                    self.callback(self.selected);
-                                end
-                            end
-                        end
-
-                        function list:AddValue(value)
-                            table.insert(list.values, tostring(value));
-                            if window.dropdown.selected == list then
-                                window.dropdown:Refresh()
-                            end
-                        end
-
-                        function list:RemoveValue(value)
-                            if table.find(list.values, value) then
-                                table.remove(list.values, table.find(list.values, value));
-                                if window.dropdown.selected == list then
-                                    window.dropdown:Refresh()
-                                end
-                            end
-                        end
-
-                        function list:ClearValues()
-                            table.clear(list.values);
-                            if window.dropdown.selected == list then
-                                window.dropdown:Refresh()
-                            end
-                        end
-
-                        tooltip(list);
-                        list:Select((data.value or data.selected) or (list.multi and 'none' or list.values[1]), true);
-                        self:UpdateOptions();
-                        return list
-                    end
-
-                    tooltip(toggle);
-                    toggle:SetText(toggle.text);
-                    toggle:SetState(toggle.state, true);
-                    self:UpdateOptions();
-                    return toggle
-                end
-
-                function section:AddSlider(data)
-                    local slider = {
-                        class = 'slider';
-                        flag = data.flag;
-                        text = '';
-                        tooltip = '';
-                        suffix = '';
-                        order = #self.options+1;
-                        value = 0;
-                        min = 0;
-                        max = 100;
-                        increment = 1;
-                        callback = function() end;
-                        enabled = true;
-                        dragging = false;
-                        focused = false;
-                        risky = false;
-                        objects = {};
-                    };
-
-                    local blacklist = {'objects', 'dragging'};
-                    for i,v in next, data do
-                        if not table.find(blacklist, i) and (slider[i] ~= nil and typeof(slider[i]) == typeof(v)) then
-                            slider[i] = v;
-                        end
-                    end
-
-                    table.insert(self.options, slider)
-
-                    if slider.flag then
-                        library.flags[slider.flag] = slider.value;
-                        library.options[slider.flag] = slider;
-                    end
-
-                    do
-                        local objs = slider.objects;
-                        local z = library.zindexOrder.window+25;
-
-                        objs.holder = utility:Draw('Square', {
-                            Size = newUDim2(1,0,0,32);
-                            Transparency = 0;
-                            ZIndex = z+4;
-                            Parent = section.objects.optionholder;
-                        })
-
-                        objs.background = utility:Draw('Square', {
-                            Size = newUDim2(1,-4,0,11);
-                            Position = newUDim2(0,2,1,-14);
-                            ThemeColor = 'Option Background';
-                            ZIndex = z+2;
-                            Parent = objs.holder;
-                        })
-
-                        objs.slider = utility:Draw('Square', {
-                            Size = newUDim2(0,0,1,0);
-                            ThemeColor = 'Accent';
-                            ZIndex = z+3;
-                            Parent = objs.background;
-                        })
-
-                        objs.border1 = utility:Draw('Square', {
-                            Size = newUDim2(1,2,1,2);
-                            Position = newUDim2(0,-1,0,-1);
-                            ThemeColor = 'Option Border 1';
-                            ZIndex = z+1;
-                            Parent = objs.background;
-                        })
-
-                        objs.border2 = utility:Draw('Square', {
-                            Size = newUDim2(1,2,1,2);
-                            Position = newUDim2(0,-1,0,-1);
-                            ThemeColor = 'Option Border 2';
-                            ZIndex = z;
-                            Parent = objs.border1;
-                        })
-
-                        objs.gradient = utility:Draw('Image', {
-                            Size = newUDim2(1,0,1,0);
-                            Data = library.images.gradientp90;
-                            Transparency = .78;
-                            ZIndex = z+4;
-                            Parent = objs.background;
-                        })
-
-                        objs.text = utility:Draw('Text', {
-                            Position = newUDim2(0,2,0,1);
-                            ThemeColor = 'Option Text 3';
-                            Size = 13;
-                            Font = 2;
-                            ZIndex = z+1;
-                            Outline = true;
-                            Parent = objs.holder;
-                        })
-
-                        utility:Connection(objs.holder.MouseEnter, function()
-                            objs.border1.ThemeColor = 'Accent';
-                        end)
-
-                        utility:Connection(objs.holder.MouseLeave, function()
-                            objs.border1.ThemeColor = slider.dragging and 'Accent' or 'Option Border 1';
-                        end)
-
-                        local c;
-                        local inputNumber = '';
-                        utility:Connection(slider.objects.holder.MouseButton1Down, function()
-                            if inputservice:IsKeyDown(Enum.KeyCode.LeftControl) then
-                                if slider.focused then
-                                    slider.focused = false;
-                                    c:Disconnect();
-                                else
-                                    objs.text.Text = slider.text..': '..tostring(slider.value)..tostring(slider.suffix)..' []';
-                                    slider.focused = true;
-                                    inputNumber = '';
-                                    c = utility:Connection(inputservice.InputBegan, function(inp)
-                                        if library.numberStrings[inp.KeyCode.Name] then
-                                            local number = library.numberStrings[inp.KeyCode.Name];
-                                            inputNumber = inputNumber..tostring(number);
-                                            objs.text.Text = slider.text..': '..string.format("%.14g",slider.value)..tostring(slider.suffix)..' ['..inputNumber..']';
-                                        elseif inp.KeyCode == Enum.KeyCode.Backspace then
-                                            inputNumber = inputNumber:sub(1,-2);
-                                            objs.text.Text = slider.text..': '..string.format("%.14g",slider.value)..tostring(slider.suffix)..' ['..inputNumber..']';
-                                        elseif inp.KeyCode == Enum.KeyCode.Return then
-                                            slider:SetValue(tonumber(inputNumber))
-                                            slider.focused = false;
-                                            c:Disconnect();
-                                        elseif inp.KeyCode == Enum.KeyCode.Escape then
-                                            slider:SetValue(slider.value, true)
-                                            slider.focused = false;
-                                            c:Disconnect();
-                                        end
-                                    end)
-
-                                end
-
-                            else
-                                slider.dragging = true;
-                                library.draggingSlider = slider;
-                            end
-                        end)
-
-                        utility:Connection(button1up, function()
-                            objs.border1.ThemeColor = objs.holder.Hover and 'Accent' or 'Option Border 1';
-                            slider.dragging = false;
-                            library.draggingSlider = nil;
-                        end)
-
-                    end
-
-                    function slider:SetValue(value, nocallback)
-                        if typeof(value) == 'number' then
-                            local newValue = clamp(self.increment * floor(value/self.increment), self.min, self.max);
-                            local range = self.max - self.min
-                            if range == 0 then
-                                range = 1
-                            end
-                            local valueT = math.clamp((newValue - self.min) / range, 0, 1)
-                            local size, pos
-                            if self.min < 0 and self.max > 0 then
-                                local zeroT = -self.min / range
-                                local leftT = math.min(valueT, zeroT)
-                                size = newUDim2(math.abs(valueT - zeroT), 0, 1, 0)
-                                pos = newUDim2(leftT, 0, 0, 0)
-                            else
-                                size = newUDim2(valueT, 0, 1, 0)
-                                pos = newUDim2(0, 0, 0, 0)
-                            end
-
-                            local anim = library.anim or {}
-                            local dur = self.dragging and (anim.sliderDrag or 0.08) or (anim.sliderSet or 0.28)
-                            utility:Tween(self.objects.slider, 'Size', size, dur, Enum.EasingDirection.Out, Enum.EasingStyle.Quart);
-                            utility:Tween(self.objects.slider, 'Position', pos, dur, Enum.EasingDirection.Out, Enum.EasingStyle.Quart);
-
-                            self.value = newValue;
-                            library.flags[self.flag] = newValue;
-                            self.objects.text.Text = slider.text..': '..string.format("%.14g",newValue)..tostring(self.suffix);
-                            self.objects.text.ThemeColor = (self.min < 0 and newValue == 0 or newValue == self.min)  and (self.risky and 'Risky Text' or 'Option Text 3') or (self.risky and 'Risky Text Enabled' or 'Option Text 1');
-
-                            if not nocallback then
-                                self.callback(newValue);
-                            end
-
-                        end
-                    end
-
-                    function slider:SetText(str)
-                        if typeof(str) == 'string' then
-                            self.text = str;
-                            self.objects.text.Text = str..': '..tostring(self.value)..tostring(self.suffix);
-                        end
-                    end
-
-                    tooltip(slider);
-                    slider:SetText(slider.text);
-                    slider:SetValue(slider.value, true);
-                    self:UpdateOptions();
-                    return slider
-                end
-
-                function section:AddButton(data)
-                    local button = {
-                        class = 'button';
-                        flag = data.flag;
-                        text = '';
-                        suffix = '';
-                        tooltip = '';
-                        order = #self.options+1;
-                        callback = function() end;
-                        confirm = false;
-                        enabled = true;
-                        risky = false;
-                        objects = {};
-                        subbuttons = {};
-                    };
-
-                    local blacklist = {'objects'};
-                    for i,v in next, data do
-                        if not table.find(blacklist, i) and button[i] ~= nil then
-                            button[i] = v;
-                        end
-                    end
-
-                    table.insert(self.options, button)
-
-                    if button.flag then
-                        library.options[button.flag] = button;
-                    end
-
-                    do
-                        local objs = button.objects;
-                        local z = library.zindexOrder.window+25;
-
-                        objs.holder = utility:Draw('Square', {
-                            Size = newUDim2(1,0,0,22);
-                            Transparency = 0;
-                            ZIndex = z+4;
-                            Parent = section.objects.optionholder;
-                        })
-
-                        objs.background = utility:Draw('Square', {
-                            Size = newUDim2(1,-4,0,14);
-                            Position = newUDim2(0,2,0,4);
-                            ThemeColor = 'Option Background';
-                            ZIndex = z+2;
-                            Parent = objs.holder;
-                        })
-
-                        objs.border1 = utility:Draw('Square', {
-                            Size = newUDim2(1,2,1,2);
-                            Position = newUDim2(0,-1,0,-1);
-                            ThemeColor = 'Option Border 1';
-                            ZIndex = z+1;
-                            Parent = objs.background;
-                        })
-
-                        objs.border2 = utility:Draw('Square', {
-                            Size = newUDim2(1,2,1,2);
-                            Position = newUDim2(0,-1,0,-1);
-                            ThemeColor = 'Option Border 2';
-                            ZIndex = z;
-                            Parent = objs.border1;
-                        })
-
-                        objs.gradient = utility:Draw('Image', {
-                            Size = newUDim2(1,0,1,0);
-                            Data = library.images.gradientp90;
-                            Transparency = .78;
-                            ZIndex = z+3;
-                            Parent = objs.background;
-                        })
-
-                        objs.text = utility:Draw('Text', {
-                            Position = newUDim2(.5,0,0,0);
-                            ThemeColor = 'Option Text 3';
-                            Size = 13;
-                            Font = 2;
-                            ZIndex = z+4;
-                            Outline = true;
-                            Center = true;
-                            Parent = objs.background;
-                        })
-
-                        utility:Connection(objs.holder.MouseEnter, function()
-                            objs.border1.ThemeColor = 'Accent';
-                        end)
-
-                        utility:Connection(objs.holder.MouseLeave, function()
-                            objs.border1.ThemeColor = 'Option Border 1';
-                            objs.text.ThemeColor = self.risky and 'Risky Text' or 'Option Text 3';
-                            objs.background.ThemeColor = 'Option Background';
-                            objs.background.ThemeColorOffset = 0;
-                        end)
-
-                        utility:Connection(objs.holder.MouseButton1Up, function()
-                            objs.text.ThemeColor = self.risky and 'Risky Text' or  'Option Text 3';
-                            objs.background.ThemeColor = 'Option Background';
-                            objs.background.ThemeColorOffset = 0;
-                        end)
-
-                        local clicked, counting = false, false
-                        utility:Connection(objs.holder.MouseButton1Down, function()
-                            objs.text.ThemeColor = self.risky and 'Risky Text Enabled' or 'Option Text 2';
-                            objs.background.ThemeColor = 'Accent';
-                            objs.background.ThemeColorOffset = -95;
-
-                            task.spawn(function()
-                                if button.confirm then
-                                    if clicked then
-                                        clicked = false
-                                        counting = false
-                                        objs.text.Text = button.text
-                                        button.callback()
-                                    else
-                                        clicked = true
-                                        counting = true
-                                        for i = 3,1,-1 do
-                                            if not counting then
-                                                break
-                                            end
-                                            objs.text.Text = 'Confirm '..button.text..'? '..tostring(i)
-                                            wait(1)
-                                        end
-                                        clicked = false
-                                        counting = false
-                                        objs.text.Text = button.text
-                                    end
-                                else
-                                    button.callback()
-                                end
-                            end)
-
-                        end)
-
-                    end
-                    function button:AddButton(data)
-                        local button = {
-                            class = 'button';
-                            flag = data.flag;
-                            text = '';
-                            suffix = '';
-                            tooltip = '';
-                            order = #self.subbuttons+1;
-                            callback = function() end;
-                            confirm = false;
-                            enabled = true;
-                            objects = {};
-                        };
-
-                        local blacklist = {'objects'};
-                        for i,v in next, data do
-                            if not table.find(blacklist, i) and button[i] ~= nil then
-                                button[i] = v;
-                            end
-                        end
-
-                        table.insert(self.subbuttons, button)
-
-                        if button.flag then
-                            library.options[button.flag] = button;
-                        end
-
-                        do
-                            local objs = button.objects;
-                            local z = library.zindexOrder.window+25;
-
-                            objs.holder = utility:Draw('Square', {
-                                Size = newUDim2(1,0,1,0);
-                                Transparency = 0;
-                                ZIndex = z+5;
-                                Parent = self.objects.holder;
-                            })
-
-                            objs.background = utility:Draw('Square', {
-                                Size = newUDim2(1,-4,1,-8);
-                                Position = newUDim2(0,2,0,4);
-                                ThemeColor = 'Option Background';
-                                ZIndex = z+2;
-                                Parent = objs.holder;
-                            })
-
-                            objs.border1 = utility:Draw('Square', {
-                                Size = newUDim2(1,2,1,2);
-                                Position = newUDim2(0,-1,0,-1);
-                                ThemeColor = 'Option Border 1';
-                                ZIndex = z+1;
-                                Parent = objs.background;
-                            })
-
-                            objs.border2 = utility:Draw('Square', {
-                                Size = newUDim2(1,2,1,2);
-                                Position = newUDim2(0,-1,0,-1);
-                                ThemeColor = 'Option Border 2';
-                                ZIndex = z;
-                                Parent = objs.border1;
-                            })
-
-                            objs.gradient = utility:Draw('Image', {
-                                Size = newUDim2(1,0,1,0);
-                                Data = library.images.gradientp90;
-                                Transparency = .78;
-                                ZIndex = z+3;
-                                Parent = objs.background;
-                            })
-
-                            objs.text = utility:Draw('Text', {
-                                Position = newUDim2(.5,0,0,0);
-                                ThemeColor = 'Option Text 3';
-                                Size = 13;
-                                Font = 2;
-                                ZIndex = z+4;
-                                Outline = true;
-                                Center = true;
-                                Parent = objs.background;
-                            })
-
-                            utility:Connection(objs.holder.MouseEnter, function()
-                                objs.border1.ThemeColor = 'Accent';
-                            end)
-
-                            utility:Connection(objs.holder.MouseLeave, function()
-                                objs.border1.ThemeColor = 'Option Border 1';
-                                objs.text.ThemeColor = self.risky and 'Risky Text' or 'Option Text 3';
-                                objs.background.ThemeColor = 'Option Background';
-                                objs.background.ThemeColorOffset = 0;
-                            end)
-
-                            utility:Connection(objs.holder.MouseButton1Up, function()
-                                objs.text.ThemeColor = self.risky and 'Risky Text' or 'Option Text 3';
-                                objs.background.ThemeColor = 'Option Background';
-                                objs.background.ThemeColorOffset = 0;
-                            end)
-
-                            local clicked, counting = false, false
-                            utility:Connection(objs.holder.MouseButton1Down, function()
-                                objs.text.ThemeColor = self.risky and 'Risky Text Enabled' or 'Option Text 2';
-                                objs.background.ThemeColor = 'Accent';
-                                objs.background.ThemeColorOffset = -95;
-
-                                task.spawn(function()
-                                    if button.confirm then
-                                        if clicked then
-                                            clicked = false
-                                            counting = false
-                                            objs.text.Text = button.text
-                                            button.callback()
-                                        else
-                                            clicked = true
-                                            counting = true
-                                            for i = 3,1,-1 do
-                                                if not counting then
-                                                    break
-                                                end
-                                                objs.text.Text = 'Confirm '..button.text..'? '..tostring(i)
-                                                wait(1)
-                                            end
-                                            clicked = false
-                                            counting = false
-                                            objs.text.Text = button.text
-                                        end
-                                    else
-                                        button.callback()
-                                    end
-                                end)
-
-                            end)
-
-                        end
-
-                        function button:SetText(str)
-                            if typeof(str) == 'string' then
-                                self.text = str;
-                                self.objects.text.Text = str;
-                            end
-                        end
-
-                        tooltip(button);
-                        button:SetText(button.text);
-                        self:UpdateOptions();
-                        return button
-                    end
-
-                    function button:UpdateOptions()
-                        local buttons = 1 + #self.subbuttons;
-                        local buttonSize = (1 / buttons) - .005;
-                        self.objects.background.Size = newUDim2(buttonSize,-4,0,14);
-                        for i,v in next, self.subbuttons do
-                            v.objects.holder.Size = newUDim2(buttonSize,0,1,0);
-                            v.objects.holder.Position = newUDim2(i * buttonSize + .01, 0, 0, 0)
-                        end
-                    end
-
-                    function button:SetText(str)
-                        if typeof(str) == 'string' then
-                            self.text = str;
-                            self.objects.text.Text = str;
-                        end
-                    end
-
-                    tooltip(button);
-                    button:SetText(button.text);
-                    self:UpdateOptions();
-                    return button
-                end
-
-                function section:AddSeparator(data)
-                    local separator = {
-                        class = 'separator';
-                        flag = data.flag;
-                        text = '';
-                        order = #self.options+1;
-                        enabled = true;
-                        objects = {};
-                    };
-
-                    local blacklist = {'objects', 'dragging'};
-                    for i,v in next, data do
-                        if not table.find(blacklist, i) and (separator[i] ~= nil and typeof(separator[i]) == typeof(v)) then
-                            separator[i] = v;
-                        end
-                    end
-
-                    table.insert(self.options, separator)
-
-                    do
-                        local objs = separator.objects;
-                        local z = library.zindexOrder.window+25;
-
-                        objs.holder = utility:Draw('Square', {
-                            Size = newUDim2(1,0,0,18);
-                            Transparency = 0;
-                            ZIndex = z;
-                            Parent = section.objects.optionholder;
-                        })
-
-                        objs.line1 = utility:Draw('Square', {
-                            Position = newUDim2(0,0,0,1);
-                            ThemeColor = 'Option Background';
-                            ZIndex = z+1;
-                            Parent = objs.holder;
-                        })
-
-                        objs.line2 = utility:Draw('Square', {
-                            Position = newUDim2(0,0,0,1);
-                            ThemeColor = 'Option Background';
-                            ZIndex = z+1;
-                            Parent = objs.holder;
-                        })
-
-                        objs.border1 = utility:Draw('Square', {
-                            Size = newUDim2(1,2,1,2);
-                            Position = newUDim2(0,-1,0,-1);
-                            ThemeColor = 'Option Border 2';
-                            ZIndex = z;
-                            Parent = objs.line1;
-                        })
-
-                        objs.border2 = utility:Draw('Square', {
-                            Size = newUDim2(1,2,1,2);
-                            Position = newUDim2(0,-1,0,-1);
-                            ThemeColor = 'Option Border 2';
-                            ZIndex = z;
-                            Parent = objs.line2;
-                        })
-
-                        objs.text = utility:Draw('Text', {
-                            Position = newUDim2(.5,0,0,1);
-                            ThemeColor = 'Option Text 2';
-                            Size = 13;
-                            Font = 2;
-                            ZIndex = z;
-                            Outline = true;
-                            Center = true;
-                            Parent = objs.holder;
-                        })
-
-                    end
-
-                    function separator:SetText(str)
-                        if typeof(str) == 'string' then
-                            self.text = str;
-                            self.objects.text.Text = str;
-                            local xScale = ( 1- utility:ConvertNumberRange(self.objects.text.TextBounds.X, 0, self.objects.holder.Object.Size.X, 0, 1)) / 2 - (str == '' and 0 or .04)
-                            self.objects.line1.Size = newUDim2(xScale, 0, 0, 1)
-                            self.objects.line2.Size = newUDim2(xScale, 0, 0, 1)
-                            self.objects.line1.Position = newUDim2(0,1,.5,-1)
-                            self.objects.line2.Position = newUDim2(1 - self.objects.line2.Size.X.Scale,-1,.5,-1)
-                        end
-                    end
-
-                    separator:SetText(separator.text);
-                    self:UpdateOptions();
-                    return separator
-                end
-
-                function section:AddColor(data)
-                    local color = {
-                        class = 'color';
-                        flag = data.flag;
-                        text = '';
-                        tooltip = '';
-                        order = #self.options+1;
-                        callback = function() end;
-                        color = Color3.new(1,1,1);
-                        trans = 0;
-                        open = false;
-                        enabled = true;
-                        risky = false;
-                        objects = {};
-                    };
-
-                    local blacklist = {'objects'};
-                    for i,v in next, data do
-                        if not table.find(blacklist, i) and color[i] ~= nil then
-                            color[i] = v
-                        end
-                    end
-
-                    table.insert(self.options, color)
-
-                    if color.flag then
-                        library.flags[color.flag] = color.color;
-                        library.options[color.flag] = color;
-                    end
-
-                    do
-                        local objs = color.objects;
-                        local z = library.zindexOrder.window+25;
-
-                        objs.holder = utility:Draw('Square', {
-                            Size = newUDim2(1,0,0,19);
-                            Transparency = 0;
-                            ZIndex = z+5;
-                            Parent = section.objects.optionholder;
-                        })
-
-                        objs.background = utility:Draw('Square', {
-                            Size = newUDim2(0,15,0,13);
-                            Position = newUDim2(1,-16,0,3);
-                            ZIndex = z+3;
-                            Parent = objs.holder;
-                        })
-
-                        objs.gradient = utility:Draw('Image', {
-                            Size = newUDim2(1,0,1,0);
-                            Data = library.images.gradientp45;
-                            Transparency = .25;
-                            ZIndex = z+4;
-                            Parent = objs.background;
-                        })
-
-                        objs.border1 = utility:Draw('Square', {
-                            Size = newUDim2(1,2,1,2);
-                            Position = newUDim2(0,-1,0,-1);
-                            ThemeColor = 'Option Border 1';
-                            ZIndex = z+2;
-                            Parent = objs.background;
-                        })
-
-                        objs.border2 = utility:Draw('Square', {
-                            Size = newUDim2(1,2,1,2);
-                            Position = newUDim2(0,-1,0,-1);
-                            ThemeColor = 'Option Border 2';
-                            ZIndex = z+1;
-                            Parent = objs.border1;
-                        })
-
-                        objs.text = utility:Draw('Text', {
-                            Position = newUDim2(0,2,0,2);
-                            ThemeColor = color.risky and 'Risky Text Enabled' or 'Option Text 3';
-                            Size = 13;
-                            Font = 2;
-                            ZIndex = z+1;
-                            Outline = true;
-                            Parent = objs.holder;
-                        })
-
-                        utility:Connection(objs.holder.MouseEnter, function()
-                            objs.border1.ThemeColor = 'Accent';
-                        end)
-
-                        utility:Connection(objs.holder.MouseLeave, function()
-                            objs.border1.ThemeColor = color.state and 'Accent' or 'Option Border 1';
-                        end)
-
-                        utility:Connection(objs.holder.MouseButton1Down, function()
-                            color:SetOpen(not color.open);
-                        end)
-
-                    end
-
-                    function color:SetText(str)
-                        if typeof(str) == 'string' then
-                            self.text = str;
-                            self.objects.text.Text = str;
-                        end
-                    end
-
-                    function color:SetColor(c3, nocallback)
-                        if typeof(c3) == 'Color3' then
-                            local h,s,v = c3:ToHSV(); c3 = fromhsv(h, clamp(s,.005,.995), clamp(v,.005,.995));
-                            self.color = c3;
-                            self.objects.background.Color = c3;
-                            if not nocallback then
-                                self.callback(c3, self.trans);
-                            end
-                            if self.open then
-                                window.colorpicker:Visualize(self.color, self.trans);
-                            end
-                            if self.flag then
-                                library.flags[self.flag] = c3;
-                            end
-                        end
-                    end
-
-                    function color:SetTrans(trans, nocallback)
-                        if typeof(trans) == 'number' then
-                            self.trans = trans;
-                            if not nocallback then
-                                self.callback(self.color, trans);
-                            end
-                            if self.open then
-                                window.colorpicker:Visualize(self.color, self.trans);
-                            end
-                        end
-                    end
-
-                    function color:SetOpen(bool)
-                        if typeof(bool) == 'boolean' then
-                            self.open = bool
-                            if bool then
-                                if window.colorpicker.selected then
-                                    window.colorpicker.selected.open = false;
-                                end
-                                window.colorpicker.selected = color
-                                window.colorpicker.objects.background.Parent = self.objects.background;
-                                window.colorpicker.objects.background.Visible = true;
-                                window.colorpicker:Visualize(color.color, color.trans)
-                            elseif window.colorpicker.selected == color then
-                                window.colorpicker.selected = nil;
-                                window.colorpicker.objects.background.Parent = window.objects.background;
-                                window.colorpicker.objects.background.Visible = false;
-                            end
-                        end
-                    end
-
-                    tooltip(color);
-                    color:SetText(color.text);
-                    color:SetColor(color.color, true);
-                    color:SetTrans(color.trans, true);
-                    self:UpdateOptions();
-                    return color
-                end
-
-                function section:AddBox(data)
-                    local box = {
-                        class = 'box';
-                        flag = data.flag;
-                        text = '';
-                        input = '';
-                        order = #self.options+1;
-                        callback = function() end;
-                        enabled = true;
-                        focused = false;
-                        risky = false;
-                        objects = {};
-                    };
-
-                    local blacklist = {'objects', 'dragging'};
-                    for i,v in next, data do
-                        if not table.find(blacklist, i) and box[i] ~= nil then
-                            box[i] = v;
-                        end
-                    end
-
-                    table.insert(self.options, box)
-
-                    if box.flag then
-                        library.flags[box.flag] = box.input;
-                        library.options[box.flag] = box;
-                    end
-
-                    do
-                        local objs = box.objects;
-                        local z = library.zindexOrder.window+25;
-
-                        objs.holder = utility:Draw('Square', {
-                            Size = newUDim2(1,0,0,37);
-                            Transparency = 0;
-                            ZIndex = z+4;
-                            Parent = section.objects.optionholder;
-                        })
-
-                        objs.background = utility:Draw('Square', {
-                            Size = newUDim2(1,-4,0,15);
-                            Position = newUDim2(0,2,1,-17);
-                            ThemeColor = 'Option Background';
-                            ZIndex = z+2;
-                            Parent = objs.holder;
-                        })
-
-                        objs.border1 = utility:Draw('Square', {
-                            Size = newUDim2(1,2,1,2);
-                            Position = newUDim2(0,-1,0,-1);
-                            ThemeColor = 'Option Border 1';
-                            ZIndex = z+1;
-                            Parent = objs.background;
-                        })
-
-                        objs.border2 = utility:Draw('Square', {
-                            Size = newUDim2(1,2,1,2);
-                            Position = newUDim2(0,-1,0,-1);
-                            ThemeColor = 'Option Border 2';
-                            ZIndex = z;
-                            Parent = objs.border1;
-                        })
-
-                        objs.gradient = utility:Draw('Image', {
-                            Size = newUDim2(1,0,1,0);
-                            Data = library.images.gradientp90;
-                            Transparency = .78;
-                            ZIndex = z+4;
-                            Parent = objs.background;
-                        })
-
-                        objs.text = utility:Draw('Text', {
-                            Position = newUDim2(0,2,0,2);
-                            ThemeColor = box.risky and 'Risky Text Enabled' or 'Option Text 2';
-                            Size = 13;
-                            Font = 2;
-                            ZIndex = z+1;
-                            Outline = true;
-                            Parent = objs.holder;
-                        })
-
-                        objs.inputText = utility:Draw('Text', {
-                            Position = newUDim2(0,2,0,0);
-                            ThemeColor = 'Option Text 2';
-                            Size = 13;
-                            Font = 2;
-                            ZIndex = z+5;
-                            Outline = true;
-                            Parent = objs.background;
-                        })
-
-                        utility:Connection(objs.holder.MouseEnter, function()
-                            objs.border1.ThemeColor = 'Accent';
-                        end)
-
-                        utility:Connection(objs.holder.MouseLeave, function()
-                            objs.border1.ThemeColor = 'Option Border 1';
-                        end)
-
-                        utility:Connection(objs.holder.MouseButton1Down, function()
-                            if box.focused then
-                                box:ReleaseFocus();
-                            else
-                                box:CaptureFocus(inputservice:IsKeyDown(Enum.KeyCode.LeftControl));
-                                if inputservice:IsKeyDown(Enum.KeyCode.LeftControl) then
-                                    objs.inputText.Text = '';
-                                end
-                            end
-                        end)
-
-                    end
-
-                    function box:SetText(str)
-                        if typeof(str) == 'string' then
-                            self.text = str;
-                            self.objects.text.Text = str;
-                        end
-                    end
-
-                    function box:SetInput(str, nocallback)
-                        if typeof(str) == 'string' then
-                            self.input = str;
-                            self.objects.inputText.Text = str;
-                            if not nocallback then
-                                self.callback(str);
-                            end
-                            if self.flag then
-                                library.flags[self.flag] = str;
-                            end
-                        end
-                    end
-
-                    local c
-                    local input = box.input;
-                    function box:CaptureFocus(clear)
-                        box.focused = true
-
-                        if clear then
-                            input = '';
-                        end
-
-                        pcall(function()
-                            actionservice:BindAction(
-                                'FreezeMovement',
-                                function()
-                                    return Enum.ContextActionResult.Sink
-                                end,
-                                false,
-                                unpack(Enum.PlayerActions:GetEnumItems())
-                            )
-                            actionservice:BindAction(
-                                'SonataBoxKeys',
-                                function()
-                                    return Enum.ContextActionResult.Sink
-                                end,
-                                false,
-                                Enum.KeyCode.Slash,
-                                Enum.KeyCode.Period,
-                                Enum.KeyCode.Escape
-                            )
-                        end)
-
-                        self.objects.inputText.ThemeColor = 'Option Text 1';
-                        self.objects.inputText.Text = input;
-                        c = utility:Connection(inputservice.InputBegan, function(inp)
-                            if inp.UserInputType ~= Enum.UserInputType.Keyboard and inp.UserInputType ~= Enum.UserInputType.MouseButton1 then
-                                return
-                            end
-                            if inp.KeyCode == Enum.KeyCode.Return or inp.UserInputType == Enum.UserInputType.MouseButton1 then
-                                box:ReleaseFocus(true);
-                            elseif inp.KeyCode == Enum.KeyCode.Escape then
-                                input = self.input
-                                self.objects.inputText.Text = input;
-                                box:ReleaseFocus();
-                            elseif inp.KeyCode == Enum.KeyCode.Backspace then
-                                if inputservice:IsKeyDown(Enum.KeyCode.LeftControl) or inputservice:IsKeyDown(Enum.KeyCode.RightControl) then
-                                    input = '';
-                                else
-                                    input = string.sub(input, 1, -2);
-                                end
-                                self.objects.inputText.Text = input;
-                            else
-                                if inputservice:IsKeyDown(Enum.KeyCode.LeftControl) or inputservice:IsKeyDown(Enum.KeyCode.RightControl) then
-                                    if inp.KeyCode == Enum.KeyCode.V then
-                                        local clip = '';
-                                        pcall(function()
-                                            local env = getfenv()
-                                            local fn = env.getclipboard or env.get_clipboard
-                                            if typeof(fn) ~= 'function' and type(env.syn) == 'table' then
-                                                fn = env.syn.getclipboard or env.syn.get_clipboard
-                                            end
-                                            if typeof(fn) == 'function' then
-                                                clip = tostring(fn() or '')
-                                            end
-                                        end)
-                                        if clip ~= '' then
-                                            clip = string.gsub(clip, '[\r\n\t]', ' ')
-                                            clip = string.gsub(clip, '%s+', ' ')
-                                            input = input .. clip
-                                            self.objects.inputText.Text = input
-                                        end
-                                    end
-                                    return
-                                end
-                                local keyString = boxKeyToChar(inp.KeyCode)
-                                if type(keyString) == 'string' and keyString ~= '' then
-                                    input = input .. keyString;
-                                    self.objects.inputText.Text = input;
-                                end
-                            end
-                        end)
-
-                    end
-
-                    function box:ReleaseFocus(apply)
-                        box.focused = false;
-                        self.objects.inputText.ThemeColor = 'Option Text 2';
-                        pcall(function()
-                            actionservice:UnbindAction('FreezeMovement');
-                            actionservice:UnbindAction('SonataBoxKeys');
-                        end)
-                        if apply then
-                            local cleaned = string.gsub(input or '', '[\r\n\t]', ' ')
-                            cleaned = string.gsub(cleaned, '%s+', ' ')
-                            cleaned = string.gsub(cleaned, '^%s+', '')
-                            cleaned = string.gsub(cleaned, '%s+$', '')
-                            input = cleaned
-                            box:SetInput(cleaned);
-                        end
-                        if c then
-                            c:Disconnect();
-                        end
-                    end
-
-                    tooltip(box);
-                    box:SetText(box.text);
-                    box:SetInput(box.input, true);
-                    self:UpdateOptions();
-                    return box
-                end
-
-                function section:AddBind(data)
-                    local bind = {
-                        class = 'bind';
-                        flag = data.flag;
-                        text = '';
-                        tooltip = '';
-                        bind = 'none';
-                        mode = 'toggle';
-                        order = #self.options+1;
-                        callback = function() end;
-                        keycallback = function() end;
-                        indicatorValue = library.keyIndicator:AddValue({value = 'value', key = 'key', enabled = false});
-                        noindicator = false;
-                        state = false;
-                        nomouse = false;
-                        enabled = true;
-                        binding = false;
-                        risky = false;
-                        objects = {};
-                    };
-
-                    local blacklist = {'objects'};
-                    for i,v in next, data do
-                        if not table.find(blacklist, i) and bind[i] ~= nil then
-                            bind[i] = v
-                        end
-                    end
-
-                    table.insert(self.options, bind)
-
-                    if bind.flag then
-                        library.options[bind.flag] = bind;
-                    end
-
-                    do
-                        local objs = bind.objects;
-                        local z = library.zindexOrder.window+25;
-
-                        objs.holder = utility:Draw('Square', {
-                            Size = newUDim2(1,0,0,19);
-                            Transparency = 0;
-                            ZIndex = z+5;
-                            Parent = section.objects.optionholder;
-                        })
-
-                        objs.text = utility:Draw('Text', {
-                            Position = newUDim2(0,2,0,2);
-                            ThemeColor = bind.risky and 'Risky Text' or 'Option Text 2';
-                            Size = 13;
-                            Font = 2;
-                            ZIndex = z+1;
-                            Outline = true;
-                            Parent = objs.holder;
-                        })
-
-                        objs.keyText = utility:Draw('Text', {
-                            ThemeColor = 'Option Text 3';
-                            Size = 13;
-                            Font = 2;
-                            ZIndex = z+1;
-                            Parent = objs.holder;
-                        })
-
-                        utility:Connection(objs.holder.MouseEnter, function()
-                            objs.keyText.ThemeColor = 'Accent';
-                        end)
-
-                        utility:Connection(objs.holder.MouseLeave, function()
-                            objs.keyText.ThemeColor = bind.binding and 'Accent' or 'Option Text 3';
-                        end)
-
-                        utility:Connection(objs.holder.MouseButton1Down, function()
-                            if not bind.binding then
-                                bind:SetKeyText('...');
-                                bind.binding = true;
-                            end
-                        end)
-
-                    end
-
-                    local c
-
-                    function bind:SetText(str)
-                        if typeof(str) == 'string' then
-                            self.text = str;
-                            self.objects.text.Text = str;
-                            self.indicatorValue:SetKey(str);
-                        end
-                    end
-
-                    function bind:SetBind(keybind)
-                        if c then
-                            c:Disconnect();
-                            if bind.flag then
-                                library.flags[bind.flag] = false;
-                            end
-                            bind.callback(false);
-                        end
-                        local keyName = 'NONE'
-                        self.bind = (keybind and keybind) or keybind or self.bind
-                        if self.bind == Enum.KeyCode.Backspace then
-                            self.bind = 'none';
-                        else
-                            keyName = keyNames[keybind] or keybind.Name or keybind
-                        end
-                        self.keycallback(self.bind);
-                        self:SetKeyText(keyName:upper());
-                        self.indicatorValue:SetKey((self.text == nil or self.text == '') and (self.flag == nil and 'unknown' or self.flag) or self.text);
-                        self.indicatorValue:SetValue('['..keyName:upper()..']');
-                        self.objects.keyText.ThemeColor = self.objects.holder.Hover and 'Accent' or 'Option Text 3';
-                    end
-
-                    function bind:SetKeyText(str)
-                        str = tostring(str);
-                        self.objects.keyText.Text = '['..str..']';
-                        self.objects.keyText.Position = newUDim2(1,-self.objects.keyText.TextBounds.X, 0, 2);
-                    end
-
-                    utility:Connection(inputservice.InputBegan, function(inp)
-                        if inputservice:GetFocusedTextBox() then
-                            return
-                        elseif bind.binding then
-                            local key = (table.find({Enum.UserInputType.MouseButton1, Enum.UserInputType.MouseButton2, Enum.UserInputType.MouseButton3}, inp.UserInputType) and not bind.nomouse) and inp.UserInputType
-                            bind:SetBind(key or (not table.find(blacklistedKeys, inp.KeyCode)) and inp.KeyCode)
-                            bind.binding = false
-                        elseif not bind.binding and self.bind == 'none' then
-                            bind.state = true
-                            library.flags[bind.flag] = bind.state
-                        elseif (inp.KeyCode == bind.bind or inp.UserInputType == bind.bind) and not bind.binding then
-                            if bind.mode == 'toggle' then
-                                bind.state = not bind.state
-                                if bind.flag then
-                                    library.flags[bind.flag] = bind.state;
-                                end
-                                bind.callback(bind.state)
-                                bind.indicatorValue:SetEnabled(bind.state and not bind.noindicator);
-                            elseif bind.mode == 'hold' then
-                                if bind.flag then
-                                    library.flags[bind.flag] = true;
-                                end
-                                bind.indicatorValue:SetEnabled(true and not bind.noindicator);
-                                c = utility:Connection(runservice.RenderStepped, function()
-                                    bind.callback(true);
-                                end)
-                            end
-                        end
-                    end)
-
-                    utility:Connection(inputservice.InputEnded, function(inp)
-                        if bind.bind ~= 'none' then
-                            if inp.KeyCode == bind.bind or inp.UserInputType == bind.key then
-                                if c then
-                                    c:Disconnect();
-                                    if bind.flag then
-                                        library.flags[bind.flag] = false;
-                                    end
-                                    bind.callback(false);
-                                    bind.indicatorValue:SetEnabled(false);
-                                end
-                            end
-                        end
-                    end)
-
-                    tooltip(bind);
-                    bind:SetBind(bind.bind);
-                    bind:SetText(bind.text);
-                    self:UpdateOptions();
-                    return bind
-                end
-
-                function section:AddList(data)
-                    local list = {
-                        class = 'list';
-                        flag = data.flag;
-                        text = '';
-                        selected = '';
-                        tooltip = '';
-                        order = #self.options+1;
-                        callback = function() end;
-                        enabled = true;
-                        multi = false;
-                        open = false;
-                        risky = false;
-                        values = {};
-                        objects = {};
-                    }
-
-                    table.insert(self.options, list);
-
-                    local blacklist = {'objects'};
-                    for i,v in next, data do
-                        if not table.find(blacklist, i) ~= list[i] ~= nil then
-                            list[i] = v
-                        end
-                    end
-
-                    if list.flag then
-                        library.flags[list.flag] = list.selected;
-                        library.options[list.flag] = list;
-                    end
-
-                    do
-                        local objs = list.objects;
-                        local z = library.zindexOrder.window+25;
-
-                        objs.holder = utility:Draw('Square', {
-                            Size = newUDim2(1,0,0,40);
-                            Transparency = 0;
-                            ZIndex = z+4;
-                            Parent = section.objects.optionholder;
-                        })
-
-                        objs.background = utility:Draw('Square', {
-                            Size = newUDim2(1,-4,0,15);
-                            Position = newUDim2(0,2,1,-19);
-                            ThemeColor = 'Option Background';
-                            ZIndex = z+2;
-                            Parent = objs.holder;
-                        })
-
-                        objs.border1 = utility:Draw('Square', {
-                            Size = newUDim2(1,2,1,2);
-                            Position = newUDim2(0,-1,0,-1);
-                            ThemeColor = 'Option Border 1';
-                            ZIndex = z+1;
-                            Parent = objs.background;
-                        })
-
-                        objs.border2 = utility:Draw('Square', {
-                            Size = newUDim2(1,2,1,2);
-                            Position = newUDim2(0,-1,0,-1);
-                            ThemeColor = 'Option Border 2';
-                            ZIndex = z;
-                            Parent = objs.border1;
-                        })
-
-                        objs.gradient = utility:Draw('Image', {
-                            Size = newUDim2(1,0,1,0);
-                            Data = library.images.gradientp90;
-                            Transparency = .78;
-                            ZIndex = z+4;
-                            Parent = objs.background;
-                        })
-
-                        objs.text = utility:Draw('Text', {
-                            Position = newUDim2(0,2,0,2);
-                            ThemeColor = list.risky and 'Risky Text Enabled' or 'Option Text 2';
-                            Size = 13;
-                            Font = 2;
-                            ZIndex = z+1;
-                            Outline = true;
-                            Parent = objs.holder;
-                        })
-
-                        objs.inputText = utility:Draw('Text', {
-                            Position = newUDim2(0,4,0,0);
-                            ThemeColor = 'Option Text 2';
-                            Text = 'none',
-                            Size = 13;
-                            Font = 2;
-                            ZIndex = z+5;
-                            Outline = true;
-                            Parent = objs.background;
-                        })
-
-                        objs.openText = utility:Draw('Text', {
-                            Position = newUDim2(1,-10,0,0);
-                            ThemeColor = 'Option Text 3';
-                            Text = '+';
-                            Size = 13;
-                            Font = 2;
-                            ZIndex = z+5;
-                            Outline = true;
-                            Parent = objs.background;
-                        })
-
-                        utility:Connection(objs.holder.MouseEnter, function()
-                            objs.border1.ThemeColor = 'Accent';
-                        end)
-
-                        utility:Connection(objs.holder.MouseLeave, function()
-                            objs.border1.ThemeColor = 'Option Border 1';
-                        end)
-
-                        utility:Connection(objs.holder.MouseButton1Down, function()
-                            if list.open then
-                                list.open = false;
-                                objs.openText.Text = '+';
-                                if window.dropdown.selected == list then
-                                    window.dropdown.selected = nil;
-                                    window.dropdown.objects.background.Visible = false;
-                                end
-                            else
-                                if window.dropdown.selected ~= nil then
-                                    window.dropdown.selected.open = false
-                                end
-                                list.open = true;
-                                objs.openText.Text = '-';
-                                window.dropdown.selected = list;
-                                window.dropdown.objects.background.Visible = true;
-                                window.dropdown.objects.background.Parent = objs.holder;
-                                do
-                                    local scrollTo = 0
-                                    local sel = list.selected
-                                    if typeof(sel) == 'string' then
-                                        local found = table.find(list.values, sel)
-                                        if found then scrollTo = math.max(0, found - 1) end
-                                    end
-                                    window.dropdown.scroll = scrollTo
-                                end
-                                window.dropdown:Refresh();
-                            end
-                        end)
-
-                    end
-
-                    function list:SetText(str)
-                        if typeof(str) == 'string' then
-                            self.text = str;
-                            self.objects.text.Text = str;
-                        end
-                    end
-
-                    function list:Select(option, nocallback)
-                        option = typeof(option) == 'table' and (self.multi == true and option or (#option == 0 and nil or option[1])) or self.multi == true and {option} or option;
-                        if option ~= nil then
-                            self.selected = option;
-                            local text = typeof(option) == 'table' and (#option == 0 and "none" or table.concat(option, ', ')) or tostring(option);
-                            local label = self.objects.inputText
-                            label.Text = text;
-                            if label.TextBounds.X > self.objects.background.Object.Size.X - 10 then
-                                local split = text:split('');
-                                for i = 1,#split do
-                                    label.Text = table.concat(split, '', 1, i)
-                                    if label.TextBounds.X > self.objects.background.Object.Size.X - 10 then
-                                        label.Text = label.Text:sub(1,-6)..'...';
-                                        break
-                                    end
-                                end
-                            end
-                            if self.flag then
-                                library.flags[self.flag] = self.selected
-                            end
-                            if not nocallback then
-                                self.callback(self.selected);
-                            end
-                        end
-                    end
-
-                    function list:AddValue(value)
-                        table.insert(list.values, tostring(value));
-                        if window.dropdown.selected == list then
-                            window.dropdown:Refresh()
-                        end
-                    end
-
-                    function list:RemoveValue(value)
-                        if table.find(list.values, value) then
-                            table.remove(list.values, table.find(list.values, value));
-                            if window.dropdown.selected == list then
-                                window.dropdown:Refresh()
-                            end
-                        end
-                    end
-
-                    function list:ClearValues()
-                        table.clear(list.values);
-                        if window.dropdown.selected == list then
-                            window.dropdown:Refresh()
-                        end
-                    end
-
-                    function list:SetValues(values)
-                        table.clear(list.values)
-                        if type(values) == "table" then
-                            for _, value in values do
-                                table.insert(list.values, tostring(value))
-                            end
-                        end
-                        if window.dropdown.selected == list then
-                            window.dropdown:Refresh()
-                        end
-                    end
-
-                    tooltip(list);
-                    list:Select((data.value or data.selected) or (list.multi and 'none' or list.values[1]), true);
-                    list:SetText(list.text);
-                    self:UpdateOptions();
-                    return list
-                end
-
-                function section:AddScrollList(data)
-                    local scrolllist = {
-                        class = 'scrolllist';
-                        flag = data.flag;
-                        text = '';
-                        selected = '';
-                        tooltip = '';
-                        order = #self.options+1;
-                        callback = function() end;
-                        enabled = true;
-                        risky = false;
-                        values = {};
-                        scroll = 0;
-                        max = 12;
-                        hovered = false;
-                        objects = {};
-                        rows = {};
-                    };
-
-                    table.insert(self.options, scrolllist);
-
-                    local blacklist = {'objects', 'rows', 'values'};
-                    for i,v in next, data do
-                        if not table.find(blacklist, i) and scrolllist[i] ~= nil then
-                            scrolllist[i] = v
-                        end
-                    end
-                    if typeof(data.max) == 'number' then
-                        scrolllist.max = math.max(3, math.floor(data.max))
-                    end
-                    if typeof(data.values) == 'table' then
-                        table.clear(scrolllist.values)
-                        for _, value in next, data.values do
-                            table.insert(scrolllist.values, tostring(value))
-                        end
-                    end
-
-                    if scrolllist.flag then
-                        library.flags[scrolllist.flag] = scrolllist.selected;
-                        library.options[scrolllist.flag] = scrolllist;
-                    end
-
-                    local rowH, rowPad = 18, 2
-                    local listH = 4 + scrolllist.max * (rowH + rowPad)
-                    local lastHolderH = -1
-                    scrolllist.fill = data.fill == true
-                    scrolllist.reserveExtra = typeof(data.reserve) == 'number' and data.reserve or 0
-
-                    do
-                        local objs = scrolllist.objects;
-                        local z = library.zindexOrder.window+25;
-
-                        objs.holder = utility:Draw('Square', {
-                            Size = newUDim2(1,0,0, listH + 18);
-                            Transparency = 0;
-                            ZIndex = z;
-                            Parent = section.objects.optionholder;
-                        })
-
-                        objs.text = utility:Draw('Text', {
-                            Position = newUDim2(0,2,0,2);
-                            ThemeColor = scrolllist.risky and 'Risky Text Enabled' or 'Option Text 2';
-                            Size = 13;
-                            Font = 2;
-                            ZIndex = z+1;
-                            Outline = true;
-                            Parent = objs.holder;
-                        })
-
-                        objs.background = utility:Draw('Square', {
-                            Size = newUDim2(1,-4,0,listH);
-                            Position = newUDim2(0,2,0,16);
-                            ThemeColor = 'Option Background';
-                            ZIndex = z+2;
-                            Parent = objs.holder;
-                        })
-
-                        objs.border1 = utility:Draw('Square', {
-                            Size = newUDim2(1,2,1,2);
-                            Position = newUDim2(0,-1,0,-1);
-                            ThemeColor = 'Option Border 1';
-                            ZIndex = z+1;
-                            Parent = objs.background;
-                        })
-
-                        objs.border2 = utility:Draw('Square', {
-                            Size = newUDim2(1,2,1,2);
-                            Position = newUDim2(0,-1,0,-1);
-                            ThemeColor = 'Option Border 2';
-                            ZIndex = z;
-                            Parent = objs.border1;
-                        })
-
-                        local function setHoverAccent(on)
-                            objs.border1.ThemeColor = on and 'Accent' or 'Option Border 1'
-                        end
-
-                        local function mouseOverList()
-                            local bg = objs.background.Object
-                            return bg ~= nil and bg.Visible == true and utility:MouseOver(bg)
-                        end
-                        scrolllist.mouseOverList = mouseOverList
-
-                        local function pickFromMouse(pos)
-                            local bg = objs.background.Object
-                            if not bg then
-                                return
-                            end
-                            local relY = pos.Y - bg.Position.Y
-                            local slot = math.floor((relY - 2) / (rowH + rowPad)) + 1
-                            if slot < 1 or slot > scrolllist.max then
-                                return
-                            end
-                            local idx = (scrolllist.scroll or 0) + slot
-                            local val = scrolllist.values[idx]
-                            if val ~= nil then
-                                scrolllist:Select(val)
-                            end
-                        end
-
-                        utility:Connection(objs.background.MouseButton1Down, function(pos)
-                            pickFromMouse(pos or utility:MouseLocation())
-                        end)
-
-                        local function createRow(slot)
-                            local row = {};
-                            row.background = utility:Draw('Square', {
-                                Size = newUDim2(1,-4,0,rowH);
-                                Position = newUDim2(0,2,0,2 + (slot-1)*(rowH+rowPad));
-                                Color = Color3.new(.25,.25,.25);
-                                Transparency = 0;
-                                Visible = false;
-                                ZIndex = z+5;
-                                Parent = objs.background;
-                            })
-                            row.text = utility:Draw('Text', {
-                                Position = newUDim2(0,4,0,1);
-                                ThemeColor = 'Option Text 2';
-                                Text = '';
-                                Size = 13;
-                                Font = 2;
-                                ZIndex = z+6;
-                                Outline = true;
-                                Parent = row.background;
-                            })
-                            row.slot = slot
-                            utility:Connection(row.background.MouseButton1Down, function()
-                                local idx = (scrolllist.scroll or 0) + row.slot
-                                local val = scrolllist.values[idx]
-                                if val ~= nil then
-                                    scrolllist:Select(val)
-                                end
-                            end)
-                            scrolllist.rows[slot] = row
-                            return row
-                        end
-
-                        for slot = 1, scrolllist.max do
-                            createRow(slot)
-                        end
-                        scrolllist._createRow = createRow
-
-                        utility:Connection(mousemove, function()
-                            if not library.open or not scrolllist.enabled then
-                                scrolllist.hovered = false
-                                return
-                            end
-                            local over = mouseOverList()
-                            if over ~= scrolllist.hovered then
-                                scrolllist.hovered = over
-                                setHoverAccent(over)
-                            end
-                        end)
-                    end
-
-                    function scrolllist:SetVisibleCount(count)
-                        count = math.clamp(math.floor(tonumber(count) or self.max), 4, 32)
-                        if count == self.max and self.rows[count] then
-                            return false
-                        end
-                        if count > self.max then
-                            for slot = self.max + 1, count do
-                                if not self.rows[slot] and self._createRow then
-                                    self._createRow(slot)
-                                end
-                            end
-                        else
-                            for slot = count + 1, self.max do
-                                local row = self.rows[slot]
-                                if row then
-                                    row.background.Visible = false
-                                end
-                            end
-                        end
-                        self.max = count
-                        listH = 4 + self.max * (rowH + rowPad)
-                        self.objects.background.Size = newUDim2(1,-4,0,listH)
-                        self:Refresh(true)
-                        return true
-                    end
-
-                    function scrolllist:AutoFill()
-                        if not self.fill then
-                            return false
-                        end
-                        local col = window.objects['columnholder' .. tostring(section.side)]
-                        local colObj = col and col.Object
-                        if not colObj then
-                            return false
-                        end
-                        local used = 0
-                        for _, opt in next, section.options do
-                            if opt ~= self and opt.objects and opt.objects.holder and opt.objects.holder.Object then
-                                if opt.enabled ~= false then
-                                    used += opt.objects.holder.Object.Size.Y
-                                end
-                            end
-                        end
-                        local chrome = 22 + (self.reserveExtra or 0)
-                        local available = colObj.Size.Y - used - chrome
-                        local rows = math.floor((available - 4) / (rowH + rowPad))
-                        rows = math.clamp(rows, 3, 12)
-                        if available < 4 + 3 * (rowH + rowPad) then
-                            rows = 3
-                        end
-                        return self:SetVisibleCount(rows)
-                    end
-
-                    function scrolllist:Refresh(relayout)
-                        local maxScroll = math.max(0, #self.values - self.max)
-                        self.scroll = math.clamp(self.scroll or 0, 0, maxScroll)
-                        local hasLabel = self.text ~= nil and self.text ~= ''
-                        local holderH = listH + (hasLabel and 18 or 4)
-                        self.objects.text.Visible = hasLabel
-                        self.objects.background.Position = newUDim2(0,2,0, hasLabel and 16 or 2)
-                        self.objects.background.Size = newUDim2(1,-4,0,listH)
-                        local sizeChanged = lastHolderH ~= holderH
-                        lastHolderH = holderH
-                        self.objects.holder.Size = newUDim2(1,0,0, holderH)
-                        for slot = 1, self.max do
-                            local row = self.rows[slot]
-                            if not row then
-                                continue
-                            end
-                            local valueStr = self.values[self.scroll + slot]
-                            if valueStr ~= nil then
-                                row.background.Visible = true
-                                local label = tostring(valueStr)
-                                row.text.Text = label
-                                local maxW = self.objects.background.Object and (self.objects.background.Object.Size.X - 12) or 120
-                                if row.text.TextBounds.X > maxW and maxW > 20 then
-                                    local split = label:split('')
-                                    for i = 1, #split do
-                                        row.text.Text = table.concat(split, '', 1, i)
-                                        if row.text.TextBounds.X > maxW then
-                                            row.text.Text = row.text.Text:sub(1, -6) .. '...'
-                                            break
-                                        end
-                                    end
-                                end
-                                local selected = self.selected == valueStr
-                                row.background.Transparency = selected and 1 or 0.35
-                                row.text.ThemeColor = selected and 'Accent' or 'Option Text 2'
-                            else
-                                row.background.Visible = false
-                            end
-                        end
-                        if relayout or sizeChanged then
-                            section:UpdateOptions();
-                        end
-                    end
-
-                    function scrolllist:SetText(str)
-                        if typeof(str) == 'string' then
-                            self.text = str;
-                            self.objects.text.Text = str;
-                            self:Refresh(true);
-                        end
-                    end
-
-                    function scrolllist:Select(option, nocallback)
-                        if option == nil then
-                            return
-                        end
-                        local picked = typeof(option) == 'table' and option[1] or option;
-                        if picked == nil then
-                            return
-                        end
-                        self.selected = tostring(picked);
-                        if self.flag then
-                            library.flags[self.flag] = self.selected
-                        end
-                        local found = table.find(self.values, self.selected)
-                        if found then
-                            if found <= self.scroll then
-                                self.scroll = math.max(0, found - 1)
-                            elseif found > self.scroll + self.max then
-                                self.scroll = found - self.max
-                            end
-                        end
-                        self:Refresh();
-                        if not nocallback then
-                            self.callback(self.selected);
-                        end
-                    end
-
-                    function scrolllist:AddValue(value)
-                        table.insert(self.values, tostring(value));
-                        self:Refresh();
-                    end
-
-                    function scrolllist:RemoveValue(value)
-                        local idx = table.find(self.values, value)
-                        if idx then
-                            table.remove(self.values, idx);
-                            self:Refresh();
-                        end
-                    end
-
-                    function scrolllist:ClearValues()
-                        table.clear(self.values);
-                        self:Refresh();
-                    end
-
-                    function scrolllist:SetValues(values)
-                        table.clear(self.values);
-                        if type(values) == 'table' then
-                            for _, value in values do
-                                table.insert(self.values, tostring(value));
-                            end
-                        end
-                        self:Refresh();
-                    end
-
-                    tooltip(scrolllist);
-                    scrolllist:SetText(scrolllist.text);
-                    if data.selected ~= nil or data.value ~= nil then
-                        scrolllist:Select(data.selected or data.value, true);
-                    elseif scrolllist.values[1] then
-                        scrolllist:Select(scrolllist.values[1], true);
-                    else
-                        scrolllist:Refresh();
-                    end
-                    self:UpdateOptions();
-                    return scrolllist
-                end
-
-                function section:AddText(data)
-                    local text = {
-                        class = 'text';
-                        flag = data.flag;
-                        text = '';
-                        tooltip = '';
-                        order = #self.options+1;
-                        enabled = true;
-                        risky = false;
-                        objects = {};
-                    };
-
-                    local blacklist = {'objects'};
-                    for i,v in next, data do
-                        if not table.find(blacklist, i) and text[i] ~= nil then
-                            text[i] = v
-                        end
-                    end
-
-                    if data.flag then
-                        library.options[data.flag] = text;
-                    end
-
-                    table.insert(self.options, text)
-
-                    do
-                        local objs = text.objects;
-                        local z = library.zindexOrder.window+25;
-
-                        objs.holder = utility:Draw('Square', {
-                            Transparency = 0;
-                            ZIndex = z+5;
-                            Parent = section.objects.optionholder;
-                        })
-
-                        objs.text = utility:Draw('Text', {
-                            Position = newUDim2(0,2,0,2);
-                            ThemeColor = text.risky and 'Risky Text Enabled' or 'Option Text 2';
-                            Size = 13;
-                            Font = 2;
-                            ZIndex = z+1;
-                            Outline = true;
-                            Parent = objs.holder;
-                        })
-                    end
-
-                    function text:SetText(str)
-                        if typeof(str) == 'string' then
-                            self.text = str;
-                            self.objects.text.Text = str;
-                            self.objects.holder.Size = newUDim2(1,0,0,self.objects.text.TextBounds.Y + 6);
-                            section:UpdateOptions();
-                        end
-                    end
-
-                    text:SetText(text.text);
-                    self:UpdateOptions();
-                    return text
-                end
-
-                section:UpdateOptions();
-                section:SetText(section.text);
-                self:UpdateSections();
-                return section;
-            end
-
-            function tab:AddSubTabs(labels, onChanged)
-                if typeof(labels) ~= 'table' or #labels == 0 then
-                    return
-                end
-                self.subTabLabels = labels
-                self.selectedSub = labels[1]
-                self.subTabCallback = onChanged
-                self.subTabItems = {}
-
-                local z = library.zindexOrder.window + 145
-                local holder = utility:Draw('Square', {
-                    Size = newUDim2(1, -8, 0, 22);
-                    Position = newUDim2(0, 4, 0, 4);
-                    Parent = window.objects.groupBackground;
-                    Transparency = 0;
-                    Visible = false;
-                    ZIndex = z;
-                })
-                self.subTabHolder = holder
-
-                for _, label in labels do
-                    local bg = utility:Draw('Square', {
-                        Size = newUDim2(0, 50, 1, 0);
-                        ThemeColor = 'Unselected Tab Background';
-                        ZIndex = z + 2;
-                        Parent = holder;
-                    })
-                    local border1 = utility:Draw('Square', {
-                        Size = newUDim2(1, 2, 1, 2);
-                        Position = newUDim2(0, -1, 0, -1);
-                        ThemeColor = 'Border 1';
-                        ZIndex = z + 1;
-                        Parent = bg;
-                    })
-                    local border2 = utility:Draw('Square', {
-                        Size = newUDim2(1, 2, 1, 2);
-                        Position = newUDim2(0, -1, 0, -1);
-                        ThemeColor = 'Border 3';
-                        ZIndex = z;
-                        Parent = border1;
-                    })
-                    local top = utility:Draw('Square', {
-                        Size = newUDim2(1, 0, 0, 1);
-                        ThemeColor = 'Accent';
-                        ZIndex = z + 3;
-                        Parent = bg;
-                    })
-                    local text = utility:Draw('Text', {
-                        ThemeColor = 'Unselected Tab Text';
-                        Text = tostring(label);
-                        Size = 13;
-                        Font = 2;
-                        ZIndex = z + 4;
-                        Outline = true;
-                        Center = true;
-                        Parent = bg;
-                    })
-                    local item = { label = tostring(label), background = bg, text = text, top = top, border1 = border1, border2 = border2 }
-                    table.insert(self.subTabItems, item)
-                    utility:Connection(bg.MouseButton1Down, function()
-                        self.selectedSub = item.label
-                        window.columnScroll[1] = 0
-                        window.columnScroll[2] = 0
-                        window.columnScrollTarget[1] = 0
-                        window.columnScrollTarget[2] = 0
-                        self:UpdateSubTabs()
-                        self:UpdateSections()
-                        if self.subTabCallback then
-                            self.subTabCallback(item.label)
-                        end
-                    end)
-                end
-
-                function self:UpdateSubTabs()
-                    if not self.subTabHolder then
-                        return
-                    end
-                    local show = self.selected == true
-                    if self.subTabHolder.Visible ~= show then
-                        self.subTabHolder.Visible = show
-                    end
-                    for _, item in self.subTabItems do
-                        for _, piece in { item.background, item.text, item.top, item.border1, item.border2 } do
-                            if piece and piece.Visible ~= show then
-                                piece.Visible = show
-                            end
-                        end
-                    end
-                    if not show then
-                        pcall(function()
-                            self.subTabHolder:Update()
-                        end)
-                        return
-                    end
-                    local count = #self.subTabItems
-                    if count <= 0 then
-                        return
-                    end
-                    pcall(function()
-                        self.subTabHolder:Update()
-                    end)
-                    local holderObj = self.subTabHolder.Object
-                    local totalW = (holderObj and holderObj.Size and holderObj.Size.X) or 0
-                    if totalW < 1 then
-                        local gb = window.objects.groupBackground and window.objects.groupBackground.Object
-                        totalW = gb and math.max(0, gb.Size.X - 8) or 200
-                    end
-                    local gap = 2
-                    local usable = math.max(count, totalW - gap * (count - 1))
-                    local base = math.floor(usable / count)
-                    local extra = usable - base * count
-                    local pos = 0
-                    local z = library.zindexOrder.window + 145
-                    self.subTabHolder.ZIndex = z
-                    for i, item in self.subTabItems do
-                        local selected = item.label == self.selectedSub
-                        local w = math.max(1, base + (i <= extra and 1 or 0))
-                        item.background.ThemeColor = selected and 'Selected Tab Background' or 'Unselected Tab Background'
-                        item.text.ThemeColor = selected and 'Selected Tab Text' or 'Unselected Tab Text'
-                        item.top.ThemeColor = selected and 'Accent' or 'Unselected Tab Background'
-                        item.background.Size = newUDim2(0, w, 1, selected and 1 or 0)
-                        item.background.Position = newUDim2(0, pos, 0, 0)
-                        item.text.Position = newUDim2(.5, 0, 0, 3)
-                        item.background.ZIndex = z + 2
-                        if item.border1 then item.border1.ZIndex = z + 1 end
-                        if item.border2 then item.border2.ZIndex = z end
-                        item.top.ZIndex = z + 3
-                        item.text.ZIndex = z + 4
-                        pos += w + gap
-                    end
-                end
-
-                self:UpdateSubTabs()
-                return self
-            end
-
-			function tab:UpdateSections()
-                if window._uiDragging then
-                    return
-                end
-                table.sort(self.sections, function(a,b)
-                    return a.order < b.order
-                end)
-
-                local padding = 12;
-                local col1 = window.objects.columnholder1.Object
-                local col2 = window.objects.columnholder2.Object
-                local fullH1 = col1 and col1.Size.Y or 0
-                local fullH2 = col2 and col2.Size.Y or 0
-                local viewH1 = fullH1
-                local viewH2 = fullH2
-                local footerH = 0
-                for _, section in next, self.sections do
-                    local matchesSub = (section.subTab == nil) or (self.selectedSub == nil) or (section.subTab == self.selectedSub)
-                    if section.enabled and tab.selected and matchesSub and section.span == 2 then
-                        if section.objects.optionholder then
-                            section.objects.optionholder.Position = newUDim2(.015, 0, 0, 13)
-                        end
-                        section:UpdateOptions()
-                        footerH += (section.objects.background.Object.Size.Y or 0) + padding
-                    end
-                end
-                if footerH > 0 then
-                    footerH = footerH - padding
-                    viewH1 = math.max(0, viewH1 - footerH - padding)
-                    viewH2 = math.max(0, viewH2 - footerH - padding)
-                    window._footerTop = viewH1
-                else
-                    window._footerTop = nil
-                end
-                window.columnView = { viewH1, viewH2 }
-                local maxScroll1 = math.max(0, (window.columnContent[1] or 0) - viewH1)
-                local maxScroll2 = math.max(0, (window.columnContent[2] or 0) - viewH2)
-                window.columnScroll[1] = math.clamp(window.columnScroll[1] or 0, 0, maxScroll1)
-                window.columnScroll[2] = math.clamp(window.columnScroll[2] or 0, 0, maxScroll2)
-                window.columnScrollTarget[1] = math.clamp(window.columnScrollTarget[1] or window.columnScroll[1], 0, maxScroll1)
-                window.columnScrollTarget[2] = math.clamp(window.columnScrollTarget[2] or window.columnScroll[2], 0, maxScroll2)
-                local scroll1 = window.columnScroll[1]
-                local scroll2 = window.columnScroll[2]
-                local stack1, stack2 = 0, 0
-
-                for _,section in next, self.sections do
-                    local matchesSub = (section.subTab == nil) or (self.selectedSub == nil) or (section.subTab == self.selectedSub)
-                    local shouldShow = section.enabled and tab.selected and matchesSub
-
-                    if shouldShow and section.span == 2 then
-                    elseif shouldShow then
-                        if section.objects.optionholder then
-                            section.objects.optionholder.Position = newUDim2(.015, 0, 0, 13)
-                        end
-                        section:UpdateOptions();
-                        local h = section.objects.background.Object.Size.Y
-                        section._layoutHeight = h
-                        if section.side == 1 then
-                            section._stackY = stack1
-                            local y = stack1 - scroll1
-                            section._layoutY = y
-                            section.objects.background.Position = newUDim2(0,0,0,y)
-                            section.objects.background.Size = newUDim2(1,0,0,h)
-                            section.objects.background.Visible = (y + h > 0) and (y < viewH1)
-                            stack1 += h + padding
-                        elseif section.side == 2 then
-                            section._stackY = stack2
-                            local y = stack2 - scroll2
-                            section._layoutY = y
-                            section.objects.background.Position = newUDim2(0,0,0,y)
-                            section.objects.background.Size = newUDim2(1,0,0,h)
-                            section.objects.background.Visible = (y + h > 0) and (y < viewH2)
-                            stack2 += h + padding
-                        else
-                            section.objects.background.Visible = false
-                        end
-                    else
-                        section._layoutY = nil
-                        section._stackY = nil
-                        section.objects.background.Visible = false
-                        if section.objects.textlabel then section.objects.textlabel.Visible = false end
-                        for _, opt in next, section.options do
-                            if opt.objects and opt.objects.holder then
-                                opt.objects.holder.Visible = false
-                            end
-                        end
-                    end
-
-                    if section.objects.background.Visible then
-                        section:SetText(section.text)
-                    end
-                end
-
-                local spanW = 1
-                if col1 and col2 and col1.Size.X > 1 then
-                    spanW = (col2.Position.X + col2.Size.X - col1.Position.X) / col1.Size.X
-                end
-                local footerY = math.max(0, fullH1 - footerH)
-                for _, section in next, self.sections do
-                    local matchesSub = (section.subTab == nil) or (self.selectedSub == nil) or (section.subTab == self.selectedSub)
-                    if section.enabled and tab.selected and matchesSub and section.span == 2 then
-                        local h = section.objects.background.Object.Size.Y
-                        section._layoutHeight = h
-                        section._layoutY = footerY
-                        if section.objects.background.Parent ~= window.objects.columnholder1 then
-                            section.objects.background.Parent = window.objects.columnholder1
-                        end
-                        section.objects.background.Position = newUDim2(0, 0, 0, footerY)
-                        section.objects.background.Size = newUDim2(spanW, 0, 0, h)
-                        section.objects.background.Visible = h > 0
-                        footerY += h + padding
-                        section:SetText(section.text)
-                    end
-                end
-
-                window.columnContent[1] = math.max(0, stack1 > 0 and (stack1 - padding) or 0)
-                window.columnContent[2] = math.max(0, stack2 > 0 and (stack2 - padding) or 0)
-
-                if not self._fillingLists then
-                    local viewStamp = string.format("%.0f:%.0f", viewH1, viewH2)
-                    local changed = false
-                    if self._fillStamp ~= viewStamp then
-                        self._fillStamp = viewStamp
-                        for _, section in next, self.sections do
-                            if section.objects.background.Visible then
-                                for _, opt in next, section.options do
-                                    if opt.class == 'scrolllist' and opt.fill and opt.AutoFill then
-                                        if opt:AutoFill() then
-                                            changed = true
-                                        end
-                                    end
-                                end
-                            end
-                        end
-                    end
-                    if changed then
-                        self._fillingLists = true
-                        self:UpdateSections()
-                        self._fillingLists = false
-                        return
-                    end
-                end
-
-                for _, section in next, self.sections do
-                    if section.objects.background.Visible then
-                        if section.span == 2 and col1 then
-                            window:ClipSectionToColumn(section, col1, fullH1)
-                        elseif section.side == 1 and col1 then
-                            window:ClipSectionToColumn(section, col1, viewH1)
-                        elseif section.side == 2 and col2 then
-                            window:ClipSectionToColumn(section, col2, viewH2)
-                        end
-                    end
-                end
-            end
-
-            function tab:SetText(str)
-                if typeof(str) == 'string' then
-                    self.text = str;
-                    self.objects.text.Text = str;
-                    window:UpdateTabs();
-                end
-            end
-
-            function tab:Select()
-                if window.selectedTab == tab and not window._forceTab then
-                    return
-                end
-                window.selectedTab = tab;
-                window.columnScroll[1] = 0
-                window.columnScroll[2] = 0
-                window.columnScrollTarget[1] = 0
-                window.columnScrollTarget[2] = 0
-                tab._fillStamp = nil
-                window:UpdateTabs();
-                if tab.callback then
-                    tab.callback(true)
-                end
-            end
-
-            if window.selectedTab == nil then
-                tab:Select();
-            end
-
-            tab:SetText(tab.text);
-            window:UpdateTabs();
-            return tab;
-        end
-
-        function window:SetSize(w, h)
-            w = math.floor(math.clamp(tonumber(w) or 600, 420, 1000) + 0.5)
-            h = math.floor(math.clamp(tonumber(h) or 499, 340, 900) + 0.5)
-            local cur = self.objects.background.Size
-            if cur and cur.X.Offset == w and cur.Y.Offset == h then
-                return
-            end
-            self.objects.background.Size = newUDim2(0, w, 0, h)
-            self:UpdateTabs()
-        end
-
-        function window:LayoutTitleBar()
-            local o = self.objects
-            if not o or not o.titleGet then
-                return
-            end
-            local x = 7
-            o.titleGet.Position = newUDim2(0, x, 0, 2)
-            x += (o.titleGet.TextBounds and o.titleGet.TextBounds.X) or 18
-            o.titleName.Position = newUDim2(0, x, 0, 2)
-            x += (o.titleName.TextBounds and o.titleName.TextBounds.X) or 42
-            o.titleSuffix.Position = newUDim2(0, x, 0, 2)
-            local roleW = (o.titleRole and o.titleRole.TextBounds and o.titleRole.TextBounds.X) or 62
-            if o.titleRole then
-                o.titleRole.Position = newUDim2(1, -(roleW + 8), 0, 3)
-            end
-        end
-
-        function window:UpdateTabs()
-            if window._uiDragging then
-                return
-            end
-            table.sort(self.tabs, function(a,b)
-                return a.order < b.order
-            end)
-            local selected = self.selectedTab
-            local n = #self.tabs
-            local bgSize = self.objects.background.Size
-            local barW = math.max(n, ((bgSize and bgSize.X.Offset) or 500) - 16)
-            for i,v in self.tabs do
-                local objs = v.objects;
-                v.selected = v == selected;
-                objs.background.ThemeColor = v.selected and 'Group Background' or 'Unselected Tab Background';
-                local x0 = math.floor(barW * (i - 1) / n + 0.5)
-                local x1 = math.floor(barW * i / n + 0.5)
-                local gap = if i == n then 0 else 1
-                objs.background.Size = newUDim2(0, x1 - x0 - gap, 0, v.selected and 21 or 20);
-                objs.background.Position = newUDim2(0, x0, 0, 0)
-                objs.innerBorder.Size = newUDim2(1, 2, 1, v.selected and 0 or 2)
-                objs.outerBorder.Size = newUDim2(1, 2, 1, 1)
-
-                objs.text.ThemeColor = v.selected and 'Selected Tab Text' or 'Unselected Tab Text';
-                objs.text.Position = newUDim2(.5, 0, 0, 3);
-
-                objs.topBorder.ThemeColor = v.selected and 'Accent' or 'Unselected Tab Background';
-
-                if v.UpdateSubTabs then
-                    v:UpdateSubTabs()
-                elseif v.subTabHolder then
-                    v.subTabHolder.Visible = false
-                end
-            end
-            pcall(function()
-                window:LayoutTitleBar()
-            end)
-
-            local topPad = 18
-            if selected and selected.subTabHolder and selected.selected then
-                topPad = 34
-            end
-            local bgObj = self.objects.background and self.objects.background.Object
-            local sizeKey = ""
-            if bgObj and bgObj.Size then
-                sizeKey = string.format("%.0f:%.0f", bgObj.Size.X, bgObj.Size.Y)
-            end
-            if window._topPad ~= topPad or window._layoutSizeKey ~= sizeKey then
-                window._layoutSizeKey = sizeKey
-                window:ApplyColumnLayout(topPad)
-            end
-
-            for _,v in next, self.tabs do
-                if v == selected then
-                    v:UpdateSections();
-                else
-                    for _, section in next, v.sections do
-                        if section.objects.background.Visible then
-                            section.objects.background.Visible = false
-                        end
-                        if section.objects.textlabel then
-                            section.objects.textlabel.Visible = false
-                        end
-                        if section.objects.topBorder1 then
-                            section.objects.topBorder1.Visible = false
-                        end
-                        if section.objects.topBorder2 then
-                            section.objects.topBorder2.Visible = false
-                        end
-                    end
-                end
-            end
-        end
-
-        utility:Connection(inputservice.InputChanged, function(input)
-            if not library.open or not window.open then
-                return
-            end
-            if input.UserInputType ~= Enum.UserInputType.MouseWheel then
-                return
-            end
-            local tab = window.selectedTab
-            if not tab then
-                return
-            end
-            local delta = 0
-            pcall(function()
-                delta = input.Position.Z
-            end)
-            if delta == 0 then
-                return
-            end
-            local step = delta > 0 and -1 or 1
-
-            for _, section in next, tab.sections do
-                if section.objects.background.Visible then
-                    for _, opt in next, section.options do
-                        if opt.class == 'scrolllist' and opt.enabled and opt.mouseOverList and opt.mouseOverList() then
-                            local maxScroll = math.max(0, #opt.values - opt.max)
-                            if maxScroll > 0 then
-                                opt.scroll = math.clamp((opt.scroll or 0) + step, 0, maxScroll)
-                                opt:Refresh()
-                            end
-                            return
-                        end
-                    end
-                end
-            end
-
-            local amount = step * ((library.anim and library.anim.scrollStep) or 22)
-            local col1 = window.objects.columnholder1.Object
-            local col2 = window.objects.columnholder2.Object
-            local view = window.columnView
-            if col1 and utility:MouseOver(col1) then
-                local viewH = (view and view[1]) or col1.Size.Y
-                local maxScroll = math.max(0, (window.columnContent[1] or 0) - viewH)
-                local cur = window.columnScrollTarget[1] or window.columnScroll[1] or 0
-                window.columnScrollTarget[1] = math.clamp(cur + amount, 0, maxScroll)
-            elseif col2 and utility:MouseOver(col2) then
-                local viewH = (view and view[2]) or col2.Size.Y
-                local maxScroll = math.max(0, (window.columnContent[2] or 0) - viewH)
-                local cur = window.columnScrollTarget[2] or window.columnScroll[2] or 0
-                window.columnScrollTarget[2] = math.clamp(cur + amount, 0, maxScroll)
-            end
-        end)
-
-        local function applySmoothColumnScroll(tab)
-            local col1 = window.objects.columnholder1.Object
-            local col2 = window.objects.columnholder2.Object
-            local view = window.columnView
-            local viewH1 = (view and view[1]) or (col1 and col1.Size.Y) or 0
-            local viewH2 = (view and view[2]) or (col2 and col2.Size.Y) or 0
-            local scroll1 = window.columnScroll[1] or 0
-            local scroll2 = window.columnScroll[2] or 0
-            for _, section in next, tab.sections do
-                if section.span == 2 or section._stackY == nil then
-                    continue
-                end
-                local h = section._layoutHeight or (section.objects.background.Object and section.objects.background.Object.Size.Y) or 0
-                local scroll = if section.side == 1 then scroll1 else scroll2
-                local viewH = if section.side == 1 then viewH1 else viewH2
-                local colObj = if section.side == 1 then col1 else col2
-                local y = section._stackY - scroll
-                section._layoutY = y
-                local shown = section.enabled and tab.selected and (y + h > 0) and (y < viewH)
-                section.objects.background.Position = newUDim2(0, 0, 0, y)
-                section.objects.background.Visible = shown
-                if colObj then
-                    window:ClipSectionToColumn(section, colObj, viewH)
-                end
-            end
-        end
-
-        if not window._smoothScrollConn then
-            window._smoothScrollConn = utility:Connection(runservice.RenderStepped, function(dt)
-                if not library.open or not window.open then
-                    return
-                end
-                local tab = window.selectedTab
-                if not tab or window._uiDragging then
-                    return
-                end
-                local speed = (library.anim and library.anim.scrollLerp) or 14
-                local alpha = 1 - math.exp(-dt * speed)
-                local changed = false
-                for i = 1, 2 do
-                    local cur = window.columnScroll[i] or 0
-                    local tgt = window.columnScrollTarget[i] or cur
-                    local nextVal = cur + (tgt - cur) * alpha
-                    if math.abs(nextVal - tgt) < 0.4 then
-                        nextVal = tgt
-                    end
-                    if math.abs(nextVal - cur) > 0.05 then
-                        window.columnScroll[i] = nextVal
-                        changed = true
-                    end
-                end
-                if changed then
-                    applySmoothColumnScroll(tab)
-                end
-            end)
-        end
-
-        window:LayoutTitleBar();
-        window:SetOpen(true);
-        return window;
-    end
-
-    do
-        local z = library.zindexOrder.window + 2000;
-        tooltipObjects.background = utility:Draw('Square', {
-            ThemeColor = 'Group Background';
-            ZIndex = z;
-            Visible = false;
-        })
-
-        tooltipObjects.border1 = utility:Draw('Square', {
-            Size = UDim2.new(1,2,1,2);
-            Position = UDim2.new(0,-1,0,-1);
-            ThemeColor = 'Border 1';
-            ZIndex = z-1;
-            Parent = tooltipObjects.background;
-        })
-
-        tooltipObjects.border2 = utility:Draw('Square', {
-            Size = UDim2.new(1,4,1,4);
-            Position = UDim2.new(0,-2,0,-2);
-            ThemeColor = 'Border 3';
-            ZIndex = z-2;
-            Parent = tooltipObjects.background;
-        })
-
-        tooltipObjects.text = utility:Draw('Text', {
-            Position = UDim2.new(0,3,0,0);
-            ThemeColor = 'Primary Text';
-            Size = 13;
-            Font = 2;
-            ZIndex = z+1;
-            Outline = true;
-            Parent = tooltipObjects.background;
-        })
-
-        tooltipObjects.riskytext = utility:Draw('Text', {
-            Position = UDim2.new(0,3,0,0);
-            ThemeColor = 'Risky Text Enabled';
-            Text = '[RISKY]';
-            Size = 13;
-            Font = 2;
-            ZIndex = z+1;
-            Outline = true;
-            Parent = tooltipObjects.background;
-        })
-
-    end
-
-    do
-        if not IonHub_User then
-            getgenv().IonHub_User = {
-                UID = 0,
-                User = "admin"
-            }
-        end
-        self.watermark = {
-            objects = {};
-            lock = 'Top';
-            position = newUDim2(0,0,0,0);
-            refreshrate = 25;
-            _mapCache = 'lobby';
-            _mapCacheAt = 0;
-        }
-
-        local function resolveDuelMapName()
-            local cached = library.watermark._mapCache
-            local cachedAt = library.watermark._mapCacheAt
-            if type(cachedAt) == 'number' and (tick() - cachedAt) < 0.35 and type(cached) == 'string' then
-                return cached
-            end
-            local mapName = 'lobby'
-            pcall(function()
-                local lp = players.LocalPlayer
-                if not lp then
-                    return
-                end
-                local scripts = lp:FindFirstChild('PlayerScripts')
-                local controllers = scripts and scripts:FindFirstChild('Controllers')
-                local duelMod = controllers and (controllers:FindFirstChild('DuelController') or controllers:FindFirstChild('DuelsController'))
-                if not duelMod then
-                    return
-                end
-                local ok, dc = pcall(require, duelMod)
-                if not ok or type(dc) ~= 'table' then
-                    return
-                end
-                local duel = dc:GetDuel(lp)
-                local map = duel and duel.Map
-                if type(map) == 'table' and type(map.Name) == 'string' and map.Name ~= '' then
-                    mapName = map.Name
-                    return
-                end
-                if type(map) == 'table' and type(map.Get) == 'function' then
-                    local okName, name = pcall(map.Get, map, 'Name')
-                    if okName and type(name) == 'string' and name ~= '' then
-                        mapName = name
-                    end
-                end
-            end)
-            library.watermark._mapCache = mapName
-            library.watermark._mapCacheAt = tick()
-            return mapName
-        end
-
-        function self.watermark:Update()
-            self.objects.background.Visible = library.flags.watermark_enabled
-            if library.flags.watermark_enabled then
-                local adminName = (IonHub_User and IonHub_User.User) or 'admin'
-                if type(adminName) ~= 'string' or adminName == '' then
-                    adminName = 'admin'
-                end
-                local mapName = resolveDuelMapName()
-
-                local brand = self.objects.brand
-                local suffix = self.objects.suffix
-                local rest = self.objects.text
-                brand.Text = 'sonata'
-                suffix.Text = '.ru'
-                suffix.Color = fromrgb(255, 255, 255)
-                rest.Text = ' | ' .. adminName .. ' | ' .. mapName
-
-                local brandWidth = (brand.TextBounds and brand.TextBounds.X) or brand.Object.TextBounds.X
-                local suffixWidth = (suffix.TextBounds and suffix.TextBounds.X) or suffix.Object.TextBounds.X
-                local restWidth = (rest.TextBounds and rest.TextBounds.X) or rest.Object.TextBounds.X
-                suffix.Position = newUDim2(0, 5 + brandWidth, 0, 2)
-                rest.Position = newUDim2(0, 5 + brandWidth + suffixWidth, 0, 2)
-                local totalWidth = 10 + brandWidth + suffixWidth + restWidth
-                self.objects.background.Size = newUDim2(0, math.max(totalWidth, 40), 0, 17)
-
-                local size = self.objects.background.Object.Size;
-                local screensize = utility:Viewport();
-                local lock = self.lock or 'Top'
-
-                self.position = (
-                    lock == 'Top Right' and newUDim2(0, screensize.X - size.X - 15, 0, 15) or
-                    lock == 'Top Left' and newUDim2(0, 15, 0, 15) or
-                    lock == 'Bottom Right' and newUDim2(0, screensize.X - size.X - 15, 0, screensize.Y - size.Y - 15) or
-                    lock == 'Bottom Left' and newUDim2(0, 15, 0, screensize.Y - size.Y - 15) or
-                    lock == 'Top' and newUDim2(0, screensize.X / 2 - size.X / 2, 0, 15) or
-                    newUDim2(library.flags.watermark_x / 100, 0, library.flags.watermark_y / 100, 0)
-                )
-
-                self.objects.background.Position = self.position
-            end
-        end
-
-        do
-            local objs = self.watermark.objects;
-            local z = self.zindexOrder.watermark;
-
-            objs.background = utility:Draw('Square', {
-                Visible = false;
-                Size = newUDim2(0, 200, 0, 17);
-                Position = newUDim2(0.5, -100, 0, 15);
-                ThemeColor = 'Background';
-                ZIndex = z;
-            })
-
-            objs.border1 = utility:Draw('Square', {
-                Size = newUDim2(1,2,1,2);
-                Position = newUDim2(0,-1,0,-1);
-                ThemeColor = 'Border 2';
-                Parent = objs.background;
-                ZIndex = z-1;
-            })
-
-            objs.border2 = utility:Draw('Square', {
-                Size = newUDim2(1,2,1,2);
-                Position = newUDim2(0,-1,0,-1);
-                ThemeColor = 'Border 3';
-                Parent = objs.border1;
-                ZIndex = z-2;
-            })
-
-            objs.topbar = utility:Draw('Square', {
-                Size = newUDim2(1,0,0,1);
-                ThemeColor = 'Accent';
-                ZIndex = z+1;
-                Parent = objs.background;
-            })
-
-            objs.brand = utility:Draw('Text', {
-                Position = newUDim2(0, 5, 0, 2);
-                ThemeColor = 'Accent';
-                Text = 'sonata';
-                Size = 13;
-                Font = 2;
-                ZIndex = z+1;
-                Outline = true;
-                Center = false;
-                Parent = objs.background;
-            })
-
-            objs.suffix = utility:Draw('Text', {
-                Position = newUDim2(0, 5, 0, 2);
-                Text = '.ru';
-                Color = fromrgb(255, 255, 255);
-                Size = 13;
-                Font = 2;
-                ZIndex = z+1;
-                Outline = true;
-                Center = false;
-                Parent = objs.background;
-            })
-
-            objs.text = utility:Draw('Text', {
-                Position = newUDim2(0, 5, 0, 2);
-                ThemeColor = 'Primary Text';
-                Text = ' | admin | lobby';
-                Size = 13;
-                Font = 2;
-                ZIndex = z+1;
-                Outline = true;
-                Center = false;
-                Parent = objs.background;
-            })
-
-        end
-    end
-
-    local lasttick = tick();
-    utility:Connection(runservice.RenderStepped, function(step)
-        library.stats.fps = floor(1/step)
-        if (tick()-lasttick)*1000 > library.watermark.refreshrate then
-            lasttick = tick()
-            pcall(function()
-                library.stats.ping = stats.Network.ServerStatsItem["Data Ping"]:GetValue()
-                library.stats.sendkbps = stats.DataSendKbps
-                library.stats.receivekbps = stats.DataReceiveKbps
-            end)
-            library.watermark:Update()
-        end
-    end)
-
-    self.keyIndicator = self.NewIndicator({title = 'Keybinds', pos = newUDim2(0,15,0,325), enabled = false});
-
-    self.targetIndicator = self.NewIndicator({title = 'Target Info', pos = newUDim2(0,15,0,350), enabled = false});
-    self.targetName = self.targetIndicator:AddValue({key = 'Name     :', value = 'nil'})
-    self.targetDisplay = self.targetIndicator:AddValue({key = 'DName    :', value = 'nil'})
-    self.targetHealth = self.targetIndicator:AddValue({key = 'Health   :', value = '0'})
-    self.targetDistance = self.targetIndicator:AddValue({key = 'Distance :', value = '0m'})
-    self.targetTool = self.targetIndicator:AddValue({key = 'Weapon   :', value = 'nil'})
-
-    if library.themes[1] and library.themes[1].theme then
-        self:SetTheme(library.themes[1].theme);
-    else
-        self:SetTheme(library.theme);
-    end
-    self:SetOpen(true);
-    self.hasInit = true
-
-end
-
-function library:CreateSettingsTab(menu)
-    local settingsTab = menu:AddTab('configs', 999);
-    local menuSection = settingsTab:AddSection('menu', 1);
-    local keybindsSection = settingsTab:AddSection('keybinds', 1);
-    local watermarkSection = settingsTab:AddSection('watermark', 2);
-
-    menuSection:AddBind({text = 'menu key', flag = 'togglebind', nomouse = true, noindicator = true, bind = Enum.KeyCode.End, callback = function()
-        library:SetOpen(not library.open)
-    end});
-
-    menuSection:AddToggle({text = 'freeze movement', flag = 'disablemenumovement', callback = function(bool)
-        if bool and library.open then
-            actionservice:BindAction(
-                'FreezeMovement',
-                function()
-                    return Enum.ContextActionResult.Sink
-                end,
-                false,
-                unpack(Enum.PlayerActions:GetEnumItems())
-            )
-        else
-            actionservice:UnbindAction('FreezeMovement');
-        end
-    end})
-
-    menuSection:AddToggle({text = 'mod detector', flag = 'mod_detector', state = false})
-
-    do
-        local sizeQueued = false
-        local function queueSize()
-            sizeQueued = true
-        end
-        local baseSize = menu.objects.background.Size
-        menuSection:AddList({
-            text = 'dpi',
-            flag = 'menu_dpi',
-            values = {'75%', '90%', '100%', '110%', '125%', '150%', '175%', '200%'},
-            selected = '100%',
-            callback = function(value)
-                if type(value) == 'table' then
-                    value = value[1]
-                end
-                local pct = tonumber(string.match(tostring(value), '%d+'))
-                if pct then
-                    task.defer(function()
-                        library:SetDPI(pct / 100)
-                    end)
-                end
-            end,
-        })
-        menuSection:AddSlider({text = 'menu width', flag = 'menu_width', min = 420, max = 1000, increment = 1, value = baseSize.X.Offset, suffix = 'px', callback = queueSize})
-        menuSection:AddSlider({text = 'menu height', flag = 'menu_height', min = 340, max = 900, increment = 1, value = baseSize.Y.Offset, suffix = 'px', callback = queueSize})
-        utility:Connection(runservice.RenderStepped, function()
-            if sizeQueued and library.draggingSlider == nil then
-                sizeQueued = false
-                menu:SetSize(library.flags.menu_width, library.flags.menu_height)
-            end
-        end)
-    end
-
-    menuSection:AddButton({text = 'unload', confirm = true, callback = function()
-        library:Unload();
-    end})
-
-    menuSection:AddColor({
-        text = 'UI accent',
-        flag = 'ui_accent',
-        color = library.theme.Accent or fromrgb(235, 163, 255),
-        callback = function(c3)
-            if typeof(c3) == 'Color3' then
-                library.theme.Accent = c3
-                library:UpdateThemeColors()
-            end
-        end,
-    })
-
-    do
-        local themeNames = {}
-        for _, entry in library.themes do
-            table.insert(themeNames, entry.name)
-        end
-        menuSection:AddList({
-            text = 'theme',
-            flag = 'ui_theme',
-            selected = library.currentTheme or 'Default',
-            values = themeNames,
-            callback = function(name)
-                library:SelectTheme(name)
-            end,
-        })
-    end
-
-    local keyX, keyY
-    local keyToggle = keybindsSection:AddToggle({text = 'indicator', flag = 'keybind_indicator', state = false, callback = function(bool)
-        library.keyIndicator:SetEnabled(bool);
-        if keyX then keyX.enabled = bool end
-        if keyY then keyY.enabled = bool end
-        keybindsSection:UpdateOptions();
-        settingsTab:UpdateSections();
-    end})
-    keyX = keybindsSection:AddSlider({text = 'x', flag = 'keybind_indicator_x', min = 0, max = 100, increment = .1, value = .5, callback = function()
-        library.keyIndicator:SetPosition(newUDim2(library.flags.keybind_indicator_x / 100, 0, library.flags.keybind_indicator_y / 100, 0));
-    end});
-    keyY = keybindsSection:AddSlider({text = 'y', flag = 'keybind_indicator_y', min = 0, max = 100, increment = .1, value = 35, callback = function()
-        library.keyIndicator:SetPosition(newUDim2(library.flags.keybind_indicator_x / 100, 0, library.flags.keybind_indicator_y / 100, 0));
-    end});
-    keyX.enabled = false;
-    keyY.enabled = false;
-    keybindsSection:UpdateOptions();
-
-    local wmPos, wmX, wmY
-    watermarkSection:AddToggle({text = 'enabled', flag = 'watermark_enabled', state = false, callback = function(bool)
-        if wmPos then wmPos.enabled = bool end
-        if wmX then wmX.enabled = bool end
-        if wmY then wmY.enabled = bool end
-        watermarkSection:UpdateOptions();
-        settingsTab:UpdateSections();
-    end});
-    wmPos = watermarkSection:AddList({text = 'position', flag = 'watermark_pos', selected = 'Top', values = {'Top', 'Top Left', 'Top Right', 'Bottom Left', 'Bottom Right', 'Custom'}, callback = function(val)
-        library.watermark.lock = val;
-    end})
-    wmX = watermarkSection:AddSlider({text = 'x', flag = 'watermark_x', suffix = '%', min = 0, max = 100, increment = .1, value = 50});
-    wmY = watermarkSection:AddSlider({text = 'y', flag = 'watermark_y', suffix = '%', min = 0, max = 100, increment = .1, value = 2});
-    library.watermark.lock = 'Top'
-    if library.flags then
-        library.flags.watermark_pos = 'Top'
-    end
-    wmPos.enabled = false;
-    wmX.enabled = false;
-    wmY.enabled = false;
-    watermarkSection:UpdateOptions();
-
-    return settingsTab;
-end
-
-envTable().library = library
-return library
-
-]=]
-
-local function loadDrawingLibrary(): any
-	if _G.AtomwareLiteMode == true or _G.AtomwareWindow ~= nil or _G.AtomwareUILoaded == true then
-		local function createMockSection(name)
-			local sec = { text = name }
-			function sec:AddToggle(opts)
-				local tog = {
-					state = opts and opts.state or false,
-					SetState = function(self, val, skip)
-						self.state = val
-						if not skip and opts and opts.callback then pcall(opts.callback, val) end
-					end,
-					AddColor = function(self) return { SetColor = function() end } end,
-					AddKeyPicker = function(self) return { SetKey = function() end } end,
-				}
-				return tog
-			end
-			function sec:AddSlider(opts)
-				local sli = {
-					value = opts and opts.default or 0,
-					SetValue = function(self, val, skip)
-						self.value = val
-						if not skip and opts and opts.callback then pcall(opts.callback, val) end
-					end,
-				}
-				return sli
-			end
-			function sec:AddDropdown(opts)
-				local drop = {
-					selected = opts and opts.default or nil,
-					Select = function(self, val, skip)
-						self.selected = val
-						if not skip and opts and opts.callback then pcall(opts.callback, val) end
-					end,
-					SetValues = function() end,
-					AddValue = function() end,
-					ClearValues = function() end,
-				}
-				return drop
-			end
-			function sec:AddList(opts)
-				local list = {
-					selected = opts and opts.default or nil,
-					values = opts and opts.values or {},
-					Select = function(self, val, skip)
-						self.selected = val
-						if not skip and opts and opts.callback then pcall(opts.callback, val) end
-					end,
-					SetValues = function(self, vals) self.values = vals or {} end,
-					AddValue = function(self, val) table.insert(self.values, val) end,
-					RemoveValue = function(self, val)
-						for i, v in ipairs(self.values) do
-							if v == val then table.remove(self.values, i) break end
-						end
-					end,
-					ClearValues = function(self) table.clear(self.values) end,
-					SetText = function(self, str) end,
-				}
-				return list
-			end
-			function sec:AddBox(opts)
-				local box = {
-					input = opts and (opts.input or opts.default) or "",
-					SetInput = function(self, str, skip)
-						self.input = str
-						if not skip and opts and opts.callback then pcall(opts.callback, str) end
-					end,
-					SetText = function(self, str) end,
-					CaptureFocus = function() end,
-					ReleaseFocus = function() end,
-				}
-				return box
-			end
-			function sec:AddBind(opts)
-				local bind = {
-					bind = opts and opts.default or "None",
-					state = false,
-					SetBind = function(self, keybind)
-						self.bind = keybind
-						if opts and opts.keycallback then pcall(opts.keycallback, keybind) end
-					end,
-					SetText = function(self, str) end,
-					SetKeyText = function(self, str) end,
-				}
-				return bind
-			end
-			function sec:AddScrollList(opts)
-				local scrolllist = sec:AddList(opts)
-				scrolllist.SetVisibleCount = function() end
-				scrolllist.AutoFill = function() end
-				scrolllist.Refresh = function() end
-				return scrolllist
-			end
-			function sec:AddColor() return { SetColor = function() end } end
-			function sec:AddKeyPicker() return { SetKey = function() end } end
-			function sec:AddButton(opts) return { SetText = function() end } end
-			function sec:AddText(opts) return { SetText = function() end } end
-			function sec:AddSearchBox(opts) return sec:AddBox(opts) end
-			function sec:AddDivider() end
-			function sec:AddSeparator() end
-			function sec:SetText() end
-			function sec:SetEnabled() end
-			function sec:UpdateOptions() end
-			return sec
-		end
-
-		local function createMockTab(tabName)
-			local t = { name = tabName, sections = {} }
-			function t:AddSubTabs() end
-			function t:AddLeftTabbox()
-				return {
-					AddTab = function(self, title) return self:AddSection(title) end,
-					AddSection = function(self, secName)
-						local s = createMockSection(secName)
-						t.sections[secName] = s
-						return s
-					end,
-				}
-			end
-			function t:AddRightTabbox() return self:AddLeftTabbox() end
-			function t:AddSection(secName)
-				local s = createMockSection(secName)
-				t.sections[secName] = s
-				return s
-			end
-			return t
-		end
-
-		local mockLib = {
-			currentTheme = "Default",
-			options = {},
-			themes = { { theme = {} } },
-			open = false,
-			init = function(self) end,
-			SetOpen = function(self, val) self.open = val end,
-			SelectTheme = function(self) end,
-			SetTheme = function(self) end,
-			SendNotification = function(self, msg) print("[Atomware]", msg) end,
-			CreateSettingsTab = function(self, menu)
-				local sTab = nil
-				if type(_G.AtomwareWindow) == "table" and type(_G.AtomwareWindow.CreateSettingsTab) == "function" then
-					sTab = _G.AtomwareWindow:CreateSettingsTab(menu)
-				else
-					sTab = createMockTab("settings")
-					sTab.UpdateSections = function() end
-				end
-				DrawingBridge.settingsTab = sTab
-				return sTab
-			end,
-			NewWindow = function(spec)
-				if type(_G.AtomwareWindow) == "table" and type(_G.AtomwareWindow.AddTab) == "function" then
-					return _G.AtomwareWindow
-				end
-				local win = { tabs = {} }
-				function win:AddTab(name)
-					local tab = createMockTab(name)
-					win.tabs[name] = tab
-					return tab
-				end
-				function win:UpdateTabs() end
-				function win:SelectTab() end
-				return win
-			end,
-		}
-		return mockLib
-	end
-	local src: string? = EMBEDDED_OCTOHOOK
-	if type(src) ~= "string" or #src < 1000 then
-		src = nil
-		local paths = { "octohook.lua", CONFIG_FOLDER .. "/octohook.lua", "workspace/octohook.lua" }
-		local isfileFn: any = execApi("isfile")
-		if hasFsApi("readfile") then
-			for _, path in paths do
-				local exists = true
-				if typeof(isfileFn) == "function" then
-					local okFile, found = pcall(isfileFn :: (string) -> boolean, path)
-					exists = okFile and found == true
-				end
-				if exists then
-					local okRead, body = pcall(fsReadfile, path)
-					if okRead and type(body) == "string" and #body > 1000 then
-						src = body
-						break
-					end
-				end
-			end
-		end
-	end
-	assert(src, "octohook.lua missing from embed and workspace")
-	pcall(function()
-		if not hasFsApi("writefile") then
-			return
-		end
-		if hasFsApi("makefolder") and not fsIsfolder(CONFIG_FOLDER) then
-			fsMakefolder(CONFIG_FOLDER)
-		end
-		fsWritefile(CONFIG_FOLDER .. "/octohook.lua", src :: string)
-	end)
-	local loader: any = execApi("loadstring") or execApi("load")
-	assert(typeof(loader) == "function", "loadstring unavailable")
-	local chunk, compileErr = (loader :: (string, string?) -> ((...any) -> any)?)(src :: string, "octohook")
-	assert(chunk, "octohook.lua failed to compile: " .. tostring(compileErr))
-	local library = (chunk :: any)({ cheatname = "sonata", gamename = "rivals", fileext = ".txt" })
-	assert(type(library) == "table" and type(library.init) == "function", "octohook returned an invalid library table")
-	return library
 end
 
 local function createDrawingKit(bridge: any): any
@@ -9815,6 +741,9 @@ local function createDrawingKit(bridge: any): any
 			return nil
 		end
 		local lower = string.lower(name)
+		if lower == "always" then
+			return "ALW"
+		end
 		if lower == "none" or lower == "unknown" then
 			return nil
 		end
@@ -9824,6 +753,9 @@ local function createDrawingKit(bridge: any): any
 	function kit.keyHeld(name: any): boolean
 		if type(name) ~= "string" then
 			return false
+		end
+		if name == "Always" or name == "ALWAYS" then
+			return true
 		end
 		local key = kit.keyFromName(name)
 		if not key then
@@ -9893,7 +825,11 @@ local function createDrawingKit(bridge: any): any
 	function kit.bind(section: any, text: string, get: () -> string, set: (string) -> (), opts: any?): any
 		local options: any = opts or {}
 		local function toBind(): any
-			local key = kit.keyFromName(get())
+			local cur = get()
+			if cur == "Always" or cur == "ALWAYS" then
+				return "Always"
+			end
+			local key = kit.keyFromName(cur)
 			if key then
 				return key
 			end
@@ -9909,6 +845,8 @@ local function createDrawingKit(bridge: any): any
 			keycallback = function(key: any)
 				if typeof(key) == "EnumItem" then
 					set((key :: EnumItem).Name)
+				elseif key == "Always" or key == "ALWAYS" then
+					set("Always")
 				else
 					set("None")
 				end
@@ -10116,15 +1054,18 @@ export type Window = {
 }
 
 	local function Window(spec: WindowSpec): Window?
-	local drawingLibrary: any = nil
-	do
-		local okLoad, loaded = pcall(loadDrawingLibrary)
-		if okLoad and type(loaded) == "table" then
-			drawingLibrary = loaded
-		else
-			warn("bro is this kewl ass ui gonna load? octohook dipped")
-			return nil
-		end
+	local drawingLibrary: any = _G.AtomwareWindow
+	if not drawingLibrary then
+		local wCount = 0
+		repeat
+			task.wait()
+			wCount = wCount + 1
+			drawingLibrary = _G.AtomwareWindow
+		until drawingLibrary or wCount > 300
+	end
+	if not drawingLibrary then
+		warn("[Atomware Rivals] Atomware UI window was unavailable!")
+		return nil
 	end
 
 	local ears: { any } = {}
@@ -10231,7 +1172,7 @@ export type Window = {
 		},
 	}
 	pcall(function()
-		(_G :: any).__sonata_bridge = DrawingBridge
+		(_G :: any).__atomware_rivals_bridge = DrawingBridge
 	end)
 	local DKit: any = createDrawingKit(DrawingBridge)
 
@@ -10244,243 +1185,220 @@ export type Window = {
 			Cosmetics:install()
 		end)
 		local cosmeticsTab = kit.tab("items")
-		local controls: { () -> () } = {}
-		local function renderAll()
-			for _, fn in controls do
-				pcall(fn)
+
+		local currentMode = "skins"
+		local activeWeapon = CosmeticsSelection.weapon or (type(Cosmetics.heldWeapon) == "function" and Cosmetics:heldWeapon()) or Cosmetics.weapons[1] or "Assault Rifle"
+		CosmeticsSelection.weapon = activeWeapon
+
+		local left = cosmeticsTab:AddSection("Weapons", 1)
+		local right = cosmeticsTab:AddSection("Customization", 2)
+
+		local weaponLabel: any = nil
+		local itemLabel: any = nil
+		local enableToggle: any = nil
+		local weaponScrollList: any = nil
+		local itemScrollList: any = nil
+		local categoryDropdown: any = nil
+
+		local function getOptionsForMode(mode: string, weapon: string?): { string }
+			local source: { string }
+			local clearName = (mode == "charms" or mode == "finishers") and "none" or "default"
+			if mode == "skins" then
+				source = if weapon then Cosmetics:skinsFor(weapon) else { "default" }
+			elseif mode == "wraps" then
+				source = if type(Cosmetics.getWraps) == "function" then Cosmetics:getWraps() else Cosmetics.wraps
+			elseif mode == "charms" then
+				source = if type(Cosmetics.getCharms) == "function" then Cosmetics:getCharms() else Cosmetics.charms
+			else
+				source = if type(Cosmetics.getFinishers) == "function" then Cosmetics:getFinishers() else Cosmetics.finishers
 			end
-		end
-
-		local function resolveWeapon(): string?
-			local selected = CosmeticsSelection.weapon
-			if type(selected) == "string" and selected ~= "" then
-				return selected
-			end
-			local held = Cosmetics:heldWeapon()
-			if type(held) == "string" and held ~= "" then
-				CosmeticsSelection.weapon = held
-				return held
-			end
-			return nil
-		end
-
-		local initialHeld = Cosmetics:heldWeapon()
-		if type(initialHeld) == "string" and initialHeld ~= "" then
-			CosmeticsSelection.weapon = initialHeld
-		elseif not CosmeticsSelection.weapon and Cosmetics.weapons[1] then
-			CosmeticsSelection.weapon = Cosmetics.weapons[1]
-		end
-
-		local modeByLabel = {
-			skins = "skins",
-			wraps = "wraps",
-			charms = "charms",
-			finishers = "finishers",
-		}
-		pcall(function()
-			cosmeticsTab:AddSubTabs({ "skins", "wraps", "charms", "finishers" }, function()
-				task.defer(renderAll)
-			end)
-		end)
-
-		local function addModePanel(mode: string, label: string)
-			local left = cosmeticsTab:AddSection("Weapons", 1)
-			local right = cosmeticsTab:AddSection(label, 2)
-			left.subTab = label
-			right.subTab = label
-			local needsEnable = mode == "charms" or mode == "finishers"
-			local query = ""
-			local optionCtl: any = nil
-			local weaponCtl: any = nil
-			local enableToggle: any = nil
-
-			local function currentSelection(): string?
-				local weapon = CosmeticsSelection.weapon
-				if not weapon then
-					return nil
+			local out: { string } = { clearName }
+			for _, name in ipairs(source or {}) do
+				if name ~= clearName then
+					table.insert(out, name)
 				end
-				if mode == "skins" then
-					return Cosmetics.skinmap[weapon] or "default"
-				elseif mode == "wraps" then
-					return Cosmetics.wrapmap[weapon] or "default"
-				elseif mode == "charms" then
-					return Cosmetics.charmmap[weapon] or "none"
-				end
+			end
+			return out
+		end
+
+		local function getCurrentSelection(mode: string, weapon: string?): string
+			if not weapon or weapon == "" then
+				return "none"
+			end
+			if mode == "skins" then
+				return Cosmetics.skinmap[weapon] or "default"
+			elseif mode == "wraps" then
+				return Cosmetics.wrapmap[weapon] or "default"
+			elseif mode == "charms" then
+				return Cosmetics.charmmap[weapon] or "none"
+			else
 				return Cosmetics.finishermap[weapon] or "none"
 			end
-
-			local function isEnabled(): boolean
-				local weapon = CosmeticsSelection.weapon
-				if not weapon then
-					return false
-				end
-				if mode == "charms" then
-					return Cosmetics.charmon[weapon] == true
-				end
-				return Cosmetics.finisheron[weapon] == true
-			end
-
-			local function allOptions(): { string }
-				local weapon = CosmeticsSelection.weapon
-				local source: { string }
-				if mode == "skins" then
-					source = if weapon then Cosmetics:skinsFor(weapon) else { "default" }
-				elseif mode == "wraps" then
-					source = if type(Cosmetics.getWraps) == "function" then Cosmetics:getWraps() else Cosmetics.wraps
-				elseif mode == "charms" then
-					source = if type(Cosmetics.getCharms) == "function" then Cosmetics:getCharms() else Cosmetics.charms
-				else
-					source = if type(Cosmetics.getFinishers) == "function" then Cosmetics:getFinishers() else Cosmetics.finishers
-				end
-				local clearName = if needsEnable then "none" else "default"
-				local out: { string } = { clearName }
-				local needle = string.lower(query)
-				for _, name in source do
-					if name ~= clearName and (needle == "" or string.find(string.lower(name), needle, 1, true)) then
-						table.insert(out, name)
-					end
-				end
-				return out
-			end
-
-			kit.buttons(left, {
-				{
-					text = "Use held",
-					callback = function()
-						local held = Cosmetics:heldWeapon()
-						if type(held) == "string" and held ~= "" then
-							CosmeticsSelection.weapon = held
-							renderAll()
-						end
-					end,
-				},
-				{
-					text = "Refresh",
-					callback = function()
-						pcall(function()
-							Cosmetics:install()
-						end)
-						renderAll()
-					end,
-				},
-				{
-					text = "rando",
-					callback = function()
-						pcall(function()
-							Cosmetics:randomizeAll()
-						end)
-						renderAll()
-					end,
-				},
-			})
-
-			weaponCtl = kit.scrollList(left, "", function()
-				return Cosmetics.weapons
-			end, function()
-				return CosmeticsSelection.weapon
-			end, function(name: string)
-				CosmeticsSelection.weapon = name
-				task.defer(renderAll)
-			end, { fill = true, max = 18 })
-
-			kit.box(right, "Search", function()
-				return query
-			end, function(value: string)
-				query = value
-				if optionCtl then
-					optionCtl.render()
-				end
-			end)
-
-			if needsEnable then
-				enableToggle = kit.toggle(right, "Enabled", isEnabled, function(on: boolean)
-					local held = Cosmetics:heldWeapon()
-					if type(held) == "string" and held ~= "" then
-						CosmeticsSelection.weapon = held
-					end
-					local weapon = CosmeticsSelection.weapon
-					if not weapon then
-						return
-					end
-					if mode == "charms" then
-						Cosmetics.charmon[weapon] = if on then true else nil :: any
-						if on and not Cosmetics.charmmap[weapon] then
-							local first = Cosmetics.charms[1]
-							if first and first ~= "none" then
-								Cosmetics.charmmap[weapon] = first
-							end
-						end
-					else
-						Cosmetics.finisheron[weapon] = if on then true else nil :: any
-						if on and not Cosmetics.finishermap[weapon] then
-							local first = Cosmetics.finishers[1]
-							if first and first ~= "none" then
-								Cosmetics.finishermap[weapon] = first
-							end
-						end
-					end
-					Cosmetics:applyExtra(weapon)
-					task.defer(renderAll)
-				end)
-			end
-
-			optionCtl = kit.scrollList(right, "", allOptions, currentSelection, function(name: string)
-				local weapon = resolveWeapon()
-				if weapon then
-					Cosmetics:setSelection(mode, weapon, name)
-				end
-				task.defer(renderAll)
-			end, {
-				fill = true,
-				max = 16,
-				reserve = if needsEnable then 24 else 0,
-			})
-
-			if mode ~= "skins" then
-				kit.buttons(right, {
-					{
-						text = "Apply to all weapons",
-						callback = function()
-							local option = currentSelection()
-							if not option then
-								return
-							end
-							for _, weaponName in Cosmetics.weapons do
-								Cosmetics:setSelection(mode, weaponName, option)
-							end
-							task.defer(renderAll)
-						end,
-					},
-				})
-			end
-
-			table.insert(controls, function()
-				local active = cosmeticsTab.selectedSub == label or modeByLabel[cosmeticsTab.selectedSub or ""] == mode
-				if not active then
-					return
-				end
-				if weaponCtl then
-					weaponCtl.render()
-				end
-				if optionCtl then
-					optionCtl.render()
-				end
-				if enableToggle then
-					enableToggle:SetState(isEnabled(), true)
-				end
-			end)
 		end
 
-		addModePanel("skins", "skins")
-		addModePanel("wraps", "wraps")
-		addModePanel("charms", "charms")
-		addModePanel("finishers", "finishers")
+		local function isExtraEnabled(mode: string, weapon: string?): boolean
+			if not weapon then return false end
+			if mode == "charms" then
+				return Cosmetics.charmon[weapon] == true
+			elseif mode == "finishers" then
+				return Cosmetics.finisheron[weapon] == true
+			end
+			return true
+		end
+
+		local function refreshRightPanel()
+			local curSel = getCurrentSelection(currentMode, activeWeapon)
+			if itemLabel then
+				itemLabel.Text = "Active " .. currentMode:sub(1,1):upper() .. currentMode:sub(2) .. ": " .. tostring(curSel)
+			end
+			if enableToggle then
+				local needsEnable = (currentMode == "charms" or currentMode == "finishers")
+				enableToggle.enabled = needsEnable
+				if needsEnable then
+					enableToggle:SetState(isExtraEnabled(currentMode, activeWeapon), true)
+				end
+			end
+			if itemScrollList then
+				itemScrollList:SetText("Select " .. currentMode:sub(1,1):upper() .. currentMode:sub(2))
+				local opts = getOptionsForMode(currentMode, activeWeapon)
+				itemScrollList:SetValues(opts)
+				itemScrollList:Select(curSel, true)
+			end
+		end
+
+		-- LEFT SECTION: Weapon Selection & Global Controls
+		kit.buttons(left, {
+			{
+				text = "Use Held",
+				callback = function()
+					local held = Cosmetics:heldWeapon()
+					if type(held) == "string" and held ~= "" then
+						activeWeapon = held
+						CosmeticsSelection.weapon = held
+						if weaponLabel then weaponLabel.Text = "Selected: " .. activeWeapon end
+						if weaponScrollList then weaponScrollList:Select(activeWeapon, true) end
+						refreshRightPanel()
+					end
+				end,
+			},
+			{
+				text = "Refresh",
+				callback = function()
+					pcall(function() Cosmetics:install() end)
+					if weaponScrollList then weaponScrollList:SetValues(Cosmetics.weapons) end
+					refreshRightPanel()
+				end,
+			},
+			{
+				text = "Randomize All",
+				callback = function()
+					pcall(function() Cosmetics:randomizeAll() end)
+					refreshRightPanel()
+				end,
+			},
+		})
+
+		weaponLabel = left:AddText({ text = "Selected: " .. tostring(activeWeapon) })
+
+		weaponScrollList = left:AddScrollList({
+			text = "Weapons",
+			values = Cosmetics.weapons,
+			selected = activeWeapon,
+			callback = function(wName: string)
+				activeWeapon = wName
+				CosmeticsSelection.weapon = wName
+				if weaponLabel then weaponLabel.Text = "Selected: " .. activeWeapon end
+				refreshRightPanel()
+			end,
+		})
+
+		-- RIGHT SECTION: Customization (Skins, Wraps, Charms, Finishers)
+		categoryDropdown = right:AddList({
+			text = "Cosmetic Type",
+			values = { "Skins", "Wraps", "Charms", "Finishers" },
+			selected = "Skins",
+			callback = function(val: any)
+				local str = string.lower(tostring(val or "skins"))
+				currentMode = str
+				refreshRightPanel()
+			end,
+		})
+
+		itemLabel = right:AddText({ text = "Active Skin: " .. tostring(getCurrentSelection("skins", activeWeapon)) })
+
+		enableToggle = right:AddToggle({
+			text = "Enable Charm/Finisher",
+			state = isExtraEnabled(currentMode, activeWeapon),
+			callback = function(on: boolean)
+				if not activeWeapon then return end
+				if currentMode == "charms" then
+					Cosmetics.charmon[activeWeapon] = if on then true else nil :: any
+					if on and not Cosmetics.charmmap[activeWeapon] then
+						local first = Cosmetics.charms[1]
+						if first and first ~= "none" then
+							Cosmetics.charmmap[activeWeapon] = first
+						end
+					end
+				elseif currentMode == "finishers" then
+					Cosmetics.finisheron[activeWeapon] = if on then true else nil :: any
+					if on and not Cosmetics.finishermap[activeWeapon] then
+						local first = Cosmetics.finishers[1]
+						if first and first ~= "none" then
+							Cosmetics.finishermap[activeWeapon] = first
+						end
+					end
+				end
+				Cosmetics:applyExtra(activeWeapon)
+				refreshRightPanel()
+			end,
+		})
+		enableToggle.enabled = false
+
+		itemScrollList = right:AddScrollList({
+			text = "Select Skin",
+			values = getOptionsForMode(currentMode, activeWeapon),
+			selected = getCurrentSelection(currentMode, activeWeapon),
+			callback = function(itemName: string)
+				if activeWeapon then
+					Cosmetics:setSelection(currentMode, activeWeapon, itemName)
+					if itemLabel then
+						itemLabel.Text = "Active " .. currentMode:sub(1,1):upper() .. currentMode:sub(2) .. ": " .. tostring(itemName)
+					end
+				end
+			end,
+		})
+
+		kit.buttons(right, {
+			{
+				text = "Apply To All Weapons",
+				callback = function()
+					local curOpt = getCurrentSelection(currentMode, activeWeapon)
+					if curOpt and curOpt ~= "" then
+						for _, wName in ipairs(Cosmetics.weapons) do
+							Cosmetics:setSelection(currentMode, wName, curOpt)
+						end
+						if _G.AtomwareConfig and _G.AtomwareConfig.Notify then
+							_G.AtomwareConfig:Notify("Applied " .. tostring(curOpt) .. " to all weapons", 3)
+						end
+					end
+				end,
+			},
+			{
+				text = "Reset This Weapon",
+				callback = function()
+					if activeWeapon then
+						Cosmetics:setSelection("skins", activeWeapon, "default")
+						Cosmetics:setSelection("wraps", activeWeapon, "default")
+						Cosmetics:setSelection("charms", activeWeapon, "none")
+						Cosmetics:setSelection("finishers", activeWeapon, "none")
+						refreshRightPanel()
+					end
+				end,
+			},
+		})
 
 		task.defer(function()
-			if not CosmeticsSelection.weapon and Cosmetics.weapons[1] then
-				CosmeticsSelection.weapon = Cosmetics.weapons[1]
-			end
-			renderAll()
+			refreshRightPanel()
 		end)
 	end
 
@@ -11274,19 +2192,13 @@ export type Window = {
 
 		local hitMarks: { any } = {}
 		local function hitLine(): any?
-			if not DrawingLib then
-				return nil
+			local line = newline()
+			if line then
+				line.Visible = false
+				line.Thickness = 1
+				line.Transparency = 1
+				line.ZIndex = 55
 			end
-			local ok, line = pcall(function()
-				return DrawingLib.new("Line")
-			end)
-			if not ok or not line then
-				return nil
-			end
-			line.Visible = false
-			line.Thickness = 1
-			line.Transparency = 1
-			line.ZIndex = 55
 			return line
 		end
 		local function hideHit(mark: any)
@@ -11985,6 +2897,11 @@ Bitstream Vera
 				EspFontFaces[key] = faceAsset
 				return store(faceAsset)
 			end
+			if IS_MOBILE then
+				local safeNative = Font.fromEnum(Enum.Font.GothamBold)
+				EspFontFaces[key] = safeNative
+				return store(safeNative)
+			end
 			local fallback = EspFontFaces.Plex or EspFontFaces.System or EspFontFaces.UI
 			if typeof(fallback) == "Font" then
 				local okF, faceF = pcall(function()
@@ -11995,7 +2912,7 @@ Bitstream Vera
 				end
 				return store(fallback)
 			end
-			return Font.fromEnum(Enum.Font.Code)
+			return Font.fromEnum(Enum.Font.GothamBold)
 		end
 
 		local FONT_PACK = {
@@ -12337,40 +3254,328 @@ Bitstream Vera
 		end
 
 		local function newsquare(z: number): any?
-			if not DrawingLib then
+			local zval = math.max(1, z or 1)
+			if not IS_MOBILE and DrawingLib and type(DrawingLib.new) == "function" then
+				local ok, square = pcall(function()
+					return DrawingLib.new("Square")
+				end)
+				if ok and square then
+					square.Filled = false
+					square.Thickness = 1
+					square.Color = Color3.new(0, 0, 0)
+					square.Visible = false
+					square.Transparency = 1
+					square.ZIndex = zval
+					return square
+				end
+			end
+
+			local gui = ensureEspTextGui()
+			if not gui then
 				return nil
 			end
-			local ok, square = pcall(function()
-				return DrawingLib.new("Square")
-			end)
-			if not ok or not square then
-				return nil
-			end
-			square.Filled = false
-			square.Thickness = 1
-			square.Color = Color3.new(0, 0, 0)
-			square.Visible = false
-			square.Transparency = 1
-			square.ZIndex = math.max(1, z)
-			return square
+
+			local frame = Instance.new("Frame")
+			frame.Name = "esp_square"
+			frame.BorderSizePixel = 0
+			frame.BackgroundTransparency = 1
+			frame.BackgroundColor3 = Color3.new(1, 1, 1)
+			frame.Visible = false
+			frame.ZIndex = zval
+			frame.Parent = gui
+
+			local stroke = Instance.new("UIStroke")
+			stroke.Name = "stroke"
+			stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+			stroke.Thickness = 1
+			stroke.Color = Color3.new(0, 0, 0)
+			stroke.Transparency = 0
+			stroke.Enabled = true
+			stroke.Parent = frame
+
+			local state = {
+				Visible = false,
+				Filled = false,
+				Thickness = 1,
+				Color = Color3.new(0, 0, 0),
+				Transparency = 1,
+				Position = Vector2.zero,
+				Size = Vector2.zero,
+				ZIndex = zval,
+			}
+
+			local proxy: any = {}
+			setmetatable(proxy, {
+				__index = function(_, key: string): any
+					if key == "Visible" then return state.Visible
+					elseif key == "Filled" then return state.Filled
+					elseif key == "Thickness" then return state.Thickness
+					elseif key == "Color" then return state.Color
+					elseif key == "Transparency" then return state.Transparency
+					elseif key == "Position" then return state.Position
+					elseif key == "Size" then return state.Size
+					elseif key == "ZIndex" then return state.ZIndex
+					elseif key == "Remove" or key == "Destroy" then
+						return function()
+							pcall(function() frame:Destroy() end)
+						end
+					end
+					return nil
+				end,
+				__newindex = function(_, key: string, value: any)
+					if key == "Visible" then
+						local v = value == true
+						state.Visible = v
+						frame.Visible = v
+					elseif key == "Filled" then
+						local f = value == true
+						state.Filled = f
+						if f then
+							frame.BackgroundTransparency = math.clamp(1 - state.Transparency, 0, 1)
+							frame.BackgroundColor3 = state.Color
+							stroke.Enabled = false
+						else
+							frame.BackgroundTransparency = 1
+							stroke.Enabled = true
+						end
+					elseif key == "Thickness" and type(value) == "number" then
+						state.Thickness = value
+						stroke.Thickness = math.max(1, value)
+					elseif key == "Color" and typeof(value) == "Color3" then
+						state.Color = value
+						if state.Filled then
+							frame.BackgroundColor3 = value
+						else
+							stroke.Color = value
+						end
+					elseif key == "Transparency" and type(value) == "number" then
+						state.Transparency = value
+						local trans = math.clamp(1 - value, 0, 1)
+						if state.Filled then
+							frame.BackgroundTransparency = trans
+						else
+							stroke.Transparency = trans
+						end
+					elseif key == "Position" and typeof(value) == "Vector2" then
+						state.Position = value
+						frame.Position = UDim2.fromOffset(math.floor(value.X + 0.5), math.floor(value.Y + 0.5))
+					elseif key == "Size" and typeof(value) == "Vector2" then
+						state.Size = value
+						frame.Size = UDim2.fromOffset(math.max(0, math.floor(value.X + 0.5)), math.max(0, math.floor(value.Y + 0.5)))
+					elseif key == "ZIndex" and type(value) == "number" then
+						state.ZIndex = value
+						frame.ZIndex = value
+					end
+				end,
+			})
+			return proxy
 		end
 
 		local function newline(): any?
-			if not DrawingLib then
+			if not IS_MOBILE and DrawingLib and type(DrawingLib.new) == "function" then
+				local ok, line = pcall(function()
+					return DrawingLib.new("Line")
+				end)
+				if ok and line then
+					line.Thickness = 1
+					line.Color = Color3.new(1, 1, 1)
+					line.Visible = false
+					line.Transparency = 1
+					line.ZIndex = 1
+					return line
+				end
+			end
+
+			local gui = ensureEspTextGui()
+			if not gui then
 				return nil
 			end
-			local ok, line = pcall(function()
-				return DrawingLib.new("Line")
-			end)
-			if not ok or not line then
-				return nil
+
+			local lineFrame = Instance.new("Frame")
+			lineFrame.Name = "esp_line"
+			lineFrame.BorderSizePixel = 0
+			lineFrame.BackgroundColor3 = Color3.new(1, 1, 1)
+			lineFrame.BackgroundTransparency = 0
+			lineFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+			lineFrame.Visible = false
+			lineFrame.ZIndex = 3
+			lineFrame.Parent = gui
+
+			local state = {
+				Visible = false,
+				From = Vector2.zero,
+				To = Vector2.zero,
+				Color = Color3.new(1, 1, 1),
+				Thickness = 1,
+				Transparency = 1,
+				ZIndex = 3,
+			}
+
+			local function updateGeom()
+				local diff = state.To - state.From
+				local dist = diff.Magnitude
+				local angle = math.atan2(diff.Y, diff.X)
+				lineFrame.Size = UDim2.fromOffset(dist, math.max(1, state.Thickness))
+				lineFrame.Position = UDim2.fromOffset((state.From.X + state.To.X) * 0.5, (state.From.Y + state.To.Y) * 0.5)
+				lineFrame.Rotation = math.deg(angle)
 			end
-			line.Thickness = 1
-			line.Color = Color3.new(1, 1, 1)
-			line.Visible = false
-			line.Transparency = 1
-			line.ZIndex = 1
-			return line
+
+			local proxy: any = {}
+			setmetatable(proxy, {
+				__index = function(_, key: string): any
+					if key == "Visible" then return state.Visible
+					elseif key == "From" then return state.From
+					elseif key == "To" then return state.To
+					elseif key == "Color" then return state.Color
+					elseif key == "Thickness" then return state.Thickness
+					elseif key == "Transparency" then return state.Transparency
+					elseif key == "ZIndex" then return state.ZIndex
+					elseif key == "Remove" or key == "Destroy" then
+						return function()
+							pcall(function() lineFrame:Destroy() end)
+						end
+					end
+					return nil
+				end,
+				__newindex = function(_, key: string, value: any)
+					if key == "Visible" then
+						local v = value == true
+						state.Visible = v
+						lineFrame.Visible = v
+					elseif key == "From" and typeof(value) == "Vector2" then
+						state.From = value
+						updateGeom()
+					elseif key == "To" and typeof(value) == "Vector2" then
+						state.To = value
+						updateGeom()
+					elseif key == "Color" and typeof(value) == "Color3" then
+						state.Color = value
+						lineFrame.BackgroundColor3 = value
+					elseif key == "Thickness" and type(value) == "number" then
+						state.Thickness = value
+						updateGeom()
+					elseif key == "Transparency" and type(value) == "number" then
+						state.Transparency = value
+						lineFrame.BackgroundTransparency = math.clamp(1 - value, 0, 1)
+					elseif key == "ZIndex" and type(value) == "number" then
+						state.ZIndex = value
+						lineFrame.ZIndex = value
+					end
+				end,
+			})
+			return proxy
+		end
+
+		local function newcircle(z: number): any?
+			local zval = math.max(1, z or 2)
+			if not IS_MOBILE and DrawingLib and type(DrawingLib.new) == "function" then
+				local ok, c = pcall(function()
+					return DrawingLib.new("Circle")
+				end)
+				if ok and c then
+					c.Filled = false
+					c.NumSides = 32
+					c.Thickness = 1
+					c.Visible = false
+					c.ZIndex = zval
+					return c
+				end
+			end
+
+			local gui = ensureEspTextGui()
+			if not gui then return nil end
+
+			local frame = Instance.new("Frame")
+			frame.Name = "esp_circle"
+			frame.AnchorPoint = Vector2.new(0.5, 0.5)
+			frame.BorderSizePixel = 0
+			frame.BackgroundTransparency = 1
+			frame.Visible = false
+			frame.ZIndex = zval
+			frame.Parent = gui
+
+			local corner = Instance.new("UICorner")
+			corner.CornerRadius = UDim.new(1, 0)
+			corner.Parent = frame
+
+			local stroke = Instance.new("UIStroke")
+			stroke.Thickness = 1
+			stroke.Color = Color3.new(1, 1, 1)
+			stroke.Transparency = 0
+			stroke.Parent = frame
+
+			local state = {
+				Visible = false,
+				Filled = false,
+				Thickness = 1,
+				Radius = 0,
+				Color = Color3.new(1, 1, 1),
+				Transparency = 1,
+				Position = Vector2.zero,
+				ZIndex = zval,
+			}
+
+			local proxy: any = {}
+			setmetatable(proxy, {
+				__index = function(_, key: string): any
+					if key == "Visible" then return state.Visible
+					elseif key == "Radius" then return state.Radius
+					elseif key == "Position" then return state.Position
+					elseif key == "Color" then return state.Color
+					elseif key == "Thickness" then return state.Thickness
+					elseif key == "Filled" then return state.Filled
+					elseif key == "Transparency" then return state.Transparency
+					elseif key == "ZIndex" then return state.ZIndex
+					elseif key == "Remove" or key == "Destroy" then
+						return function() pcall(function() frame:Destroy() end) end
+					end
+					return nil
+				end,
+				__newindex = function(_, key: string, value: any)
+					if key == "Visible" then
+						local v = value == true
+						state.Visible = v
+						frame.Visible = v
+					elseif key == "Position" and typeof(value) == "Vector2" then
+						state.Position = value
+						frame.Position = UDim2.fromOffset(math.floor(value.X + 0.5), math.floor(value.Y + 0.5))
+					elseif key == "Radius" and type(value) == "number" then
+						state.Radius = value
+						local d = math.max(0, math.floor(value * 2 + 0.5))
+						frame.Size = UDim2.fromOffset(d, d)
+					elseif key == "Color" and typeof(value) == "Color3" then
+						state.Color = value
+						stroke.Color = value
+						if state.Filled then frame.BackgroundColor3 = value end
+					elseif key == "Thickness" and type(value) == "number" then
+						state.Thickness = value
+						stroke.Thickness = math.max(1, value)
+					elseif key == "Filled" then
+						local f = value == true
+						state.Filled = f
+						if f then
+							frame.BackgroundTransparency = math.clamp(1 - state.Transparency, 0, 1)
+							frame.BackgroundColor3 = state.Color
+							stroke.Enabled = false
+						else
+							frame.BackgroundTransparency = 1
+							stroke.Enabled = true
+						end
+					elseif key == "Transparency" and type(value) == "number" then
+						state.Transparency = value
+						local trans = math.clamp(1 - value, 0, 1)
+						if state.Filled then
+							frame.BackgroundTransparency = trans
+						else
+							stroke.Transparency = trans
+						end
+					elseif key == "ZIndex" and type(value) == "number" then
+						state.ZIndex = value
+						frame.ZIndex = value
+					end
+				end,
+			})
+			return proxy
 		end
 
 		local PIXEL_OUTLINE_DIRS = {
@@ -12404,7 +3609,8 @@ Bitstream Vera
 				label.TextXAlignment = Enum.TextXAlignment.Left
 				label.TextYAlignment = Enum.TextYAlignment.Top
 				label.AnchorPoint = Vector2.zero
-				label.FontFace = EspFontFaces.Plex or Font.fromEnum(Enum.Font.Code)
+				label.Font = Enum.Font.GothamBold
+				label.FontFace = Font.fromEnum(Enum.Font.GothamBold)
 				label.Visible = false
 				label.ZIndex = z
 				label.Text = ""
@@ -12486,20 +3692,29 @@ Bitstream Vera
 				local ax = math.floor(state.Position.X + 0.5)
 				local ay = math.floor(state.Position.Y + 0.5)
 				local x, y = ax, ay
+				local b = label.TextBounds
 				if state.Center then
-					local b = label.TextBounds
-					x = math.floor(ax - b.X * 0.5 + 0.5)
-					y = math.floor(ay - b.Y * 0.5 + 0.5)
+					if b.X > 0 and b.Y > 0 then
+						x = math.floor(ax - b.X * 0.5 + 0.5)
+						y = math.floor(ay - b.Y * 0.5 + 0.5)
+						label.AnchorPoint = Vector2.zero
+						label.TextXAlignment = Enum.TextXAlignment.Left
+					else
+						label.AnchorPoint = Vector2.new(0.5, 0)
+						label.TextXAlignment = Enum.TextXAlignment.Center
+						x, y = ax, ay
+					end
+				else
+					label.AnchorPoint = Vector2.zero
+					label.TextXAlignment = Enum.TextXAlignment.Left
 				end
-				label.AnchorPoint = Vector2.zero
 				label.Position = UDim2.fromOffset(x, y)
-				label.TextXAlignment = Enum.TextXAlignment.Left
 				label.TextYAlignment = Enum.TextYAlignment.Top
 				for i, ol in outlines do
 					local d = PIXEL_OUTLINE_DIRS[i]
-					ol.AnchorPoint = Vector2.zero
+					ol.AnchorPoint = label.AnchorPoint
 					ol.Position = UDim2.fromOffset(x + d.X, y + d.Y)
-					ol.TextXAlignment = Enum.TextXAlignment.Left
+					ol.TextXAlignment = label.TextXAlignment
 					ol.TextYAlignment = Enum.TextYAlignment.Top
 				end
 				syncOutlineStyle()
@@ -12535,7 +3750,10 @@ Bitstream Vera
 					end
 				end
 				pcall(function()
-					label.Font = Enum.Font.Unknown
+					label.Font = Enum.Font.GothamBold
+					for _, ol in outlines do
+						ol.Font = Enum.Font.GothamBold
+					end
 				end)
 				applyTextSize(state.Size)
 				applyLayout()
@@ -13042,7 +4260,7 @@ Bitstream Vera
 				return nil, nil
 			end
 			if not duel then
-				return livingCharacter(player)
+				return nil, nil
 			end
 			if seenDuel ~= duel then
 				seenDuel = duel
@@ -14215,9 +5433,6 @@ Bitstream Vera
 		local espHiddenIdle = false
 		local espActive: { [Player]: boolean } = {}
 		table.insert(ears, RunService.RenderStepped:Connect(function()
-			if not DrawingLib then
-				return
-			end
 			if DrawingBridge.library and DrawingBridge.library.uiDragging then
 				return
 			end
@@ -14258,7 +5473,7 @@ Bitstream Vera
 			end
 			local camera = Workspace.CurrentCamera
 			local duel, team = matchEnemies()
-			if not camera then
+			if not camera or not duel then
 				for _, entry in entries do
 					hideEntry(entry)
 				end
@@ -14744,18 +5959,7 @@ Bitstream Vera
 					end
 					v.lines[i] = line
 				end
-				v.circle = nil
-				if DrawingLib then
-					pcall(function()
-						local c = DrawingLib.new("Circle")
-						c.Filled = false
-						c.NumSides = 32
-						c.Thickness = 1
-						c.Visible = false
-						c.ZIndex = 2
-						v.circle = c
-					end)
-				end
+				v.circle = newcircle(2)
 				v.fontKey = nil
 				for _, text in { v.name, v.distance } do
 					if text then
@@ -15045,6 +6249,7 @@ Bitstream Vera
 	do
 	local Aim = {
 		enabled = false,
+		alwaysOn = false,
 		key = Enum.UserInputType.MouseButton2,
 		keyName = "MouseButton2",
 		drawFov = false,
@@ -15093,12 +6298,13 @@ Bitstream Vera
 
 	local Silent = {
 		enabled = false,
+		alwaysOn = true,
 		keyName = "None",
 		hitPart = "Head",
 		accuracy = 100,
 		fov = 300,
 		fovOrigin = "Center",
-		drawFov = true,
+		drawFov = false,
 		dynamicFov = false,
 		targetAimTarget = false,
 		visibleCheck = false,
@@ -15156,6 +6362,7 @@ Bitstream Vera
 
 	local Flick = {
 		enabled = false,
+		alwaysOn = false,
 		keyName = "MouseButton2",
 		fov = 160,
 		speed = 1,
@@ -15240,6 +6447,8 @@ Bitstream Vera
 		targetHud = false,
 		targetHudX = 0.5,
 		targetHudY = 0.72,
+		targetHudScale = 1,
+		alwaysOn = false,
 	}
 	DrawingBridge.Rage = Rage
 
@@ -15293,22 +6502,6 @@ Bitstream Vera
 		meleeReach = 2,
 	}
 	DrawingBridge.featureStates = { Aim, Silent, Trigger, Flick, Rage, Movement, Exploits }
-	DrawingBridge.Aim = Aim
-	DrawingBridge.Silent = Silent
-	DrawingBridge.Trigger = Trigger
-	DrawingBridge.Flick = Flick
-	DrawingBridge.Rage = Rage
-	DrawingBridge.Movement = Movement
-	DrawingBridge.Exploits = Exploits
-	pcall(function()
-		local g = _G :: any
-		g.__sonata_bridge = DrawingBridge
-		g.__sonata_aim = Aim
-		g.__sonata_silent = Silent
-		g.__sonata_esp = DrawingBridge.Esp
-		g.__sonata_movement = Movement
-		g.__sonata_exploits = Exploits
-	end)
 
 	local RAGE_SLOT_NUMBERS = {
 		Primary = 1,
@@ -15378,6 +6571,7 @@ Bitstream Vera
 		return {
 			aim = {
 				enabled = Aim.enabled,
+				alwaysOn = Aim.alwaysOn,
 				keyName = Aim.keyName,
 				drawFov = Aim.drawFov,
 				dynamicFov = Aim.dynamicFov,
@@ -15405,6 +6599,7 @@ Bitstream Vera
 			},
 			silent = {
 				enabled = Silent.enabled,
+				alwaysOn = Silent.alwaysOn,
 				keyName = Silent.keyName,
 				hitPart = (function()
 					for _, item in HITBOX_ITEMS do
@@ -15450,6 +6645,7 @@ Bitstream Vera
 			},
 			flick = {
 				enabled = Flick.enabled,
+				alwaysOn = Flick.alwaysOn,
 				keyName = Flick.keyName,
 				fov = Flick.fov,
 				speed = Flick.speed,
@@ -15513,6 +6709,8 @@ Bitstream Vera
 				targetHud = Rage.targetHud,
 				targetHudX = Rage.targetHudX,
 				targetHudY = Rage.targetHudY,
+				targetHudScale = Rage.targetHudScale,
+				alwaysOn = Rage.alwaysOn,
 			},
 			movement = {
 				speed = Movement.speed,
@@ -15553,6 +6751,7 @@ Bitstream Vera
 		if type(data.aim) == "table" then
 			local a = data.aim
 			if type(a.enabled) == "boolean" then Aim.enabled = a.enabled end
+			if type(a.alwaysOn) == "boolean" then Aim.alwaysOn = a.alwaysOn end
 			if type(a.keyName) == "string" then Aim.keyName = a.keyName end
 			if type(a.drawFov) == "boolean" then Aim.drawFov = a.drawFov end
 			if type(a.dynamicFov) == "boolean" then Aim.dynamicFov = a.dynamicFov end
@@ -15623,6 +6822,7 @@ Bitstream Vera
 		if type(data.silent) == "table" then
 			local s = data.silent
 			if type(s.enabled) == "boolean" then Silent.enabled = s.enabled end
+			if type(s.alwaysOn) == "boolean" then Silent.alwaysOn = s.alwaysOn end
 			if type(s.keyName) == "string" then Silent.keyName = s.keyName end
 			if type(s.hitPart) == "string" then Silent.hitPart = s.hitPart end
 			if type(s.accuracy) == "number" then Silent.accuracy = math.clamp(s.accuracy, 10, 100) end
@@ -15680,6 +6880,7 @@ Bitstream Vera
 		if type(data.flick) == "table" then
 			local f = data.flick
 			Flick.enabled = false
+			if type(f.alwaysOn) == "boolean" then Flick.alwaysOn = f.alwaysOn end
 			if type(f.keyName) == "string" then Flick.keyName = f.keyName end
 			if type(f.fov) == "number" then Flick.fov = f.fov end
 			if type(f.speed) == "number" then
@@ -15885,6 +7086,8 @@ Bitstream Vera
 			if type(r.targetHud) == "boolean" then Rage.targetHud = r.targetHud end
 			if type(r.targetHudX) == "number" then Rage.targetHudX = math.clamp(r.targetHudX, 0, 1) end
 			if type(r.targetHudY) == "number" then Rage.targetHudY = math.clamp(r.targetHudY, 0, 1) end
+			if type(r.targetHudScale) == "number" then Rage.targetHudScale = math.clamp(r.targetHudScale, 0.4, 3) end
+			if type(r.alwaysOn) == "boolean" then Rage.alwaysOn = r.alwaysOn end
 		end
 		if type(data.movement) == "table" then
 			local m = data.movement
@@ -16023,11 +7226,6 @@ Bitstream Vera
 				return true
 			end
 		end
-		if lp and lp.Character and lp.Character:FindFirstChild("Humanoid") then
-			inGameMatchCached = true
-			DrawingBridge.inGameMatch = true
-			return true
-		end
 		DrawingBridge.inGameMatch = false
 		return false
 	end
@@ -16069,8 +7267,11 @@ Bitstream Vera
 			local row = editingProfileRow()
 			if row then
 				row[key] = clamped
-			else
-				writeGlobal(clamped)
+			end
+			writeGlobal(clamped)
+			lastProfileItem = nil
+			if refreshWeaponProfile then
+				pcall(refreshWeaponProfile)
 			end
 		end
 	end
@@ -16149,14 +7350,17 @@ Bitstream Vera
 		aimStroke.Name = "Stroke"
 		silentStroke.Name = "Stroke"
 
+		local isMobileAim = IS_MOBILE
 		local moveMouse: any = nil
-		pcall(function()
-			local env = fsGetgenv and fsGetgenv()
-			moveMouse = mousemoverel or mouse_move
-			if type(moveMouse) ~= "function" and type(env) == "table" then
-				moveMouse = env.mousemoverel or env.mouse_move
-			end
-		end)
+		if not isMobileAim then
+			pcall(function()
+				local env = fsGetgenv and fsGetgenv()
+				moveMouse = mousemoverel or mouse_move
+				if type(moveMouse) ~= "function" and type(env) == "table" then
+					moveMouse = env.mousemoverel or env.mouse_move
+				end
+			end)
+		end
 
 		local aimHeld = false
 		local aimStickyPart: BasePart? = nil
@@ -16744,12 +7948,7 @@ Bitstream Vera
 			end
 			silentInMatch = duel ~= nil
 			if not duel then
-				for _, player in ipairs(Players:GetPlayers()) do
-					if player ~= lp then
-						silentEnemyOf[player] = true
-					end
-				end
-				return true
+				return false
 			end
 			local teams: { [Player]: any } = {}
 			local allies: { [Player]: boolean } = {}
@@ -16836,7 +8035,8 @@ Bitstream Vera
 				return nil
 			end
 			refreshSilentRoster(os.clock())
-			local effectiveFov = computeEffectiveFov(resolvedSilentFov, false, cam)
+			local curSilentFov = (Aim.editProfile ~= "Global" and resolvedSilentFov) or Silent.fov
+			local effectiveFov = computeEffectiveFov(curSilentFov, false, cam)
 			local center = resolveFovOriginScreen(Silent.fovOrigin, cam, silentStickyPart)
 			local centerX = center.X
 			local centerY = center.Y
@@ -17545,8 +8745,8 @@ Bitstream Vera
 				ManipLive.hittable = false
 			end
 			paintManipStatus()
-			local showAimFov = inGame and Aim.enabled and Aim.drawFov
-			local showSilentFov = inGame and Silent.enabled and Silent.drawFov
+			local showAimFov = Aim.enabled == true and Aim.drawFov == true
+			local showSilentFov = Silent.enabled == true and Silent.drawFov == true
 			if not showAimFov and not showSilentFov then
 				aimRing.Visible = false
 				silentRing.Visible = false
@@ -17559,7 +8759,8 @@ Bitstream Vera
 				aimFovDrawPos = tweenFovPos(aimFovDrawPos, aimOriginTarget, dt, if aimOnTarget then 16 else 22)
 				silentFovDrawPos = tweenFovPos(silentFovDrawPos, silentOriginTarget, dt, if silentOnTarget then 16 else 22)
 				local effectiveAimRadius = computeEffectiveFov(resolvedAimFov, Aim.dynamicFov, cam)
-				local effectiveSilentRadius = computeEffectiveFov(resolvedSilentFov, false, cam)
+				local curSilentFov = (Aim.editProfile ~= "Global" and resolvedSilentFov) or Silent.fov
+				local effectiveSilentRadius = computeEffectiveFov(curSilentFov, false, cam)
 				aimFovDrawRadius = tweenFovRadius(aimFovDrawRadius, math.max(2, effectiveAimRadius * 2), dt)
 				silentFovDrawRadius = tweenFovRadius(silentFovDrawRadius, math.max(2, effectiveSilentRadius * 2), dt)
 				local aimDraw = aimFovDrawPos or screenCenter
@@ -17597,8 +8798,8 @@ Bitstream Vera
 				end
 			end
 
-			local canAim = inGame and Aim.enabled and (aimHeld or Aim.keyName == "None" or (UserInputService and UserInputService.TouchEnabled))
-			if canAim then
+			local aimActive = inGame and Aim.enabled and (Aim.alwaysOn or Aim.keyName == "None" or Aim.keyName == "Always" or aimHeld)
+			if aimActive then
 				local part = resolveStickyAimTarget()
 				if part and os.clock() >= aimReadyAt then
 					local now = os.clock()
@@ -17670,14 +8871,19 @@ Bitstream Vera
 									jy += (math.random() - 0.5) * human * 5
 								end
 							end
-							if type(moveMouse) == "function" then
+							if not isMobileAim and type(moveMouse) == "function" then
 								pcall(moveMouse, mx + jx, my + jy)
-							elseif cam then
-								local currentCF = cam.CFrame
-								local targetCF = CFrame.lookAt(currentCF.Position, worldPos)
-								local smoothVal = math.clamp(resolvedSmooth, 1, 40)
-								local lerpFactor = math.clamp(1 / smoothVal, 0.05, 0.95)
-								cam.CFrame = currentCF:Lerp(targetCF, lerpFactor)
+							else
+								-- Smooth mobile camera interpolation (safe from SIGSEGV and NaN)
+								pcall(function()
+									local curCF = cam.CFrame
+									local delta = worldPos - curCF.Position
+									if delta.Magnitude > 0.05 then
+										local targetCF = CFrame.lookAt(curCF.Position, worldPos)
+										local lerpFactor = if smooth <= 0.05 then 0.85 else math.clamp(1 - math.exp(-math.max(dt, 1 / 240) * (6 + snap * 22)), 0.04, 0.6)
+										cam.CFrame = curCF:Lerp(targetCF, lerpFactor)
+									end
+								end)
 							end
 						else
 							local decay = math.clamp(0.35 + (1 - math.clamp(resolvedSmooth, 0, 40) / 40) * 0.4, 0.35, 0.9)
@@ -17686,7 +8892,7 @@ Bitstream Vera
 						end
 					end
 				end
-			elseif not aimHeld then
+			elseif not aimActive then
 				aimStickyPart = nil
 				aimVelX = 0
 				aimVelY = 0
@@ -18020,8 +9226,8 @@ Bitstream Vera
 			local lmbDown = false
 			local lastLmbClick = 0
 			local function setLmb(down: boolean)
-				local press = execApi("mouse1press")
-				local release = execApi("mouse1release")
+				local press = not IS_MOBILE and execApi("mouse1press") or nil
+				local release = not IS_MOBILE and execApi("mouse1release") or nil
 				if typeof(press) == "function" and typeof(release) == "function" then
 					if down == lmbDown then
 						return
@@ -18068,7 +9274,8 @@ Bitstream Vera
 					setLmb(targetPart ~= nil)
 				end
 
-				if Flick.enabled and flickHeld and type(moveMouse) == "function" then
+				local flickActive = Flick.enabled and (Flick.alwaysOn or Flick.keyName == "None" or Flick.keyName == "Always" or flickHeld)
+				if flickActive then
 					local part = bestTarget(Flick.fov, Flick.hitboxes, Flick.flags, Flick.flags.visible == true)
 					if part then
 						local sp = cam:WorldToViewportPoint(part.Position)
@@ -18076,11 +9283,22 @@ Bitstream Vera
 						local dx = sp.X - center.X * 0.5
 						local dy = sp.Y - center.Y * 0.5
 						local speed = math.clamp(Flick.speed, 0.1, 10)
-						if speed <= 0.15 then
-							pcall(moveMouse, dx, dy)
+						if not isMobileAim and type(moveMouse) == "function" then
+							if speed <= 0.15 then
+								pcall(moveMouse, dx, dy)
+							else
+								local step = math.clamp((dt * 4.5) / speed, 0.02, 1)
+								pcall(moveMouse, dx * step, dy * step)
+							end
 						else
-							local step = math.clamp((dt * 4.5) / speed, 0.02, 1)
-							pcall(moveMouse, dx * step, dy * step)
+							pcall(function()
+								local curCF = cam.CFrame
+								local delta = part.Position - curCF.Position
+								if delta.Magnitude > 0.05 then
+									local step = math.clamp((dt * 4.5) / speed, 0.05, 0.9)
+									cam.CFrame = curCF:Lerp(CFrame.lookAt(curCF.Position, part.Position), step)
+								end
+							end)
 						end
 						if Flick.shoot and math.abs(dx) < 10 and math.abs(dy) < 10 then
 							local now = os.clock()
@@ -21176,7 +12394,13 @@ Bitstream Vera
 			local lastPreviewHpVal = -1
 			local itemLib: any = nil
 			pcall(function()
-				itemLib = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("ItemLibrary"))
+				local modFolder = ReplicatedStorage:FindFirstChild("Modules")
+				if modFolder then
+					local itemMod = modFolder:FindFirstChild("ItemLibrary")
+					if itemMod then
+						itemLib = require(itemMod)
+					end
+				end
 			end)
 
 			local function getAccentColor(): Color3
@@ -21253,6 +12477,11 @@ Bitstream Vera
 				panel.Visible = false
 				panel.Active = true
 				panel.Parent = screen
+
+				local uiScale = Instance.new("UIScale")
+				uiScale.Name = "Scale"
+				uiScale.Scale = tonumber(Rage.targetHudScale) or 1
+				uiScale.Parent = panel
 
 				local pCorner = Instance.new("UICorner")
 				pCorner.CornerRadius = UDim.new(0, 10)
@@ -21453,8 +12682,11 @@ Bitstream Vera
 					local vp = hudViewport()
 					local cur = UserInputService:GetMouseLocation()
 					local delta = cur - dragStart
-					local nextX = math.clamp(startPos.X + delta.X, 4, math.max(4, vp.X - panelW - 4))
-					local nextY = math.clamp(startPos.Y + delta.Y, 4, math.max(4, vp.Y - panelH - 4))
+					local sc = tonumber(Rage.targetHudScale) or 1
+					local effW = panelW * sc
+					local effH = panelH * sc
+					local nextX = math.clamp(startPos.X + delta.X, 4, math.max(4, vp.X - effW - 4))
+					local nextY = math.clamp(startPos.Y + delta.Y, 4, math.max(4, vp.Y - effH - 4))
 					objs.panel.Position = UDim2.new(0, nextX, 0, nextY)
 					Rage.targetHudX = (nextX + panelW * 0.5) / math.max(vp.X, 1)
 					Rage.targetHudY = nextY / math.max(vp.Y, 1)
@@ -21471,6 +12703,7 @@ Bitstream Vera
 				objs = {
 					screen = screen,
 					panel = panel,
+					uiScale = uiScale,
 					topAccent = topAccent,
 					avStroke = avStroke,
 					headshot = headshot,
@@ -21496,6 +12729,12 @@ Bitstream Vera
 			local lastAccentColor: Color3? = nil
 			local function applyTheme()
 				if not objs then return end
+				if objs.uiScale then
+					local sc = tonumber(Rage.targetHudScale) or 1
+					if objs.uiScale.Scale ~= sc then
+						objs.uiScale.Scale = sc
+					end
+				end
 				local accent = getAccentColor()
 				if accent == lastAccentColor then return end
 				lastAccentColor = accent
@@ -21654,6 +12893,45 @@ Bitstream Vera
 				return items, equippedIndex
 			end
 
+			local function resolveAnyTargetPlayer(): Player?
+				local lp = Players.LocalPlayer
+				if RageLive and RageLive.targetPlayer and RageLive.targetPlayer.Parent and RageLive.targetPlayer ~= lp then
+					return RageLive.targetPlayer
+				end
+				if silentStickyPart and silentStickyPart.Parent then
+					local char = silentStickyPart:FindFirstAncestorOfClass("Model")
+					local pl = char and Players:GetPlayerFromCharacter(char)
+					if pl and pl ~= lp then return pl end
+				end
+				if aimStickyPart and aimStickyPart.Parent then
+					local char = aimStickyPart:FindFirstAncestorOfClass("Model")
+					local pl = char and Players:GetPlayerFromCharacter(char)
+					if pl and pl ~= lp then return pl end
+				end
+				local cam = Workspace.CurrentCamera
+				if not cam or not lp then return nil end
+				local center = cam.ViewportSize * 0.5
+				local bestDist = 550
+				local bestPl: Player? = nil
+				for _, p in ipairs(Players:GetPlayers()) do
+					if p ~= lp and p.Character then
+						local hrp = p.Character:FindFirstChild("HumanoidRootPart") or p.Character:FindFirstChild("Head")
+						local hum = p.Character:FindFirstChildOfClass("Humanoid")
+						if hrp and hum and hum.Health > 0 then
+							local sp, onScreen = cam:WorldToViewportPoint(hrp.Position)
+							if onScreen and sp.Z > 0 then
+								local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+								if d < bestDist then
+									bestDist = d
+									bestPl = p
+								end
+							end
+						end
+					end
+				end
+				return bestPl
+			end
+
 			local function showPreview(now: number)
 				if not ensureHud() or not objs then return end
 				setVisible(true)
@@ -21662,44 +12940,20 @@ Bitstream Vera
 					local p = panelPos()
 					objs.panel.Position = UDim2.new(0, p.X, 0, p.Y)
 				end
-				local lp = Players.LocalPlayer
-				local previewName = (lp and lp.DisplayName or "Preview") .. " (@" .. (lp and lp.Name or "preview") .. ")"
-				if lastName ~= previewName then
-					lastName = previewName
-					objs.nameLabel.Text = previewName
-					local uid = lp and lp.UserId or 1
-					objs.headshot.Image = "rbxthumb://type=AvatarHeadShot&id=" .. tostring(uid) .. "&w=150&h=150"
-					objs.headshot.Visible = true
-					objs.headshotFallback.Visible = false
+				local previewTitle = "Enemy Target (Preview)"
+				if lastName ~= previewTitle then
+					lastName = previewTitle
+					objs.nameLabel.Text = previewTitle
+					objs.headshot.Visible = false
+					objs.headshotFallback.Visible = true
+					objs.headshotFallback.Text = "AW"
 				end
-				if lastHealthRatio < 0 then
-					previewHpDir = -1
-					previewHpAt = now
-					setHealthRatio(1, false)
-				elseif now - previewHpAt > 1.2 then
-					previewHpAt = now
-					previewHpDir = -previewHpDir
-					setHealthRatio(if previewHpDir > 0 then 1 else 0.25, true)
-				end
-				if now - previewWeaponAt > 1.5 then
-					previewWeaponAt = now
-					previewWeaponIndex = (previewWeaponIndex % #PREVIEW_WEAPONS) + 1
+				setHealthRatio(1, false)
+				objs.hpText.Text = "100 / 100"
+				if lastWeaponSig == "" then
 					local bag: { { name: string, icon: string? } } = {}
-					for i = 0, 3 do
-						local idx = ((previewWeaponIndex - 1 + i) % #PREVIEW_WEAPONS) + 1
-						local wName = PREVIEW_WEAPONS[idx]
-						local wIcon: string? = nil
-						if itemLib and type(itemLib.GetViewModelImage) == "function" then
-							wIcon = itemLib:GetViewModelImage(wName)
-						end
-						table.insert(bag, { name = wName, icon = wIcon })
-					end
-					lastWeaponSig = ""
-					setWeapons(bag, 1)
-				elseif lastWeaponSig == "" then
-					local bag: { { name: string, icon: string? } } = {}
-					for i = 1, 4 do
-						local wName = PREVIEW_WEAPONS[i]
+					local staticPreview = { "Assault Rifle", "Shotgun", "Revolver", "Knife" }
+					for _, wName in ipairs(staticPreview) do
 						local wIcon: string? = nil
 						if itemLib and type(itemLib.GetViewModelImage) == "function" then
 							wIcon = itemLib:GetViewModelImage(wName)
@@ -21712,9 +12966,9 @@ Bitstream Vera
 
 			local lastTargetWeaponsAt = 0
 			local lastWeaponsTargetPlayer = nil
-			local function showLive()
+			local function showLive(targetPlayer: Player?)
 				if not ensureHud() or not objs then return end
-				local player = RageLive.targetPlayer
+				local player = targetPlayer or resolveAnyTargetPlayer()
 				if not player or not player.Parent then
 					setVisible(false)
 					return
@@ -21745,13 +12999,13 @@ Bitstream Vera
 				end
 				local char = player.Character
 				local hum = char and char:FindFirstChildOfClass("Humanoid")
-				local hp = RageLive.health or (hum and hum.Health) or 0
+				local hp = (RageLive.targetPlayer == player and RageLive.health) or (hum and hum.Health) or 100
 				local maxHp = (hum and hum.MaxHealth) or 100
 				if maxHp < 1 then maxHp = 100 end
 				setHealthRatio(math.clamp(hp / maxHp, 0, 1), true)
 				objs.hpText.Text = string.format("%d / %d", math.floor(hp + 0.5), math.floor(maxHp + 0.5))
 				local now = os.clock()
-				if player ~= lastWeaponsTargetPlayer or now - lastTargetWeaponsAt > 0.25 then
+				if player ~= lastWeaponsTargetPlayer or now - lastTargetWeaponsAt > 0.3 then
 					lastWeaponsTargetPlayer = player
 					lastTargetWeaponsAt = now
 					local weapons, equipped = readTargetWeapons(player)
@@ -21766,21 +13020,20 @@ Bitstream Vera
 					return
 				end
 				local now = os.clock()
-				if menuIsOpen() then
+				local targetPlayer = resolveAnyTargetPlayer()
+				if targetPlayer then
+					inPreview = false
+					showLive(targetPlayer)
+				elseif menuIsOpen() then
 					if not inPreview then
 						inPreview = true
 						lastWeaponSig = ""
 						lastHealthRatio = -1
 						lastName = ""
-						previewWeaponAt = 0
-						previewHpAt = 0
 						displayHp = 1
 						targetHp = 1
 					end
 					showPreview(now)
-				elseif Rage.enabled and RageLive.targetPlayer then
-					inPreview = false
-					showLive()
 				else
 					inPreview = false
 					setVisible(false)
@@ -21795,13 +13048,6 @@ Bitstream Vera
 					displayHp = targetHp
 				end
 				paintHealthBar()
-				if inPreview and objs and objs.hpText then
-					local hpVal = math.floor(math.clamp(displayHp, 0, 1) * 100 + 0.5)
-					if hpVal ~= lastPreviewHpVal then
-						lastPreviewHpVal = hpVal
-						objs.hpText.Text = string.format("%d / 100", hpVal)
-					end
-				end
 			end))
 			end
 			installTargetHudRuntime()
@@ -22146,6 +13392,16 @@ Bitstream Vera
 					end
 					if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.C) then
 						move -= Vector3.yAxis
+					end
+					if hum and hum.MoveDirection.Magnitude > 0.05 then
+						move += hum.MoveDirection
+						local flatLook = Vector3.new(look.X, 0, look.Z)
+						if flatLook.Magnitude > 0.01 and math.abs(look.Y) > 0.15 then
+							local fwdDot = hum.MoveDirection:Dot(flatLook.Unit)
+							if fwdDot > 0.2 then
+								move += Vector3.new(0, look.Y * fwdDot, 0)
+							end
+						end
 					end
 					local speed = math.clamp(Movement.flySpeed, 5, 500)
 					if move.Magnitude > 0 then
@@ -22529,6 +13785,7 @@ Bitstream Vera
 				end
 				rageRefresh()
 			end)
+			kit.flag(rage, "always active", Rage, "alwaysOn")
 			local rageKey = kit.bind(rage, "keybind", function()
 				return Rage.keyName
 			end, function(name: string)
@@ -22790,6 +14047,7 @@ Bitstream Vera
 			table.insert(DrawingBridge.syncers, vizRefresh)
 			vizRefresh()
 			kit.flag(visualizerBox, "target hud", Rage, "targetHud")
+			kit.number(visualizerBox, "hud size", Rage, "targetHudScale", 0.5, 2, 0.05, { suffix = "x" })
 
 			local exploits = rageTab:AddSection("exploits", 2)
 			local gunSpeed: any
@@ -22844,6 +14102,7 @@ Bitstream Vera
 					DrawingBridge.requestSync()
 				end
 			end)
+			kit.flag(aim, "always active", Aim, "alwaysOn")
 			local aimKey = kit.bind(aim, "aim key", function()
 				return Aim.keyName
 			end, function(name: string)
@@ -22974,6 +14233,7 @@ Bitstream Vera
 					silentRefresh()
 				end
 			end)
+			kit.flag(silent, "always active", Silent, "alwaysOn")
 			local silentKey = kit.bind(silent, "keybind", function()
 				return Silent.keyName
 			end, function(name: string)
@@ -23007,12 +14267,24 @@ Bitstream Vera
 				end
 			end)
 			local sSpinSp = kit.number(silent, "spin speed", Silent, "spinSpeed", 0, 360, 1)
-			local sFovGet, sFovSet = editNumber("silentFov", function()
-				return Silent.fov
-			end, function(value: number)
-				Silent.fov = value
-			end, 20, 600)
-			local sFov = kit.slider(silent, "fov", 20, 600, 1, sFovGet, sFovSet)
+			local function applySilentFov(value: number)
+				local clamped = math.clamp(value, 20, 600)
+				Silent.fov = clamped
+				resolvedSilentFov = clamped
+				local row = editingProfileRow()
+				if row then
+					row["silentFov"] = clamped
+				end
+				lastProfileItem = nil
+				if refreshWeaponProfile then
+					pcall(refreshWeaponProfile)
+				end
+			end
+			local sFovGet = function()
+				local row = editingProfileRow()
+				return profileNumber(row, "silentFov", Silent.fov, 20, 600)
+			end
+			local sFov = kit.slider(silent, "fov", 20, 600, 1, sFovGet, applySilentFov)
 			local sFovThick = kit.number(silent, "fov thickness", Silent, "fovThickness", 0.5, 12, 0.5, { suffix = "px" })
 			local sHits = kit.masks(silent, "hitboxes", HITBOX_ITEMS, function()
 				return Silent.hitboxes
@@ -23244,7 +14516,7 @@ Bitstream Vera
 
 	local Spoof = {
 		nameOn = false,
-		name = "sonata",
+		name = "Atomware Rivals",
 		rankOn = false,
 		rank = "Nemesis",
 		eloOn = false,
@@ -23471,7 +14743,7 @@ Bitstream Vera
 		if type(n) == "string" and n ~= "" then
 			return n
 		end
-		return "sonata"
+		return "Atomware Rivals"
 	end
 
 	local spoofPdcCache: any = nil
@@ -29087,15 +20359,36 @@ Bitstream Vera
 			ClientFx.customModelReplaceLeftHand = false
 			ClientFx.customModelReplaceRightHand = false
 
+			local BUILTIN_MODELS: { [string]: string } = {
+				["Noob"] = "138151705692565",
+				["Dummy"] = "5161593571",
+				["Classic R6"] = "138151705692565",
+				["Mini Dummy"] = "5161593571",
+			}
+
 			local function scanPlayerModels()
 				table.clear(modelNames)
 				table.clear(modelIds)
+				for name, id in BUILTIN_MODELS do
+					modelIds[name] = id
+					table.insert(modelNames, name)
+				end
+				DrawingBridge.modelNames = modelNames
+				DrawingBridge.modelIds = modelIds
 				if hasFsApi("makefolder") then
 					if not fsIsfolder(CONFIG_FOLDER) then
 						pcall(fsMakefolder, CONFIG_FOLDER)
 					end
 					if not fsIsfolder(MODEL_DIR) then
 						pcall(fsMakefolder, MODEL_DIR)
+					end
+					if hasFsApi("writefile") and hasFsApi("isfile") then
+						for name, id in BUILTIN_MODELS do
+							local mFile = MODEL_DIR .. "/" .. name .. ".txt"
+							if not fsIsfile(mFile) then
+								pcall(fsWritefile, mFile, id)
+							end
+						end
 					end
 				end
 				if hasFsApi("listfiles") and hasFsApi("readfile") then
@@ -29156,7 +20449,7 @@ Bitstream Vera
 				scanPlayerModels()
 				paintModelList()
 				local label = tostring(ClientFx.playerModelName)
-				local id = modelIds[label]
+				local id = modelIds[label] or BUILTIN_MODELS[label]
 				if not id then
 					return
 				end
@@ -29175,6 +20468,9 @@ Bitstream Vera
 				end
 				customRefresh()
 			end
+			DrawingBridge.loadPlayerModel = loadPlayerModel
+			DrawingBridge.scanPlayerModels = scanPlayerModels
+			DrawingBridge.customRefresh = customRefresh
 			kit.buttons(customModelBox, {
 				{ text = "load", callback = loadPlayerModel },
 				{
@@ -29237,7 +20533,7 @@ Bitstream Vera
 
 			customRefresh = function()
 				local on = ClientFx.customModel == true
-				modelList.enabled = on
+				modelList.enabled = true
 				cmCharSpin.enabled = on
 				cmCharSpinSpd.enabled = on and ClientFx.characterSpin == true
 				cmScale.enabled = on
@@ -29501,10 +20797,10 @@ Bitstream Vera
 			if ambienceSound and ambienceSound.Parent then
 				return ambienceSound
 			end
-			local holder = SoundService:FindFirstChild("sonata_ambience")
+			local holder = SoundService:FindFirstChild("atomware_ambience")
 			if not holder then
 				holder = Instance.new("SoundGroup")
-				holder.Name = "sonata_ambience"
+				holder.Name = "atomware_ambience"
 				holder.Parent = SoundService
 			end
 			local sound = Instance.new("Sound")
@@ -29674,10 +20970,10 @@ Bitstream Vera
 			end
 		end
 
-		local fxSoundFolder = SoundService:FindFirstChild("sonata_fx_sounds")
+		local fxSoundFolder = SoundService:FindFirstChild("atomware_fx_sounds")
 		if not fxSoundFolder then
 			fxSoundFolder = Instance.new("Folder")
-			fxSoundFolder.Name = "sonata_fx_sounds"
+			fxSoundFolder.Name = "atomware_fx_sounds"
 			fxSoundFolder.Parent = SoundService
 		end
 		local fxLiveCounts: { [string]: number } = { hit = 0, shoot = 0, kill = 0, hit_preview = 0, shoot_preview = 0, kill_preview = 0 }
@@ -29852,7 +21148,7 @@ Bitstream Vera
 		end
 
 		local tracerFolder = Instance.new("Folder")
-		tracerFolder.Name = "sonata_tracers"
+		tracerFolder.Name = "atomware_tracers"
 		do
 			local cam = Workspace.CurrentCamera
 			tracerFolder.Parent = cam or (fsGethui and fsGethui()) or game:GetService("CoreGui")
@@ -32479,7 +23775,7 @@ Bitstream Vera
 		local skins, wraps, charms, finishers = Cosmetics:export()
 		local payload = {
 			version = 4,
-			name = "sonata",
+			name = "Atomware Rivals",
 			savedAt = os.time(),
 			skins = skins,
 			wraps = wraps,
@@ -32738,6 +24034,12 @@ Bitstream Vera
 		local LUA_DIR = "luas"
 		local luaPaths: { [string]: string } = {}
 		local luaNames: { string } = {}
+		local BUILTIN_LUAS: { [string]: string } = {
+			["InfiniteYield"] = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))()',
+			["DexExplorer"] = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/infyiff/backup/main/dex.lua"))()',
+			["SimpleSpy"] = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/exxtremestuffs/SimpleSpy/master/SimpleSpySource.lua"))()',
+			["Keyboard"] = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/advcomwt/GG/main/keyboard.lua"))()',
+		}
 
 		local function luaNotify(message: string)
 			local lib: any = DrawingBridge.library
@@ -32766,15 +24068,28 @@ Bitstream Vera
 		local function refreshLuaNames()
 			table.clear(luaPaths)
 			table.clear(luaNames)
-			if not ensureLuaDir() then
-				return
-			end
-			for _, path in fsListfiles(LUA_DIR) do
-				local base = string.match(tostring(path), "([^/\\]+)$") or tostring(path)
-				local stem = string.match(base, "^(.+)%.lua$") or string.match(base, "^(.+)%.txt$")
-				if stem and not luaPaths[stem] then
-					luaPaths[stem] = LUA_DIR .. "/" .. base
+			for stem, src in BUILTIN_LUAS do
+				if not luaPaths[stem] then
+					luaPaths[stem] = "builtin:" .. stem
 					table.insert(luaNames, stem)
+				end
+			end
+			if hasFsApi("writefile") and hasFsApi("isfile") and ensureLuaDir() then
+				for stem, src in BUILTIN_LUAS do
+					local fPath = LUA_DIR .. "/" .. stem .. ".lua"
+					if not fsIsfile(fPath) then
+						pcall(fsWritefile, fPath, src)
+					end
+				end
+			end
+			if ensureLuaDir() then
+				for _, path in fsListfiles(LUA_DIR) do
+					local base = string.match(tostring(path), "([^/\\]+)$") or tostring(path)
+					local stem = string.match(base, "^(.+)%.lua$") or string.match(base, "^(.+)%.txt$")
+					if stem and not luaPaths[stem] then
+						luaPaths[stem] = LUA_DIR .. "/" .. base
+						table.insert(luaNames, stem)
+					end
 				end
 			end
 			table.sort(luaNames, function(a: string, b: string): boolean
@@ -32805,12 +24120,18 @@ Bitstream Vera
 		local picked = ""
 
 		local function readPicked(): (string?, string?)
-			if picked == "" or not luaPaths[picked] then
+			if picked == "" then
+				return nil, "no script selected"
+			end
+			if BUILTIN_LUAS[picked] then
+				return BUILTIN_LUAS[picked], nil
+			end
+			if not luaPaths[picked] then
 				return nil, "no script selected"
 			end
 			local ok, src = pcall(fsReadfile, luaPaths[picked])
 			if not ok or type(src) ~= "string" then
-				return nil, "missing · " .. picked
+				return nil, "missing " .. picked
 			end
 			return src, nil
 		end
@@ -32820,6 +24141,96 @@ Bitstream Vera
 			tab:AddSubTabs({ "lua", "servers" })
 			local scripts = tab:AddSection("luas", 1)
 			scripts.subTab = "lua"
+
+			local perfBox = tab:AddSection("performance", 2)
+			perfBox.subTab = "lua"
+
+			local extrasModelBox = tab:AddSection("player model", 2)
+			extrasModelBox.subTab = "lua"
+
+			local extrasModels = DrawingBridge.modelNames or { "Classic R6", "Dummy", "Mini Dummy", "Noob" }
+			local extrasModelList: any
+			local function refreshExtrasModelList()
+				if not extrasModelList then return end
+				pcall(function()
+					extrasModelList:ClearValues()
+					local names = DrawingBridge.modelNames or extrasModels
+					for _, name in names do
+						extrasModelList:AddValue(name)
+					end
+					extrasModelList:Select(tostring(ClientFx.playerModelName or "Noob"), true)
+				end)
+			end
+
+			kit.flag(extrasModelBox, "player model", ClientFx, "customModel", nil, function()
+				if ClientFx.customModel ~= true then
+					ClientFx.customModelReplaceChar = false
+				end
+				if DrawingBridge.customRefresh then DrawingBridge.customRefresh() end
+			end)
+
+			extrasModelList = kit.choice(extrasModelBox, "saved", extrasModels, function()
+				return tostring(ClientFx.playerModelName or "Noob")
+			end, function(value: string)
+				ClientFx.playerModelName = value
+			end)
+
+			kit.buttons(extrasModelBox, {
+				{
+					text = "load",
+					callback = function()
+						if DrawingBridge.loadPlayerModel then
+							DrawingBridge.loadPlayerModel()
+						end
+					end
+				},
+				{
+					text = "refresh",
+					callback = function()
+						if DrawingBridge.scanPlayerModels then DrawingBridge.scanPlayerModels() end
+						refreshExtrasModelList()
+					end
+				}
+			})
+
+			kit.slider(extrasModelBox, "scale", 0.05, 5, 0.05, function()
+				return (ClientFx :: any)["customCharScale"] or 1
+			end, function(v: number)
+				(ClientFx :: any)["customCharScale"] = v
+				if DrawingBridge.customRefresh then DrawingBridge.customRefresh() end
+			end)
+
+			local fpsUnlockerOn = false
+			local fpsCapValue = 240
+			local function applyFpsCap()
+				local setFps = execApi("setfpscap") or execApi("set_fps_cap")
+				if typeof(setFps) == "function" then
+					pcall(setFps, if fpsUnlockerOn then fpsCapValue else 60)
+				end
+			end
+
+			local fpsCapSlider: any
+			kit.toggle(perfBox, "fps unlocker", function()
+				return fpsUnlockerOn
+			end, function(v: boolean)
+				fpsUnlockerOn = v
+				applyFpsCap()
+				if fpsCapSlider then
+					fpsCapSlider.enabled = fpsUnlockerOn
+					pcall(function()
+						perfBox:UpdateOptions()
+					end)
+				end
+			end)
+
+			fpsCapSlider = kit.slider(perfBox, "fps cap", 30, 360, 5, function()
+				return fpsCapValue
+			end, function(v: number)
+				fpsCapValue = math.clamp(math.floor(v), 30, 360)
+				if fpsUnlockerOn then
+					applyFpsCap()
+				end
+			end, { suffix = " fps" })
 			refreshLuaNames()
 			picked = luaNames[1] or ""
 			local listCtl: any = nil
@@ -33467,9 +24878,7 @@ Bitstream Vera
 		local credits = settingsTab:AddSection("credits", 1, 999)
 		credits.span = 2
 		pcall(function()
-			credits:AddText({ text = "ui/esp - skrill" })
-			credits:AddText({ text = "manipulation/silent aim logic - koikyoto" })
-			credits:AddText({ text = "main core loop/ragebot logic - xhafo" })
+			credits:AddText({ text = "revile_." })
 		end)
 		pcall(function()
 			settingsTab:UpdateSections()
@@ -33763,7 +25172,7 @@ Bitstream Vera
 			end)
 		end
 		table.clear(SESSION.guis)
-		for _, path in { { SoundService, "sonata_fx_sounds" }, { SoundService, "sonata_ambience" }, { Workspace, "sonata_tracers" }, { Workspace, "sonata_weather" } } do
+		for _, path in { { SoundService, "atomware_fx_sounds" }, { SoundService, "atomware_ambience" }, { Workspace, "atomware_tracers" }, { Workspace, "atomware_weather" } } do
 			local inst = (path[1] :: Instance):FindFirstChild(path[2])
 			if inst then
 				pcall(function()
@@ -33816,43 +25225,21 @@ Bitstream Vera
 		end
 
 		DrawingBridge.library = library
-		local okInit, _initErr = pcall(function()
-			library:init()
-		end)
-		if not okInit then
-			warn("bro is this kewl ass ui gonna load?")
-			drawingActive = false
-			return
-		end
-		if type(library.NewWindow) ~= "function" then
-			warn("ui forgot how windows work")
-			drawingActive = false
-			return
-		end
-		local okWindow, windowOrErr = pcall(function()
-			return library.NewWindow({
-				title = spec.title,
-				size = UDim2.new(0, 600, 0, 499),
-				position = UDim2.new(0, 250, 0, 120),
-			})
-		end)
-		if not okWindow or type(windowOrErr) ~= "table" then
-			warn("menu said nah and left")
-			drawingActive = false
-			return
-		end
-		DrawingBridge.menu = windowOrErr
+		DrawingBridge.menu = library
+		DrawingBridge.library = library
+		print("[Atomware Rivals] Mounting UI tabs and feature cards onto Atomware UI...")
 
-		for _, name in { "legit", "rage", "move", "visuals", "world", "items", "misc", "extras" } do
+		for _, name in { "visuals", "legit", "rage", "move", "world", "items", "misc", "extras" } do
 			pcall(DKit.tab, name)
 		end
-		local activeBuilders = if _G.AtomwareLiteMode == true then { "combat", "esp", "world" } else { "combat", "esp", "world", "cosmetics", "lua" }
-		for _, key in activeBuilders do
+		for _, key in { "combat", "esp", "world", "cosmetics", "lua" } do
 			local builder = DrawingBridge.builders[key]
 			if builder then
 				local okBuild, _buildErr = pcall(builder, DKit)
 				if not okBuild then
-					warn(key .. " section faceplanted: " .. tostring(_buildErr))
+					warn("[Atomware Rivals] " .. key .. " section error: " .. tostring(_buildErr))
+				else
+					print("[Atomware Rivals] Built " .. key .. " section successfully.")
 				end
 			end
 		end
@@ -33897,6 +25284,11 @@ Bitstream Vera
 
 		drawingActive = true
 		open = library.open == true
+		pcall(function()
+			if library.SelectTab then
+				library:SelectTab("Legit")
+			end
+		end)
 
 		pcall(function()
 			local loaded = false
@@ -33923,7 +25315,7 @@ Bitstream Vera
 				sonata.menu = DrawingBridge.menu
 				sonata.bridge = DrawingBridge
 			end
-			env.__sonata_unload = fullUnload
+			env.__atomware_rivals_unload = fullUnload
 		end
 	end
 
@@ -33948,332 +25340,8 @@ do
 	end
 end
 
-Window({ title = "sonata" })
 
---//==================================================
---// ATOMWARE RIVALS - UNIVERSAL UI EVENT ADAPTER
---// Supports PC UI (main_ui.lua), Mobile UI (mobile_ui.lua),
---// and Mobile Lite UI (mobile_lite_ui.lua)
---//==================================================
-do
-	local Players = game:GetService("Players")
-	local RunService = game:GetService("RunService")
-	local Lighting = game:GetService("Lighting")
-	local LocalPlayer = Players.LocalPlayer
-
-	local bridge: any = DrawingBridge
-	local Silent: any = bridge and bridge.Silent
-	local Aim: any = bridge and bridge.Aim
-	local Trigger: any = bridge and bridge.Trigger
-	local Movement: any = bridge and bridge.Movement
-	local Exploits: any = bridge and bridge.Exploits
-	local Esp: any = bridge and bridge.Esp
-
-	-- Hitbox Expander Runtime Loop
-	_G.__HitboxExpanderEnabled = false
-	_G.__HitboxSize = 8
-	_G.__HitboxTargetPart = "Head"
-	_G.__HitboxTransparency = 0.5
-	local originalSizes = {}
-
-	RunService.Heartbeat:Connect(function()
-		if not _G.__HitboxExpanderEnabled then return end
-		local targetPartName = _G.__HitboxTargetPart or "Head"
-		local size = _G.__HitboxSize or 8
-		local trans = _G.__HitboxTransparency or 0.5
-		for _, player in ipairs(Players:GetPlayers()) do
-			if player ~= LocalPlayer and player.Character then
-				local char = player.Character
-				local part = char:FindFirstChild(targetPartName)
-				if not part and targetPartName == "Head" then
-					part = char:FindFirstChild("HitboxHead")
-				elseif not part and (targetPartName == "Torso" or targetPartName == "UpperTorso") then
-					part = char:FindFirstChild("UpperTorso") or char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
-				end
-				if part and part:IsA("BasePart") then
-					if not originalSizes[part] then
-						originalSizes[part] = part.Size
-					end
-					part.Size = Vector3.new(size, size, size)
-					part.Transparency = trans
-					part.CanCollide = false
-				end
-			end
-		end
-	end)
-
-	local function resetHitboxes()
-		for part, size in pairs(originalSizes) do
-			if part and part.Parent then
-				pcall(function()
-					part.Size = size
-					part.Transparency = 0
-				end)
-			end
-		end
-		table.clear(originalSizes)
-	end
-
-	-- Connect UI Events across all PC & Mobile UI Frameworks
-	if _G.OnToggle then
-		-- =========================================================
-		-- COMBAT: SILENT AIM
-		-- =========================================================
-		_G.OnToggle("Enable Silent Aim", function(v)
-			if Silent then Silent.enabled = (v == true) end
-		end)
-		_G.OnToggle("Show Silent FOV Circle", function(v)
-			if Silent then Silent.drawFov = (v == true) end
-		end)
-		_G.OnToggle("Silent Team Check", function(v)
-			if Silent then Silent.teamCheck = (v == true) end
-		end)
-		_G.OnToggle("Silent Wall Check", function(v)
-			if Silent then Silent.visibleCheck = (v == true) end
-		end)
-		_G.OnSlider("Silent Aim Hit Chance", function(v)
-			if Silent then Silent.accuracy = tonumber(v) or 100 end
-		end)
-		_G.OnSlider("Silent Aim FOV", function(v)
-			if Silent then Silent.fov = tonumber(v) or 120 end
-		end)
-		_G.OnDropdown("Silent Target Part", function(v)
-			if Silent then
-				if v == "Head" or v == "Torso" then
-					Silent.hitPart = v
-				elseif v == "Closest" then
-					Silent.hitPart = "Head"
-				end
-			end
-		end)
-		if _G.OnColorPicker then
-			_G.OnColorPicker("Silent FOV Color", function(c3)
-				if Silent then Silent.fovColor1 = c3 end
-			end)
-		end
-
-		-- =========================================================
-		-- COMBAT: AIMBOT
-		-- =========================================================
-		_G.OnToggle("Enable Aimbot", function(v)
-			if Aim then Aim.enabled = (v == true) end
-		end)
-		_G.OnToggle("Show Aimbot FOV Circle", function(v)
-			if Aim then Aim.drawFov = (v == true) end
-		end)
-		_G.OnToggle("Aimbot Team Check", function(v)
-			if Aim then Aim.teamCheck = (v == true) end
-		end)
-		_G.OnToggle("Aimbot Wall Check", function(v)
-			if Aim then Aim.visibleCheck = (v == true) end
-		end)
-		_G.OnSlider("Aimbot Smoothness", function(v)
-			if Aim then Aim.smooth = tonumber(v) or 4 end
-		end)
-		_G.OnSlider("Aimbot FOV", function(v)
-			if Aim then Aim.fov = tonumber(v) or 140 end
-		end)
-		_G.OnDropdown("Aimbot Mode", function(v)
-			if Aim then
-				if v == "Always On" or v == "Always" then
-					Aim.keyName = "None"
-				else
-					Aim.keyName = v
-				end
-			end
-		end)
-		_G.OnDropdown("Aimbot Target Part", function(v)
-			if Aim then
-				Aim.hitboxes = {
-					Head = (v == "Head" or v == "Closest"),
-					Torso = (v == "Torso"),
-					UpperTorso = (v == "Torso"),
-					LowerTorso = (v == "Torso"),
-					HumanoidRootPart = false,
-				}
-			end
-		end)
-		if _G.OnKeybind then
-			_G.OnKeybind("Aimbot Key", function(k)
-				if Aim then Aim.keyName = tostring(k) end
-			end)
-		end
-		if _G.OnColorPicker then
-			_G.OnColorPicker("Aimbot FOV Color", function(c3)
-				if Aim then Aim.fovColor1 = c3 end
-			end)
-		end
-
-		-- =========================================================
-		-- COMBAT: TRIGGERBOT
-		-- =========================================================
-		_G.OnToggle("Enable Triggerbot", function(v)
-			if Trigger then Trigger.enabled = (v == true) end
-		end)
-		_G.OnSlider("Triggerbot Delay", function(v)
-			if Trigger then Trigger.delay = (tonumber(v) or 50) / 1000 end
-		end)
-		_G.OnToggle("Triggerbot Team Check", function(v)
-			if Trigger then Trigger.teamCheck = (v == true) end
-		end)
-		_G.OnToggle("Triggerbot Headshot Only", function(v)
-			if Trigger then Trigger.headOnly = (v == true) end
-		end)
-
-		-- =========================================================
-		-- COMBAT: HITBOX EXPANDER
-		-- =========================================================
-		_G.OnToggle("Enable Hitbox Expander", function(v)
-			_G.__HitboxExpanderEnabled = (v == true)
-			if not v then resetHitboxes() end
-		end)
-		_G.OnSlider("Hitbox Size", function(v)
-			_G.__HitboxSize = tonumber(v) or 8
-		end)
-		_G.OnSlider("Hitbox Transparency", function(v)
-			_G.__HitboxTransparency = (tonumber(v) or 50) / 100
-		end)
-		_G.OnDropdown("Hitbox Target", function(v)
-			_G.__HitboxTargetPart = v or "Head"
-		end)
-		_G.OnDropdown("Hitbox Part", function(v)
-			_G.__HitboxTargetPart = v or "Head"
-		end)
-
-		-- =========================================================
-		-- VISUALS: ESP
-		-- =========================================================
-		_G.OnToggle("Enable ESP", function(v)
-			if Esp then
-				Esp.master = (v == true)
-				Esp.enabled = (v == true)
-			end
-		end)
-		_G.OnToggle("Box ESP", function(v)
-			if Esp then
-				Esp.box = (v == true)
-				Esp.boxOutline = (v == true)
-			end
-		end)
-		_G.OnToggle("Box Fill", function(v)
-			if Esp then Esp.boxFill = (v == true) end
-		end)
-		_G.OnToggle("Health Bar", function(v)
-			if Esp then Esp.health = (v == true) end
-		end)
-		_G.OnToggle("Name ESP", function(v)
-			if Esp then Esp.names = (v == true) end
-		end)
-		_G.OnToggle("Distance ESP", function(v)
-			if Esp then Esp.distance = (v == true) end
-		end)
-		_G.OnToggle("Weapon ESP", function(v)
-			if Esp then Esp.weapon = (v == true) end
-		end)
-		_G.OnToggle("Skeleton ESP", function(v)
-			if Esp then
-				Esp.skeleton = (v == true)
-				Esp.skeletonOutline = (v == true)
-			end
-		end)
-		_G.OnToggle("Snaplines", function(v)
-			if Esp then Esp.snaplines = (v == true) end
-		end)
-		_G.OnToggle("Chams / Highlights", function(v)
-			if Esp then Esp.chams = (v == true) end
-		end)
-		_G.OnToggle("Team Check", function(v)
-			if Esp then
-				Esp.teamCheck = (v == true)
-				Esp.enemyOnly = (v == true)
-			end
-		end)
-		_G.OnSlider("Max ESP Distance", function(v)
-			if Esp then Esp.maxDistance = tonumber(v) or 1000 end
-		end)
-		if _G.OnColorPicker then
-			_G.OnColorPicker("Box Color", function(c3) if Esp then Esp.boxColor = c3 end end)
-			_G.OnColorPicker("Box Fill Color", function(c3) if Esp then Esp.boxFillColor = c3 end end)
-			_G.OnColorPicker("Skeleton Color", function(c3) if Esp then Esp.skeletonColor = c3 end end)
-			_G.OnColorPicker("Snapline Color", function(c3) if Esp then Esp.snaplinesColor = c3 end end)
-			_G.OnColorPicker("Text Color", function(c3)
-				if Esp then
-					Esp.namesColor = c3
-					Esp.distanceColor = c3
-					Esp.weaponColor = c3
-				end
-			end)
-		end
-
-		-- =========================================================
-		-- WORLD & LIGHTING
-		-- =========================================================
-		_G.OnToggle("Fullbright", function(v)
-			if v then
-				Lighting.Brightness = 2
-				Lighting.ClockTime = 14
-				Lighting.GlobalShadows = false
-				Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
-			end
-		end)
-		_G.OnSlider("Brightness", function(v)
-			Lighting.Brightness = tonumber(v) or 2
-		end)
-		_G.OnToggle("Remove Shadows", function(v)
-			Lighting.GlobalShadows = not v
-		end)
-		_G.OnToggle("Clear Atmosphere / Fog", function(v)
-			if v then
-				Lighting.FogEnd = 100000
-				for _, child in ipairs(Lighting:GetChildren()) do
-					if child:IsA("Atmosphere") or child:IsA("BloomEffect") or child:IsA("ColorCorrectionEffect") then
-						child.Enabled = false
-					end
-				end
-			end
-		end)
-		_G.OnSlider("World Time of Day", function(v)
-			Lighting.ClockTime = tonumber(v) or 14
-		end)
-		_G.OnToggle("Custom Camera FOV", function(v)
-			_G.__CustomFovEnabled = (v == true)
-			if not v and workspace.CurrentCamera then
-				workspace.CurrentCamera.FieldOfView = 70
-			end
-		end)
-		_G.OnSlider("Camera FOV", function(v)
-			_G.__CustomFovVal = tonumber(v) or 90
-			if _G.__CustomFovEnabled and workspace.CurrentCamera then
-				workspace.CurrentCamera.FieldOfView = _G.__CustomFovVal
-			end
-		end)
-
-		-- =========================================================
-		-- PLAYER & MOVEMENT
-		-- =========================================================
-		_G.OnToggle("Speed Multiplier", function(v)
-			if Movement then Movement.speed = (v == true) end
-		end)
-		_G.OnSlider("WalkSpeed", function(v)
-			if Movement then Movement.walkMulti = math.clamp((tonumber(v) or 24) / 16, 0.5, 8) end
-		end)
-		_G.OnToggle("Infinite Jump", function(v)
-			if Movement then Movement.infJump = (v == true) end
-		end)
-		_G.OnToggle("Bunny Hop", function(v)
-			if Movement then Movement.bhop = (v == true) end
-		end)
-		_G.OnToggle("Fly", function(v)
-			if Movement then Movement.fly = (v == true) end
-		end)
-		_G.OnSlider("Fly Speed", function(v)
-			if Movement then Movement.flySpeed = tonumber(v) or 50 end
-		end)
-		_G.OnToggle("Noclip", function(v)
-			if Movement then Movement.noclip = (v == true) end
-		end)
-	end
-end
-
+-- Launch Atomware Rivals Feature Engine
+Window({ title = "Atomware Rivals" })
 _G.AtomwareFeaturesLoaded = true
-print("[Atomware Rivals] Authoritative Features Backend Loaded Successfully (PC, Mobile, and Lite Compatible)!")
+print("[Atomware Rivals] Backend Features Engine fully online.")
