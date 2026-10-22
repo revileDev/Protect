@@ -107,17 +107,23 @@ const mockLibraryCode = [
 	'\t\t\tSetTheme = function(self) end,',
 	'\t\t\tSendNotification = function(self, msg) print("[Atomware]", msg) end,',
 	'\t\t\tCreateSettingsTab = function(self, menu)',
+	'\t\t\t\tif type(_G.AtomwareWindow) == "table" and type(_G.AtomwareWindow.CreateSettingsTab) == "function" then',
+	'\t\t\t\t\treturn _G.AtomwareWindow:CreateSettingsTab(menu)',
+	'\t\t\t\tend',
 	'\t\t\t\tlocal sTab = createMockTab("settings")',
 	'\t\t\t\tsTab.UpdateSections = function() end',
 	'\t\t\t\treturn sTab',
 	'\t\t\tend,',
 	'\t\t\tNewWindow = function(spec)',
+	'\t\t\t\tif type(_G.AtomwareWindow) == "table" and type(_G.AtomwareWindow.AddTab) == "function" then',
+	'\t\t\t\t\treturn _G.AtomwareWindow',
+	'\t\t\t\tend',
 	'\t\t\t\tlocal win = { tabs = {} }',
 	'\t\t\t\tfunction win:AddTab(name)',
 	'\t\t\t\t\tlocal tab = createMockTab(name)',
-	'\t\t\t\twin.tabs[name] = tab',
+	'\t\t\t\t\twin.tabs[name] = tab',
 	'\t\t\t\t\treturn tab',
-	'\t\t\tend',
+	'\t\t\t\tend',
 	'\t\t\t\tfunction win:UpdateTabs() end',
 	'\t\t\t\tfunction win:SelectTab() end',
 	'\t\t\t\treturn win',
@@ -232,7 +238,13 @@ do
 		local trans = _G.__HitboxTransparency or 0.5
 		for _, player in ipairs(Players:GetPlayers()) do
 			if player ~= LocalPlayer and player.Character then
-				local part = player.Character:FindFirstChild(targetPartName)
+				local char = player.Character
+				local part = char:FindFirstChild(targetPartName)
+				if not part and targetPartName == "Head" then
+					part = char:FindFirstChild("HitboxHead")
+				elseif not part and (targetPartName == "Torso" or targetPartName == "UpperTorso") then
+					part = char:FindFirstChild("UpperTorso") or char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+				end
 				if part and part:IsA("BasePart") then
 					if not originalSizes[part] then
 						originalSizes[part] = part.Size
@@ -387,10 +399,16 @@ do
 		-- VISUALS: ESP
 		-- =========================================================
 		_G.OnToggle("Enable ESP", function(v)
-			if Esp then Esp.master = (v == true) end
+			if Esp then
+				Esp.master = (v == true)
+				Esp.enabled = (v == true)
+			end
 		end)
 		_G.OnToggle("Box ESP", function(v)
-			if Esp then Esp.box = (v == true) end
+			if Esp then
+				Esp.box = (v == true)
+				Esp.boxOutline = (v == true)
+			end
 		end)
 		_G.OnToggle("Box Fill", function(v)
 			if Esp then Esp.boxFill = (v == true) end
@@ -408,7 +426,10 @@ do
 			if Esp then Esp.weapon = (v == true) end
 		end)
 		_G.OnToggle("Skeleton ESP", function(v)
-			if Esp then Esp.skeleton = (v == true) end
+			if Esp then
+				Esp.skeleton = (v == true)
+				Esp.skeletonOutline = (v == true)
+			end
 		end)
 		_G.OnToggle("Snaplines", function(v)
 			if Esp then Esp.snaplines = (v == true) end
@@ -417,7 +438,10 @@ do
 			if Esp then Esp.chams = (v == true) end
 		end)
 		_G.OnToggle("Team Check", function(v)
-			if Esp then Esp.enemyOnly = (v == true) end
+			if Esp then
+				Esp.teamCheck = (v == true)
+				Esp.enemyOnly = (v == true)
+			end
 		end)
 		_G.OnSlider("Max ESP Distance", function(v)
 			if Esp then Esp.maxDistance = tonumber(v) or 1000 end
@@ -544,6 +568,20 @@ const r4New = `local duel, team = matchEnemies()${nl}\t\t\tif not camera then`;
 if (outputContent.includes(r4Old)) {
 	outputContent = outputContent.replace(r4Old, r4New);
 	console.log('Applied ESP RenderStepped camera/duel check');
+}
+
+const r5Old = `\t\t\tif inGame and Aim.enabled and aimHeld and type(moveMouse) == "function" then`;
+const r5New = `\t\t\tlocal canAim = inGame and Aim.enabled and (aimHeld or Aim.keyName == "None" or (UserInputService and UserInputService.TouchEnabled))${nl}\t\t\tif canAim then`;
+if (outputContent.includes(r5Old)) {
+	outputContent = outputContent.replace(r5Old, r5New);
+	console.log('Applied canAim Mobile/Touch Aimbot fallback');
+}
+
+const r6Old = `\t\t\t\t\t\t\tpcall(moveMouse, mx + jx, my + jy)`;
+const r6New = `\t\t\t\t\t\t\tif type(moveMouse) == "function" then${nl}\t\t\t\t\t\t\t\tpcall(moveMouse, mx + jx, my + jy)${nl}\t\t\t\t\t\t\telseif cam then${nl}\t\t\t\t\t\t\t\tlocal currentCF = cam.CFrame${nl}\t\t\t\t\t\t\t\tlocal targetCF = CFrame.lookAt(currentCF.Position, worldPos)${nl}\t\t\t\t\t\t\t\tlocal smoothVal = math.clamp(resolvedSmooth, 1, 40)${nl}\t\t\t\t\t\t\t\tlocal lerpFactor = math.clamp(1 / smoothVal, 0.05, 0.95)${nl}\t\t\t\t\t\t\t\tcam.CFrame = currentCF:Lerp(targetCF, lerpFactor)${nl}\t\t\t\t\t\t\tend`;
+if (outputContent.includes(r6Old)) {
+	outputContent = outputContent.replace(r6Old, r6New);
+	console.log('Applied Camera CFrame Mobile Aimbot fallback');
 }
 
 fs.writeFileSync(destPath, outputContent, 'utf8');

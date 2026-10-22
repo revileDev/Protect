@@ -1009,6 +1009,7 @@ end)
 -- Default to Combat Tab
 switchPage("Combat")
 
+_G.AtomwareLiteMode = true
 _G.AtomwareUILoaded = true
 _G.AtomwareWindow = MainFrame
 print("[Atomware Rivals] Mobile_Lite UI Framework (Responsive Two-Column) Loaded Successfully!")

@@ -9400,17 +9400,23 @@ local function loadDrawingLibrary(): any
 			SetTheme = function(self) end,
 			SendNotification = function(self, msg) print("[Atomware]", msg) end,
 			CreateSettingsTab = function(self, menu)
+				if type(_G.AtomwareWindow) == "table" and type(_G.AtomwareWindow.CreateSettingsTab) == "function" then
+					return _G.AtomwareWindow:CreateSettingsTab(menu)
+				end
 				local sTab = createMockTab("settings")
 				sTab.UpdateSections = function() end
 				return sTab
 			end,
 			NewWindow = function(spec)
+				if type(_G.AtomwareWindow) == "table" and type(_G.AtomwareWindow.AddTab) == "function" then
+					return _G.AtomwareWindow
+				end
 				local win = { tabs = {} }
 				function win:AddTab(name)
 					local tab = createMockTab(name)
-				win.tabs[name] = tab
+					win.tabs[name] = tab
 					return tab
-			end
+				end
 				function win:UpdateTabs() end
 				function win:SelectTab() end
 				return win
@@ -17530,7 +17536,8 @@ Bitstream Vera
 				end
 			end
 
-			if inGame and Aim.enabled and aimHeld and type(moveMouse) == "function" then
+			local canAim = inGame and Aim.enabled and (aimHeld or Aim.keyName == "None" or (UserInputService and UserInputService.TouchEnabled))
+			if canAim then
 				local part = resolveStickyAimTarget()
 				if part and os.clock() >= aimReadyAt then
 					local now = os.clock()
@@ -17602,7 +17609,15 @@ Bitstream Vera
 									jy += (math.random() - 0.5) * human * 5
 								end
 							end
-							pcall(moveMouse, mx + jx, my + jy)
+							if type(moveMouse) == "function" then
+								pcall(moveMouse, mx + jx, my + jy)
+							elseif cam then
+								local currentCF = cam.CFrame
+								local targetCF = CFrame.lookAt(currentCF.Position, worldPos)
+								local smoothVal = math.clamp(resolvedSmooth, 1, 40)
+								local lerpFactor = math.clamp(1 / smoothVal, 0.05, 0.95)
+								cam.CFrame = currentCF:Lerp(targetCF, lerpFactor)
+							end
 						else
 							local decay = math.clamp(0.35 + (1 - math.clamp(resolvedSmooth, 0, 40) / 40) * 0.4, 0.35, 0.9)
 							aimVelX *= (1 - decay)
@@ -33907,7 +33922,13 @@ do
 		local trans = _G.__HitboxTransparency or 0.5
 		for _, player in ipairs(Players:GetPlayers()) do
 			if player ~= LocalPlayer and player.Character then
-				local part = player.Character:FindFirstChild(targetPartName)
+				local char = player.Character
+				local part = char:FindFirstChild(targetPartName)
+				if not part and targetPartName == "Head" then
+					part = char:FindFirstChild("HitboxHead")
+				elseif not part and (targetPartName == "Torso" or targetPartName == "UpperTorso") then
+					part = char:FindFirstChild("UpperTorso") or char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+				end
 				if part and part:IsA("BasePart") then
 					if not originalSizes[part] then
 						originalSizes[part] = part.Size
@@ -34062,10 +34083,16 @@ do
 		-- VISUALS: ESP
 		-- =========================================================
 		_G.OnToggle("Enable ESP", function(v)
-			if Esp then Esp.master = (v == true) end
+			if Esp then
+				Esp.master = (v == true)
+				Esp.enabled = (v == true)
+			end
 		end)
 		_G.OnToggle("Box ESP", function(v)
-			if Esp then Esp.box = (v == true) end
+			if Esp then
+				Esp.box = (v == true)
+				Esp.boxOutline = (v == true)
+			end
 		end)
 		_G.OnToggle("Box Fill", function(v)
 			if Esp then Esp.boxFill = (v == true) end
@@ -34083,7 +34110,10 @@ do
 			if Esp then Esp.weapon = (v == true) end
 		end)
 		_G.OnToggle("Skeleton ESP", function(v)
-			if Esp then Esp.skeleton = (v == true) end
+			if Esp then
+				Esp.skeleton = (v == true)
+				Esp.skeletonOutline = (v == true)
+			end
 		end)
 		_G.OnToggle("Snaplines", function(v)
 			if Esp then Esp.snaplines = (v == true) end
@@ -34092,7 +34122,10 @@ do
 			if Esp then Esp.chams = (v == true) end
 		end)
 		_G.OnToggle("Team Check", function(v)
-			if Esp then Esp.enemyOnly = (v == true) end
+			if Esp then
+				Esp.teamCheck = (v == true)
+				Esp.enemyOnly = (v == true)
+			end
 		end)
 		_G.OnSlider("Max ESP Distance", function(v)
 			if Esp then Esp.maxDistance = tonumber(v) or 1000 end

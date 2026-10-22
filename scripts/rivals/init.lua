@@ -270,6 +270,7 @@ else
     targetUIFile = "main_ui.lua"
     targetFeaturesFile = "features.lua"
 end
+_G.AtomwareLiteMode = isLiteMode
 
 -- =========================================================================
 -- Hybrid Secure Module Loader

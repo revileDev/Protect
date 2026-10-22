@@ -723,6 +723,15 @@ local function wrapMobileSection(card, body, title)
             return chipObj
         end
 
+        function toggleObj:AddKeyPicker(spec)
+            local keyObj = { value = spec and spec.default or "None" }
+            function keyObj:SetKey(k)
+                keyObj.value = tostring(k)
+                if spec and spec.callback then pcall(spec.callback, keyObj.value) end
+            end
+            return keyObj
+        end
+
         table.insert(section.options, { row = row, obj = toggleObj })
         return toggleObj
     end
@@ -1520,6 +1529,23 @@ local function wrapMobileSection(card, body, title)
         return sep
     end
 
+    function section:AddDivider(data)
+        return self:AddSeparator(data)
+    end
+
+    function section:AddKeyPicker(data)
+        local keyObj = { value = data and data.default or "None" }
+        function keyObj:SetKey(k)
+            keyObj.value = tostring(k)
+            if data and data.callback then pcall(data.callback, keyObj.value) end
+        end
+        return keyObj
+    end
+
+    function section:AddSearchBox(data)
+        return self:AddTextBox(data)
+    end
+
     function section:UpdateOptions()
         for _, opt in ipairs(section.options) do
             if opt.obj and opt.obj.enabled ~= nil then
@@ -1596,6 +1622,20 @@ function AtomwareMobileWindow:AddTab(rawName, order)
     end
 
     function tabObj:AddSubTabs(subNames) end
+
+    function tabObj:AddLeftTabbox()
+        return {
+            AddTab = function(self, title) return tabObj:AddSection(title, 1) end,
+            AddSection = function(self, secName) return tabObj:AddSection(secName, 1) end,
+        }
+    end
+
+    function tabObj:AddRightTabbox()
+        return {
+            AddTab = function(self, title) return tabObj:AddSection(title, 2) end,
+            AddSection = function(self, secName) return tabObj:AddSection(secName, 2) end,
+        }
+    end
 
     function tabObj:UpdateSections()
         for _, sec in ipairs(tabObj.sections) do

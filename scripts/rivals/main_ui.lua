@@ -1120,5 +1120,6 @@ end)
 
 -- Default to Combat tab
 switchPage("Combat")
+_G.AtomwareWindow = MainFrame
 _G.AtomwareUILoaded = true
 print("[Atomware: Rivals] Desktop UI Initialized Successfully")
