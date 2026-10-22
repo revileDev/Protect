@@ -321,6 +321,7 @@ local function hookGameMethod(targetFn: any, wrap: any): any?
 end
 
 local function installSignalGuard()
+	if _G.AtomwareLiteMode == true then return end
 	local genv = execApi("getgenv")
 	local env = if typeof(genv) == "function" then genv() else nil
 	if type(env) == "table" and env.__sonataSignalGuard then
@@ -9358,12 +9359,69 @@ local function loadDrawingLibrary(): any
 				}
 				return drop
 			end
+			function sec:AddList(opts)
+				local list = {
+					selected = opts and opts.default or nil,
+					values = opts and opts.values or {},
+					Select = function(self, val, skip)
+						self.selected = val
+						if not skip and opts and opts.callback then pcall(opts.callback, val) end
+					end,
+					SetValues = function(self, vals) self.values = vals or {} end,
+					AddValue = function(self, val) table.insert(self.values, val) end,
+					RemoveValue = function(self, val)
+						for i, v in ipairs(self.values) do
+							if v == val then table.remove(self.values, i) break end
+						end
+					end,
+					ClearValues = function(self) table.clear(self.values) end,
+					SetText = function(self, str) end,
+				}
+				return list
+			end
+			function sec:AddBox(opts)
+				local box = {
+					input = opts and (opts.input or opts.default) or "",
+					SetInput = function(self, str, skip)
+						self.input = str
+						if not skip and opts and opts.callback then pcall(opts.callback, str) end
+					end,
+					SetText = function(self, str) end,
+					CaptureFocus = function() end,
+					ReleaseFocus = function() end,
+				}
+				return box
+			end
+			function sec:AddBind(opts)
+				local bind = {
+					bind = opts and opts.default or "None",
+					state = false,
+					SetBind = function(self, keybind)
+						self.bind = keybind
+						if opts and opts.keycallback then pcall(opts.keycallback, keybind) end
+					end,
+					SetText = function(self, str) end,
+					SetKeyText = function(self, str) end,
+				}
+				return bind
+			end
+			function sec:AddScrollList(opts)
+				local scrolllist = sec:AddList(opts)
+				scrolllist.SetVisibleCount = function() end
+				scrolllist.AutoFill = function() end
+				scrolllist.Refresh = function() end
+				return scrolllist
+			end
 			function sec:AddColor() return { SetColor = function() end } end
 			function sec:AddKeyPicker() return { SetKey = function() end } end
-			function sec:AddButton() end
-			function sec:AddText() end
-			function sec:AddSearchBox() end
+			function sec:AddButton(opts) return { SetText = function() end } end
+			function sec:AddText(opts) return { SetText = function() end } end
+			function sec:AddSearchBox(opts) return sec:AddBox(opts) end
 			function sec:AddDivider() end
+			function sec:AddSeparator() end
+			function sec:SetText() end
+			function sec:SetEnabled() end
+			function sec:UpdateOptions() end
 			return sec
 		end
 
@@ -9400,11 +9458,14 @@ local function loadDrawingLibrary(): any
 			SetTheme = function(self) end,
 			SendNotification = function(self, msg) print("[Atomware]", msg) end,
 			CreateSettingsTab = function(self, menu)
+				local sTab = nil
 				if type(_G.AtomwareWindow) == "table" and type(_G.AtomwareWindow.CreateSettingsTab) == "function" then
-					return _G.AtomwareWindow:CreateSettingsTab(menu)
+					sTab = _G.AtomwareWindow:CreateSettingsTab(menu)
+				else
+					sTab = createMockTab("settings")
+					sTab.UpdateSections = function() end
 				end
-				local sTab = createMockTab("settings")
-				sTab.UpdateSections = function() end
+				DrawingBridge.settingsTab = sTab
 				return sTab
 			end,
 			NewWindow = function(spec)
@@ -33785,7 +33846,7 @@ Bitstream Vera
 		for _, name in { "legit", "rage", "move", "visuals", "world", "items", "misc", "extras" } do
 			pcall(DKit.tab, name)
 		end
-		local activeBuilders = if _G.AtomwareLiteMode == true then { "combat", "esp", "world", "configs" } else { "combat", "esp", "world", "cosmetics", "lua", "configs" }
+		local activeBuilders = if _G.AtomwareLiteMode == true then { "combat", "esp", "world" } else { "combat", "esp", "world", "cosmetics", "lua" }
 		for _, key in activeBuilders do
 			local builder = DrawingBridge.builders[key]
 			if builder then

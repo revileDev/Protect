@@ -297,19 +297,7 @@ local function loadModule(path)
         end
     end
 
-    -- 2. Virtual require hook
-    if type(require) == "function" then
-        local ok, res = pcall(require, cleanName)
-        if ok and res ~= nil then
-            return true
-        end
-        local ok2, res2 = pcall(require, baseName)
-        if ok2 and res2 ~= nil then
-            return true
-        end
-    end
-
-    -- 3. Fallback: TestFork GitHub Repository
+    -- 2. Fallback: TestFork GitHub Repository
     local TESTFORK_URL = "https://raw.githubusercontent.com/revileDev/TestFork/main/rivals/"
     local cacheBuster = tostring(os.time()) .. "_" .. tostring(math.random(100000, 999999))
     local okTest, testSource = pcall(function()
