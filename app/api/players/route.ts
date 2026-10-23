@@ -11,11 +11,9 @@ export async function GET() {
   const bannedIps = await dbService.getBannedIps();
 
   const now = Date.now();
-  const HEARTBEAT_TIMEOUT_MS = 15000; // 15 seconds heartbeat timeout
-  const DISCONNECT_REMOVAL_GRACE_MS = 15000; // Show "Disconnected" for 15 seconds before omitting player card
+  const HEARTBEAT_TIMEOUT_MS = 15000; // 15 seconds heartbeat timeout — mark as disconnected
 
   const enriched = [];
-  const deadSessionIds: string[] = [];
 
   for (const s of sessions) {
     if (s.id && s.id.startsWith("staff_review")) continue;
@@ -34,16 +32,16 @@ export async function GET() {
     // Time since disconnection was triggered
     const timeSinceDisconnect = isTimedOut ? pingElapsed - HEARTBEAT_TIMEOUT_MS : 0;
 
-    // If disconnected for more than grace period, omit card from active dashboard tab
-    // BUT DO NOT delete from DB so lag spikes never terminate player games!
-    if (isTimedOut && timeSinceDisconnect > DISCONNECT_REMOVAL_GRACE_MS) {
-      continue;
-    }
+    // ALWAYS include sessions — kicked, disconnected, or active — so the admin can always
+    // see every player card. Cards are only removed when the admin explicitly dismisses them
+    // via "remove_card". We never silently drop sessions from the response.
 
     const derivedStatus = isOnline
       ? "active"
       : s.status === "kicked"
       ? "kicked"
+      : s.status === "tampered"
+      ? "tampered"
       : "disconnected";
 
     const avatarUrl = s.avatar_url || (s.roblox_user_id ? `/api/roblox/avatar?userId=${s.roblox_user_id}` : null);

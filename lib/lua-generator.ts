@@ -1356,6 +1356,58 @@ ${
         return
     end
 
+    -- Pre-execution heartbeat gate: verify session is alive on the server
+    -- BEFORE running the payload. If the server returns "kick" or fails to
+    -- respond, abort immediately — the user never gets the script running.
+    do
+        local _hbOk = false
+        pcall(function()
+            local _uName = (LocalPlayer and LocalPlayer.Name) or "Player"
+            local _uId   = tostring((LocalPlayer and LocalPlayer.UserId) or "0")
+            local _hbRes = httpRequest({
+                Url    = BASE_URL .. "/api/session/heartbeat",
+                Method = "POST",
+                Headers = {
+                    ["Content-Type"] = "application/json",
+                    ["User-Agent"]   = "Roblox/WinInet"
+                },
+                Body = HttpService:JSONEncode({
+                    session_token    = sessionToken,
+                    hwid             = getHWID(),
+                    roblox_username  = _uName,
+                    roblox_user_id   = _uId,
+                    place_id         = tostring(game.PlaceId or "0"),
+                    job_id           = tostring(game.JobId or ""),
+                    tamper_flags     = verifyIntegrity(),
+                    timestamp        = os.time()
+                })
+            })
+            if _hbRes then
+                local _sc = _hbRes.StatusCode or _hbRes.Status or _hbRes.status_code or _hbRes.status or 0
+                if _sc == 200 or _sc == 204 then
+                    local _bd = nil
+                    pcall(function() _bd = HttpService:JSONDecode(_hbRes.Body or _hbRes.body or "") end)
+                    if _bd and _bd.action == "kick" then
+                        _deadManActive = false
+                        safeKick("[${safeBrandName}] " .. (_bd.reason or "Session rejected by server."))
+                        finalCode = nil
+                        return
+                    end
+                    _hbOk = true
+                    _lastHeartbeatSuccess = os.clock()
+                    if _bd and _bd.online_count then _currentOnlineCount = _bd.online_count end
+                end
+            end
+        end)
+        if not _hbOk then
+            -- Server unreachable or rejected — refuse to run the payload
+            _deadManActive = false
+            safeKick("[${safeBrandName}] Session validation failed. Please re-execute the script.")
+            finalCode = nil
+            return
+        end
+    end
+
     local runPayload, loadErr = _loadstring(finalCode)
     finalCode = nil -- Zero source code string in memory immediately
 
