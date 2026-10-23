@@ -126,13 +126,12 @@ export async function POST(req: NextRequest) {
     // 1. Evaluate Tamper Flags
     if (Array.isArray(tamper_flags) && tamper_flags.length > 0) {
       console.warn(`[Security Alert] Tamper flags reported by client ${clientIp}:`, tamper_flags);
-      await dbService.recordBypassAttempt({
-        script_slug: slug,
-        ip_address: clientIp,
-        hwid: hwid || null,
-        bypass_type: "Pre-Flight Probe Hook/Tamper Detection: " + tamper_flags.join(", "),
-        details: { tamper_flags, c_signature },
-      });
+      await dbService.recordBypassAttempt(
+        clientIp,
+        hwid || null,
+        slug,
+        "Pre-Flight Probe Hook/Tamper Detection: " + tamper_flags.join(", ")
+      );
 
       return NextResponse.json(
         { error: "Access Denied: Environment integrity verification failed." },
