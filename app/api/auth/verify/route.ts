@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dbService, isStaffReviewKey, type ScriptRecord } from "@/lib/store";
 import { bundleModularScript } from "@/lib/module-bundler";
+import { syncScriptFromGitHub } from "@/lib/github-sync";
 import { sendExecutionWebhook } from "@/lib/discord-webhook";
 import { getClientIp, normalizeIp, getClientGeo } from "@/lib/ip";
 import { encryptSessionPayload, isNonceReplayed, recordUsedNonce } from "@/lib/crypto-util";
@@ -200,6 +201,27 @@ export async function POST(req: NextRequest) {
     if (script) {
       targetScriptName = script.name;
       targetScriptId = script.id;
+
+      // Auto-Pull check if enabled
+      if (script.github_auto_pull && script.github_repo) {
+        const lastPull = script.github_last_pulled_at ? new Date(script.github_last_pulled_at).getTime() : 0;
+        if (Date.now() - lastPull > 60 * 1000) {
+          syncScriptFromGitHub(script.id).catch(() => {});
+        }
+      }
+    }
+
+    // Pre-Flight Gateway Access Token Verification
+    const gatewayToken = body.gateway_token || body.loader_token;
+    if (gatewayToken && typeof gatewayToken === "string" && gatewayToken.startsWith("gpt_")) {
+      const probeRes = await dbService.verifyAndConsumeProbeToken(gatewayToken, script_slug || "", clientIp);
+      if (!probeRes.valid) {
+        console.warn(`[Security Alert] Gateway access token verification rejected for ${clientIp}:`, probeRes.reason);
+        return NextResponse.json(
+          { error: `Access Denied: ${probeRes.reason || "Invalid gateway attestation token."}` },
+          { status: 403 }
+        );
+      }
     }
 
     const resolveWebhook = async (sc?: ScriptRecord | null) => {

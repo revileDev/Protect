@@ -53,6 +53,13 @@ export interface ScriptRecord {
   use_auth?: boolean; // If true, requires auth loader and license key. If false, executes directly without key.
   is_maintenance?: boolean; // Maintenance Mode Kill-Switch
   maintenance_message?: string | null;
+  github_repo?: string | null;
+  github_branch?: string | null;
+  github_directory?: string | null;
+  github_token?: string | null;
+  github_auto_pull?: boolean;
+  github_last_commit?: string | null;
+  github_last_pulled_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -408,6 +415,7 @@ const initialDb: LocalDatabase = {
 
 const DB_BACKUP_FILE = path.join(DB_DIR, "db.json.bak");
 let inMemoryDbCache: LocalDatabase | null = null;
+const probeTokenCache = new Map<string, any>();
 
 function readLocalDb(): LocalDatabase {
   try {
@@ -740,6 +748,13 @@ export const dbService = {
         use_auth: record.use_auth !== false,
         is_maintenance: record.is_maintenance === true,
         maintenance_message: record.maintenance_message || null,
+        github_repo: record.github_repo || null,
+        github_branch: record.github_branch || 'main',
+        github_directory: record.github_directory || '',
+        github_token: record.github_token || null,
+        github_auto_pull: record.github_auto_pull === true,
+        github_last_commit: record.github_last_commit || null,
+        github_last_pulled_at: record.github_last_pulled_at || null,
         created_at: record.created_at,
         updated_at: record.updated_at,
       };
@@ -3535,4 +3550,105 @@ export const dbService = {
     }
     return true;
   },
+  // Auth Probe Tokens (Pre-Flight Gatekeeper)
+  async createProbeToken(data: {
+    script_slug: string;
+    ip_address: string;
+    hwid?: string | null;
+    challenge_seed: string;
+    expires_in_sec?: number;
+  }): Promise<string> {
+    const token = "gpt_" + crypto.randomUUID().replace(/-/g, "") + "_" + Date.now().toString(36);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + (data.expires_in_sec || 120) * 1000).toISOString();
+
+    const record = {
+      token,
+      script_slug: data.script_slug.toLowerCase(),
+      ip_address: normalizeIp(data.ip_address),
+      hwid: data.hwid || null,
+      challenge_seed: data.challenge_seed,
+      is_used: false,
+      expires_at: expiresAt,
+      created_at: now.toISOString(),
+    };
+
+    probeTokenCache.set(token, record);
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase.from("auth_probe_tokens").insert(record);
+      } catch (err) {
+        console.warn("Supabase auth_probe_tokens insert skipped/failed:", err);
+      }
+    }
+
+    return token;
+  },
+
+  async verifyAndConsumeProbeToken(
+    token: string,
+    script_slug: string,
+    ip_address: string
+  ): Promise<{ valid: boolean; reason?: string }> {
+    if (!token || typeof token !== "string") {
+      return { valid: false, reason: "Missing Gateway Access Token. Pre-flight verification required." };
+    }
+
+    const normIp = normalizeIp(ip_address);
+    const normSlug = script_slug.toLowerCase();
+    const nowTime = Date.now();
+
+    const cached = probeTokenCache.get(token);
+    if (cached) {
+      if (cached.is_used) {
+        return { valid: false, reason: "Gateway Access Token has already been consumed (single-use)." };
+      }
+      if (new Date(cached.expires_at).getTime() < nowTime) {
+        probeTokenCache.delete(token);
+        return { valid: false, reason: "Gateway Access Token expired." };
+      }
+      if (cached.script_slug !== normSlug) {
+        return { valid: false, reason: "Gateway Access Token was issued for a different script." };
+      }
+      if (cached.ip_address !== normIp && normIp !== "127.0.0.1" && cached.ip_address !== "127.0.0.1") {
+        return { valid: false, reason: "Gateway Access Token IP mismatch." };
+      }
+
+      cached.is_used = true;
+      if (isSupabaseConfigured && supabase) {
+        supabase.from("auth_probe_tokens").update({ is_used: true }).eq("token", token).catch(() => {});
+      }
+      return { valid: true };
+    }
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from("auth_probe_tokens")
+          .select("*")
+          .eq("token", token)
+          .maybeSingle();
+
+        if (data && !error) {
+          if (data.is_used) {
+            return { valid: false, reason: "Gateway Access Token has already been consumed." };
+          }
+          if (new Date(data.expires_at).getTime() < nowTime) {
+            return { valid: false, reason: "Gateway Access Token expired." };
+          }
+          if (data.script_slug !== normSlug) {
+            return { valid: false, reason: "Gateway Access Token script slug mismatch." };
+          }
+          await supabase.from("auth_probe_tokens").update({ is_used: true }).eq("token", token);
+          return { valid: true };
+        }
+      } catch (err) {
+        console.error("Supabase probe token check error:", err);
+      }
+    }
+
+    return { valid: false, reason: "Invalid or unrecognized Gateway Access Token." };
+  },
+
 };

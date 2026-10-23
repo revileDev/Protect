@@ -17,6 +17,9 @@ import {
   CheckCircle2,
   RotateCcw,
   ClipboardPaste,
+  GitBranch,
+  RefreshCw,
+  FolderGit2,
 } from "lucide-react";
 import { ScriptRecord } from "@/lib/store";
 
@@ -37,7 +40,16 @@ export default function ScriptUpdateModal({
   const [modulesMap, setModulesMap] = useState<Record<string, string>>({});
   const [originalMap, setOriginalMap] = useState<Record<string, string>>({});
   const [entryFile, setEntryFile] = useState<string>("");
-  const [activeTab, setActiveTab] = useState<"upload" | "editor">("upload");
+  const [activeTab, setActiveTab] = useState<"upload" | "editor" | "github">("upload");
+  const [githubRepo, setGithubRepo] = useState("");
+  const [githubBranch, setGithubBranch] = useState("main");
+  const [githubDirectory, setGithubDirectory] = useState("");
+  const [githubToken, setGithubToken] = useState("");
+  const [githubAutoPull, setGithubAutoPull] = useState(false);
+  const [githubLastCommit, setGithubLastCommit] = useState<string | null>(null);
+  const [githubLastPulledAt, setGithubLastPulledAt] = useState<string | null>(null);
+  const [isSyncingGitHub, setIsSyncingGitHub] = useState(false);
+  const [githubSyncMsg, setGithubSyncMsg] = useState<string | null>(null);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
 
   const [isAddingFile, setIsAddingFile] = useState(false);
@@ -193,6 +205,42 @@ export default function ScriptUpdateModal({
   };
 
   // Save changes
+  const handlePullFromGitHub = async () => {
+    if (!script) return;
+    setIsSyncingGitHub(true);
+    setError(null);
+    setGithubSyncMsg(null);
+
+    try {
+      const res = await fetch("/api/scripts/github/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          script_id: script.id,
+          force: true,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "GitHub sync failed");
+
+      if (data.script) {
+        setModulesMap(data.script.modules || {});
+        setOriginalMap(data.script.modules || {});
+        setEntryFile(data.script.entry_file || entryFile);
+        setGithubLastCommit(data.script.github_last_commit || null);
+        setGithubLastPulledAt(data.script.github_last_pulled_at || null);
+        onScriptUpdated(data.script);
+      }
+      setGithubSyncMsg(data.message || `Successfully synced ${data.filesCount} files from GitHub!`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error syncing from GitHub";
+      setError(msg);
+    } finally {
+      setIsSyncingGitHub(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!selectedFile && fileKeys.length === 0) {
       setError("Script must contain at least one file.");
@@ -469,6 +517,18 @@ export default function ScriptUpdateModal({
                   <Edit3 className="w-3.5 h-3.5" />
                   Edit / Paste Code
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("github")}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-all ${
+                    activeTab === "github"
+                      ? "bg-blue-600 text-white shadow"
+                      : "text-gray-400 hover:text-gray-200"
+                  }`}
+                >
+                  <GitBranch className="w-3.5 h-3.5" />
+                  GitHub Sync & Auto-Pull
+                </button>
               </div>
             </div>
 
@@ -518,6 +578,103 @@ export default function ScriptUpdateModal({
                 )}
               </div>
             )}
+
+            {/* TAB 3: GitHub Sync & Auto-Pull Settings */}
+            <div className={activeTab === "github" ? "space-y-4" : "hidden"}>
+              <div className="p-4 rounded-xl bg-[#0d0f16] border border-gray-800 space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-gray-800">
+                  <div className="flex items-center gap-2">
+                    <FolderGit2 className="w-4 h-4 text-blue-400" />
+                    <span className="text-sm font-semibold text-white">Connected GitHub Repository</span>
+                  </div>
+                  {githubLastCommit && (
+                    <span className="text-[11px] font-mono text-gray-400 bg-gray-800 px-2 py-0.5 rounded">
+                      SHA: {githubLastCommit.substring(0, 7)}
+                    </span>
+                  )}
+                </div>
+
+                {githubSyncMsg && (
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 rounded-lg text-xs flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    <span>{githubSyncMsg}</span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label className="block text-gray-300 font-medium mb-1">Repository Slug / URL</label>
+                    <input
+                      type="text"
+                      value={githubRepo}
+                      onChange={(e) => setGithubRepo(e.target.value)}
+                      placeholder="owner/repo (e.g. revileDev/TestFork)"
+                      className="w-full bg-[#141722] border border-gray-700/80 rounded-lg px-3 py-2 text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-gray-300 font-medium mb-1">Branch</label>
+                    <input
+                      type="text"
+                      value={githubBranch}
+                      onChange={(e) => setGithubBranch(e.target.value)}
+                      placeholder="main"
+                      className="w-full bg-[#141722] border border-gray-700/80 rounded-lg px-3 py-2 text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-gray-300 font-medium mb-1">Subdirectory (Optional)</label>
+                    <input
+                      type="text"
+                      value={githubDirectory}
+                      onChange={(e) => setGithubDirectory(e.target.value)}
+                      placeholder="e.g. Rivals (leave blank for root)"
+                      className="w-full bg-[#141722] border border-gray-700/80 rounded-lg px-3 py-2 text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-gray-300 font-medium mb-1">Personal Access Token (Private Repos)</label>
+                    <input
+                      type="password"
+                      value={githubToken}
+                      onChange={(e) => setGithubToken(e.target.value)}
+                      placeholder="ghp_... (optional)"
+                      className="w-full bg-[#141722] border border-gray-700/80 rounded-lg px-3 py-2 text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 font-mono text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-3 border-t border-gray-800">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={githubAutoPull}
+                      onChange={(e) => setGithubAutoPull(e.target.checked)}
+                      className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-900 bg-gray-800 border-gray-700"
+                    />
+                    <span className="text-xs text-gray-200 font-medium">
+                      Enable Auto-Pull (Pulls updated files from latest commits automatically)
+                    </span>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={handlePullFromGitHub}
+                    disabled={isSyncingGitHub || !githubRepo}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold shadow-md transition-all"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncingGitHub ? "animate-spin" : ""}`} />
+                    {isSyncingGitHub ? "Pulling Latest..." : "Pull Latest from GitHub Now"}
+                  </button>
+                </div>
+
+                {githubLastPulledAt && (
+                  <p className="text-[11px] text-gray-400">
+                    Last synchronized: {new Date(githubLastPulledAt).toLocaleString()}
+                  </p>
+                )}
+              </div>
+            </div>
 
             {/* TAB 2: Edit / Paste Code Directly */}
             <div className={activeTab === "editor" ? "space-y-2" : "hidden"}>

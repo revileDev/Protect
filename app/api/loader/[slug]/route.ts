@@ -4,6 +4,7 @@ import { generateLuaLoader } from "@/lib/lua-generator";
 import { bundleModularScript } from "@/lib/module-bundler";
 import { getClientIp } from "@/lib/ip";
 import { wrapPolymorphicLuau } from "@/lib/polymorphic";
+import { syncScriptFromGitHub } from "@/lib/github-sync";
 
 // In-memory sliding window rate limiter
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -456,35 +457,127 @@ warn("[AERO AUTH] Script '${slug}' is currently under maintenance: ${safeMsg}")`
     loaderConfig = configs[0];
   }
 
-  // Generate the Lua client Auth Loader
-  // Note: The main script code is NOT inside this loader!
-  // The main script is ONLY transmitted after /api/auth/verify succeeds!
-  const luaCode = generateLuaLoader(baseUrl, slug, {
-    brand_name: loaderConfig?.brand_name || "AERO AUTH",
-    title: loaderConfig?.title || "Key System",
-    accent_color: loaderConfig?.accent_color || "#00a2ff",
-    background_color: loaderConfig?.background_color || "#16161e",
-    card_color: loaderConfig?.card_color || "#21222e",
-    text_color: loaderConfig?.text_color || "#ffffff",
-    subtext_color: loaderConfig?.subtext_color || "#9ca3af",
-    corner_radius: loaderConfig?.corner_radius ?? 10,
-    frame_width: loaderConfig?.frame_width || 360,
-    frame_height: loaderConfig?.frame_height || 250,
-    font_face: loaderConfig?.font_face || "GothamMedium",
-    custom_subtitle: loaderConfig?.custom_subtitle || "Enter your license key below",
-    key_placeholder: loaderConfig?.key_placeholder || "Paste your license key here...",
-    verify_button_text: loaderConfig?.verify_button_text || "VERIFY KEY",
-    claim_button_text: loaderConfig?.claim_button_text || "CLAIM YOUR KEY (COPY LINK)",
-    show_discord_button: loaderConfig?.show_discord_button,
-    discord_button_text: loaderConfig?.discord_button_text,
-    discord_invite_url: loaderConfig?.discord_invite_url,
-    watermark_text: script.watermark_text || loaderConfig?.watermark_text || "AERO PROTECT",
-    show_watermark: script.show_watermark !== false && loaderConfig?.show_watermark !== false,
-    layout_positions: loaderConfig?.layout_positions,
-  });
+  // Check GitHub Auto-Pull if enabled (debounced to once every 60 seconds)
+  if (script.github_auto_pull && script.github_repo) {
+    const lastPullTime = script.github_last_pulled_at ? new Date(script.github_last_pulled_at).getTime() : 0;
+    if (Date.now() - lastPullTime > 60 * 1000) {
+      syncScriptFromGitHub(script.id).catch((err) => {
+        console.warn(`[Auto-Pull Background] Failed to sync ${script.name}:`, err);
+      });
+    }
+  }
 
-  // Wrap in polymorphic randomized byte stream
-  const polymorphicLoader = wrapPolymorphicLuau(luaCode);
+  // Generate the Stage 0 Pre-Flight Middleware Guard Stub
+  // Zero UI, zero license keys, zero autoload routines are in this code.
+  // Sensitive auth logic is only released after /api/auth/probe verification.
+  const stage0Stub = `--[=[
+    Aero Auth - Stage 0 Pre-Flight Integrity Guard
+    Zero sensitive auth or UI code is contained in this stub.
+]=]
+local HttpService = game:GetService("HttpService")
+local BASE_URL = "${baseUrl}"
+local SCRIPT_SLUG = "${slug}"
+
+local function sampleBaseline()
+    local sig = ""
+    pcall(function()
+        if type(debug) == "table" and type(debug.info) == "function" then
+            sig = tostring(debug.info(math.abs, "s")) .. ":" .. tostring(debug.info(table.insert, "s"))
+        end
+    end)
+    return sig
+end
+
+local function scanEnvironment()
+    local flags = {}
+    pcall(function()
+        local gm = getrawmetatable and getrawmetatable(game)
+        if gm and rawget(gm, "__namecall") and islclosure and islclosure(rawget(gm, "__namecall")) then
+            table.insert(flags, "namecall_lclosure")
+        end
+        local dumpers = {"saveinstance", "dumpstring", "rconsolename", "SimpleSpy"}
+        for _, d in ipairs(dumpers) do
+            if getgenv and getgenv()[d] ~= nil then
+                table.insert(flags, "dumper_" .. d)
+            end
+        end
+    end)
+    return flags
+end
+
+local function executePreFlight()
+    local getReq = (syn and syn.request) or (http and http.request) or http_request or request or (fluxus and fluxus.request)
+    local challengeData = nil
+    pcall(function()
+        local raw = game:HttpGet(BASE_URL .. "/api/auth/probe?slug=" .. SCRIPT_SLUG .. "&_t=" .. os.time())
+        challengeData = HttpService:JSONDecode(raw)
+    end)
+    
+    if not challengeData or not challengeData.session_id or not challengeData.challenges then
+        return
+    end
+    
+    local solutions = {}
+    for _, ch in ipairs(challengeData.challenges) do
+        if ch.type == "arithmetic" then
+            local seed = ch.seed
+            local rounds = ch.rounds
+            local acc = bit32.bxor(seed, 0x5F3759DF)
+            for i = 1, rounds do
+                acc = bit32.bxor(bit32.band(acc * 31, 0xFFFFFFFF), bit32.band(i * 17, 0xFFFFFFFF))
+            end
+            solutions.arithmetic = acc % 1000003
+        end
+    end
+    
+    local flags = scanEnvironment()
+    local baseline = sampleBaseline()
+    
+    local payload = HttpService:JSONEncode({
+        session_id = challengeData.session_id,
+        slug = SCRIPT_SLUG,
+        hwid = (type(gethwid) == "function" and gethwid()) or "",
+        solutions = solutions,
+        tamper_flags = flags,
+        c_signature = baseline,
+    })
+    
+    local respBody = nil
+    if getReq then
+        local res = getReq({
+            Url = BASE_URL .. "/api/auth/probe",
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = payload,
+        })
+        if res and (res.StatusCode == 200 or res.Status == 200) then
+            respBody = res.Body
+        end
+    else
+        pcall(function()
+            respBody = game:HttpPost(BASE_URL .. "/api/auth/probe", payload, "application/json")
+        end)
+    end
+    
+    if not respBody then return end
+    
+    local verified = nil
+    pcall(function()
+        verified = HttpService:JSONDecode(respBody)
+    end)
+    
+    if verified and verified.success and verified.loader_payload then
+        local fn, err = loadstring(verified.loader_payload)
+        if fn then
+            task.spawn(fn)
+        end
+    end
+end
+
+task.spawn(executePreFlight)
+`;
+
+  const polymorphicLoader = wrapPolymorphicLuau(stage0Stub);
 
   return new NextResponse(polymorphicLoader, {
     status: 200,

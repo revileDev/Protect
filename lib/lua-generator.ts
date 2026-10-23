@@ -398,14 +398,16 @@ local boldFont = Enum.Font.GothamBold
 -- =======================================================
 -- LOADER SESSION TRACKING (fires immediately on script execute)
 -- =======================================================
-local LOADER_TOKEN = nil
-pcall(function()
-    if HttpService and HttpService.GenerateGUID then
-        LOADER_TOKEN = HttpService:GenerateGUID(false)
-    else
-        LOADER_TOKEN = tostring(math.random(100000000, 999999999)) .. "_" .. tostring(os.time())
-    end
-end)
+local LOADER_TOKEN = _G.__AERO_GATEWAY_TOKEN or nil
+if not LOADER_TOKEN then
+    pcall(function()
+        if HttpService and HttpService.GenerateGUID then
+            LOADER_TOKEN = HttpService:GenerateGUID(false)
+        else
+            LOADER_TOKEN = tostring(math.random(100000000, 999999999)) .. "_" .. tostring(os.time())
+        end
+    end)
+end
 
 -- Fire loader ping immediately — creates the session card in the dashboard
 -- The card will show as "In Auth Loader" until the user verifies their key

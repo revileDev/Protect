@@ -67,6 +67,13 @@ export async function POST(req: NextRequest) {
       use_auth: body.use_auth !== false,
       is_maintenance: body.is_maintenance === true,
       maintenance_message: body.maintenance_message || null,
+      github_repo: body.github_repo || null,
+      github_branch: body.github_branch || 'main',
+      github_directory: body.github_directory || '',
+      github_token: body.github_token || null,
+      github_auto_pull: body.github_auto_pull === true,
+      github_last_commit: body.github_last_commit || null,
+      github_last_pulled_at: body.github_last_pulled_at || null,
     });
 
     return NextResponse.json({ success: true, script });
@@ -136,6 +143,13 @@ export async function PATCH(req: NextRequest) {
       use_auth: body.use_auth !== undefined ? body.use_auth : existing.use_auth,
       is_maintenance: body.is_maintenance !== undefined ? body.is_maintenance : existing.is_maintenance,
       maintenance_message: body.maintenance_message !== undefined ? body.maintenance_message : existing.maintenance_message,
+      github_repo: body.github_repo !== undefined ? body.github_repo : existing.github_repo,
+      github_branch: body.github_branch !== undefined ? body.github_branch : existing.github_branch,
+      github_directory: body.github_directory !== undefined ? body.github_directory : existing.github_directory,
+      github_token: body.github_token !== undefined ? body.github_token : existing.github_token,
+      github_auto_pull: body.github_auto_pull !== undefined ? body.github_auto_pull : existing.github_auto_pull,
+      github_last_commit: body.github_last_commit !== undefined ? body.github_last_commit : existing.github_last_commit,
+      github_last_pulled_at: body.github_last_pulled_at !== undefined ? body.github_last_pulled_at : existing.github_last_pulled_at,
     });
 
     return NextResponse.json({

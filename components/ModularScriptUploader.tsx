@@ -3,7 +3,7 @@
 
 import React, { useState, useRef } from "react";
 import JSZip from "jszip";
-import { UploadCloud, FileCode, CheckCircle2, Copy, Check, AlertCircle } from "lucide-react";
+import { UploadCloud, FileCode, CheckCircle2, Copy, Check, AlertCircle, GitBranch, RefreshCw, FolderGit2 } from "lucide-react";
 import { LoaderConfigRecord, ScriptRecord } from "@/lib/store";
 
 interface Props {
@@ -23,6 +23,15 @@ export default function ModularScriptUploader({ loaderConfigs, onScriptCreated }
   const [maintenanceMessage, setMaintenanceMessage] = useState(
     "This script is currently under maintenance. Please check our Discord for updates."
   );
+  const [sourceMode, setSourceMode] = useState<"upload" | "github">("upload");
+  const [githubRepo, setGithubRepo] = useState("");
+  const [githubBranch, setGithubBranch] = useState("main");
+  const [githubDirectory, setGithubDirectory] = useState("");
+  const [githubToken, setGithubToken] = useState("");
+  const [githubAutoPull, setGithubAutoPull] = useState(true);
+  const [githubLastCommit, setGithubLastCommit] = useState<string | null>(null);
+  const [isFetchingGitHub, setIsFetchingGitHub] = useState(false);
+  const [githubSuccessMsg, setGithubSuccessMsg] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [createdLoadstring, setCreatedLoadstring] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -85,6 +94,50 @@ export default function ModularScriptUploader({ loaderConfigs, onScriptCreated }
     }
   };
 
+  const handleFetchFromGitHub = async () => {
+    if (!githubRepo.trim()) {
+      setError("Please enter a GitHub repository (e.g. revileDev/TestFork)");
+      return;
+    }
+    setIsFetchingGitHub(true);
+    setError(null);
+    setGithubSuccessMsg(null);
+
+    try {
+      const res = await fetch("/api/scripts/github/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repo: githubRepo.trim(),
+          branch: githubBranch.trim() || "main",
+          directory: githubDirectory.trim(),
+          token: githubToken.trim() || undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to fetch files from GitHub");
+
+      setFilesMap(data.modules || {});
+      setGithubLastCommit(data.commitSha || null);
+      if (data.entryFile) setEntryFile(data.entryFile);
+
+      if (!scriptName) {
+        const repoName = githubRepo.split("/").pop() || "Modular Script";
+        const dirName = githubDirectory ? ` - ${githubDirectory}` : "";
+        setScriptName(repoName + dirName);
+        setScriptSlug((repoName + dirName).toLowerCase().replace(/[^a-z0-9_-]/g, "-"));
+      }
+
+      setGithubSuccessMsg(`Successfully imported ${data.filesCount} modules from GitHub (${data.commitSha ? data.commitSha.substring(0, 7) : "latest"})!`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error connecting to GitHub";
+      setError(msg);
+    } finally {
+      setIsFetchingGitHub(false);
+    }
+  };
+
   const handleSaveScript = async () => {
     if (!scriptName.trim()) {
       setError("Please specify a name for this script.");
@@ -113,6 +166,12 @@ export default function ModularScriptUploader({ loaderConfigs, onScriptCreated }
           use_auth: useAuth,
           is_maintenance: isMaintenance,
           maintenance_message: isMaintenance ? maintenanceMessage : null,
+          github_repo: githubRepo.trim() || null,
+          github_branch: githubBranch.trim() || "main",
+          github_directory: githubDirectory.trim() || "",
+          github_token: githubToken.trim() || null,
+          github_auto_pull: githubAutoPull,
+          github_last_commit: githubLastCommit || null,
         }),
       });
 
@@ -163,8 +222,123 @@ export default function ModularScriptUploader({ loaderConfigs, onScriptCreated }
         </div>
       )}
 
+      {/* Mode Switcher Tabs */}
+      <div className="flex items-center gap-2 mb-4 p-1 bg-[#090b10] border border-gray-800 rounded-lg w-fit">
+        <button
+          type="button"
+          onClick={() => { setSourceMode("upload"); setError(null); }}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+            sourceMode === "upload"
+              ? "bg-blue-600 text-white shadow-sm"
+              : "text-gray-400 hover:text-white"
+          }`}
+        >
+          <UploadCloud className="w-3.5 h-3.5" />
+          Upload Folder / ZIP
+        </button>
+        <button
+          type="button"
+          onClick={() => { setSourceMode("github"); setError(null); }}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+            sourceMode === "github"
+              ? "bg-blue-600 text-white shadow-sm"
+              : "text-gray-400 hover:text-white"
+          }`}
+        >
+          <GitBranch className="w-3.5 h-3.5" />
+          Connect GitHub Repo & Auto-Pull
+        </button>
+      </div>
+
+      {githubSuccessMsg && (
+        <div className="mb-4 flex items-center gap-2 p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 rounded-lg text-xs">
+          <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+          <span>{githubSuccessMsg}</span>
+        </div>
+      )}
+
+      {/* Mode 1: GitHub Connect Card */}
+      {sourceMode === "github" && fileCount === 0 && (
+        <div className="border border-gray-800 rounded-xl p-5 bg-[#0d0f16]/80 space-y-4 mb-4">
+          <div className="flex items-center justify-between pb-3 border-b border-gray-800/80">
+            <div className="flex items-center gap-2 text-white font-semibold text-sm">
+              <FolderGit2 className="w-4 h-4 text-blue-400" />
+              <span>Connect GitHub Repository</span>
+            </div>
+            <span className="text-[11px] text-gray-400">Pulls .lua, .luau, and .txt files automatically</span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div>
+              <label className="block text-gray-300 font-medium mb-1">GitHub Repository</label>
+              <input
+                type="text"
+                value={githubRepo}
+                onChange={(e) => setGithubRepo(e.target.value)}
+                placeholder="owner/repo (e.g. revileDev/TestFork)"
+                className="w-full bg-[#141722] border border-gray-700/80 rounded-lg px-3 py-2 text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 font-mono text-xs"
+              />
+            </div>
+            <div>
+              <label className="block text-gray-300 font-medium mb-1">Branch</label>
+              <input
+                type="text"
+                value={githubBranch}
+                onChange={(e) => setGithubBranch(e.target.value)}
+                placeholder="main"
+                className="w-full bg-[#141722] border border-gray-700/80 rounded-lg px-3 py-2 text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 font-mono text-xs"
+              />
+            </div>
+            <div>
+              <label className="block text-gray-300 font-medium mb-1">Specific Subdirectory (Optional)</label>
+              <input
+                type="text"
+                value={githubDirectory}
+                onChange={(e) => setGithubDirectory(e.target.value)}
+                placeholder="e.g. Rivals (leave blank for root)"
+                className="w-full bg-[#141722] border border-gray-700/80 rounded-lg px-3 py-2 text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 font-mono text-xs"
+              />
+            </div>
+            <div>
+              <label className="block text-gray-300 font-medium mb-1">Personal Access Token (Private Repos)</label>
+              <input
+                type="password"
+                value={githubToken}
+                onChange={(e) => setGithubToken(e.target.value)}
+                placeholder="ghp_... (leave empty for public repos)"
+                className="w-full bg-[#141722] border border-gray-700/80 rounded-lg px-3 py-2 text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 font-mono text-xs"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between pt-2 border-t border-gray-800/80">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={githubAutoPull}
+                onChange={(e) => setGithubAutoPull(e.target.checked)}
+                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-900 bg-gray-800 border-gray-700"
+              />
+              <span className="text-xs text-gray-300 font-medium">
+                Enable Auto-Pull (Automatically pull updated files from latest commits)
+              </span>
+            </label>
+
+            <button
+              type="button"
+              onClick={handleFetchFromGitHub}
+              disabled={isFetchingGitHub}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold shadow-md transition-all"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isFetchingGitHub ? "animate-spin" : ""}`} />
+              {isFetchingGitHub ? "Connecting & Pulling..." : "Fetch Files from GitHub"}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Upload Drop Zone */}
-      {fileCount === 0 ? (
+      {sourceMode === "upload" && fileCount === 0 ? (
         <div
           onDragOver={(e) => e.preventDefault()}
           onDrop={handleDrop}
