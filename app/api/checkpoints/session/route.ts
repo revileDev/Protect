@@ -84,7 +84,11 @@ export async function POST(req: NextRequest) {
       );
 
       // Log start checkpoint
-      await dbService.recordCheckpoint("started", ip, targetScriptId);
+      await dbService.recordCheckpoint("started", ip, targetScriptId, {
+        sessionId: sessionData.sessionId,
+        stepIndex: 0,
+        checkpointTitle: effectiveCheckpoints[0]?.title || "Step 1",
+      });
 
       return NextResponse.json({
         success: true,
@@ -176,6 +180,19 @@ export async function POST(req: NextRequest) {
           },
           { status: result.bypassDetected ? 403 : 400 }
         );
+      }
+
+      // Record step progress or completion
+      if (result.success) {
+        if (result.allCompleted) {
+          await dbService.recordCheckpoint("completed", ip, script_id || undefined, {
+            stepIndex: typeof stepIndex === "number" ? stepIndex : undefined,
+          });
+        } else {
+          await dbService.recordCheckpoint("step_completed", ip, script_id || undefined, {
+            stepIndex: typeof stepIndex === "number" ? stepIndex : undefined,
+          });
+        }
       }
 
       return NextResponse.json({

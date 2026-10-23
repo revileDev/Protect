@@ -172,7 +172,10 @@ export interface CheckpointLog {
   id: string;
   script_id?: string;
   ip_address: string;
-  stage: "started" | "completed";
+  stage: "started" | "completed" | "step_started" | "step_completed";
+  step_index?: number;
+  checkpoint_title?: string;
+  session_id?: string;
   created_at: string;
 }
 
@@ -2178,16 +2181,25 @@ export const dbService = {
     return record;
   },
 
-  async recordCheckpoint(stage: "started" | "completed", ip: string, scriptId?: string): Promise<void> {
+  async recordCheckpoint(
+    stage: "started" | "completed" | "step_started" | "step_completed",
+    ip: string,
+    scriptId?: string,
+    meta?: { stepIndex?: number; checkpointTitle?: string; sessionId?: string }
+  ): Promise<void> {
     const record: CheckpointLog = {
       id: crypto.randomUUID(),
       script_id: scriptId,
       ip_address: ip,
       stage,
+      step_index: meta?.stepIndex,
+      checkpoint_title: meta?.checkpointTitle,
+      session_id: meta?.sessionId,
       created_at: new Date().toISOString(),
     };
 
     const db = readLocalDb();
+    if (!db.checkpoint_logs) db.checkpoint_logs = [];
     db.checkpoint_logs.unshift(record);
     if (db.checkpoint_logs.length > 5000) {
       db.checkpoint_logs = db.checkpoint_logs.slice(0, 5000);
@@ -2196,14 +2208,16 @@ export const dbService = {
 
     if (isSupabaseConfigured && supabase) {
       try {
-        const baseRecord = {
-          id: record.id,
-          ip_address: record.ip_address,
-          stage: record.stage,
-          created_at: record.created_at,
-        };
         const { error } = await supabase.from("checkpoint_logs").insert([record]);
         if (error) {
+          // Fallback if Supabase has legacy CHECK constraint
+          const safeStage = stage === "completed" ? "completed" : "started";
+          const baseRecord = {
+            id: record.id,
+            ip_address: record.ip_address,
+            stage: safeStage,
+            created_at: record.created_at,
+          };
           const res = await supabase.from("checkpoint_logs").insert([baseRecord]);
           if (res.error) {
             console.error("Supabase recordCheckpoint fallback error:", res.error.message);
@@ -2460,6 +2474,210 @@ export const dbService = {
       }
     }
     return true;
+  },
+
+  async getCheckpointAnalytics(scriptId?: string) {
+    let rawCheckpoints: CheckpointLog[] = [];
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const q = supabase
+          .from("checkpoint_logs")
+          .select("*")
+          .order("created_at", { ascending: false });
+        const { data, error } = await q.limit(5000);
+        if (data && !error) {
+          rawCheckpoints = data as CheckpointLog[];
+        }
+      } catch (err) {
+        console.error("Supabase getCheckpointAnalytics error:", err);
+      }
+    }
+
+    const db = readLocalDb();
+    const cpMap = new Map<string, CheckpointLog>();
+    for (const cp of rawCheckpoints) cpMap.set(cp.id, cp);
+    for (const cp of db.checkpoint_logs || []) {
+      if (!cpMap.has(cp.id)) cpMap.set(cp.id, cp);
+    }
+
+    let allLogs = Array.from(cpMap.values()).sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+
+    if (scriptId && scriptId !== "all") {
+      const clean = scriptId.trim().toLowerCase();
+      const allScripts = await this.getScripts();
+      const matched = allScripts.find(
+        (s) => s.id.toLowerCase() === clean || s.slug.toLowerCase() === clean
+      );
+      const targetId = matched ? matched.id : scriptId;
+      allLogs = allLogs.filter(
+        (l) => !l.script_id || l.script_id === targetId || (matched && l.script_id === matched.slug)
+      );
+    }
+
+    const configuredCheckpoints = await this.getCheckpoints(scriptId);
+    const sortedCheckpoints = [...configuredCheckpoints].sort((a, b) => a.order - b.order);
+
+    const visitorLogs = allLogs.filter((l) => l.stage === "started");
+    const completedLogs = allLogs.filter((l) => l.stage === "completed");
+
+    const totalVisitors = visitorLogs.length;
+    const uniqueVisitors = new Set(visitorLogs.map((l) => l.ip_address).filter(Boolean)).size;
+
+    const totalCompleted = completedLogs.length;
+    const uniqueCompleted = new Set(completedLogs.map((l) => l.ip_address).filter(Boolean)).size;
+
+    const completionRate = totalVisitors > 0 ? Math.round((totalCompleted / totalVisitors) * 100) : 0;
+    const totalDropped = Math.max(0, totalVisitors - totalCompleted);
+    const dropRate = totalVisitors > 0 ? Math.round((totalDropped / totalVisitors) * 100) : 0;
+
+    interface Journey {
+      id: string;
+      ip: string;
+      script_id?: string;
+      started_at: string;
+      completed: boolean;
+      highestStepIndex: number;
+      highestStepTitle?: string;
+      stoppedOnStepIndex: number;
+      stoppedOnStepTitle: string;
+      events: CheckpointLog[];
+    }
+
+    const sessionJourneys = new Map<string, Journey>();
+    const chronological = [...allLogs].reverse();
+    for (const log of chronological) {
+      const key = log.session_id ? `sid_${log.session_id}` : `ip_${log.ip_address}_${log.created_at.slice(0, 13)}`;
+      let journey = sessionJourneys.get(key);
+      if (!journey) {
+        journey = {
+          id: log.session_id || log.id,
+          ip: log.ip_address,
+          script_id: log.script_id,
+          started_at: log.created_at,
+          completed: false,
+          highestStepIndex: 0,
+          highestStepTitle: sortedCheckpoints[0]?.title || "Checkpoint 1",
+          stoppedOnStepIndex: 0,
+          stoppedOnStepTitle: sortedCheckpoints[0]?.title || "Checkpoint 1",
+          events: [],
+        };
+        sessionJourneys.set(key, journey);
+      }
+      journey.events.push(log);
+
+      if (log.stage === "completed") {
+        journey.completed = true;
+        journey.highestStepIndex = sortedCheckpoints.length;
+      } else if (typeof log.step_index === "number") {
+        if (log.step_index >= journey.highestStepIndex) {
+          journey.highestStepIndex = log.step_index;
+          if (sortedCheckpoints[log.step_index]) {
+            journey.highestStepTitle = sortedCheckpoints[log.step_index].title;
+          }
+        }
+      }
+    }
+
+    sessionJourneys.forEach((journey) => {
+      if (!journey.completed) {
+        journey.stoppedOnStepIndex = journey.highestStepIndex;
+        const targetCp = sortedCheckpoints[journey.highestStepIndex];
+        journey.stoppedOnStepTitle = targetCp ? targetCp.title : `Checkpoint Step ${journey.highestStepIndex + 1}`;
+      }
+    });
+
+    const stepCounts: Record<number, { reached: number; completed: number; stopped: number }> = {};
+    for (let i = 0; i < sortedCheckpoints.length; i++) {
+      stepCounts[i] = { reached: 0, completed: 0, stopped: 0 };
+    }
+
+    const journeysList = Array.from(sessionJourneys.values());
+    const hasDetailedStepLogs = allLogs.some((l) => typeof l.step_index === "number");
+
+    if (hasDetailedStepLogs) {
+      for (const j of journeysList) {
+        if (j.completed) {
+          for (let i = 0; i < sortedCheckpoints.length; i++) {
+            stepCounts[i].reached += 1;
+            stepCounts[i].completed += 1;
+          }
+        } else {
+          for (let i = 0; i <= j.stoppedOnStepIndex && i < sortedCheckpoints.length; i++) {
+            stepCounts[i].reached += 1;
+            if (i < j.stoppedOnStepIndex) {
+              stepCounts[i].completed += 1;
+            } else if (i === j.stoppedOnStepIndex) {
+              stepCounts[i].stopped += 1;
+            }
+          }
+        }
+      }
+    } else {
+      const totalSteps = Math.max(1, sortedCheckpoints.length);
+      sortedCheckpoints.forEach((_, idx) => {
+        const stepDropWeight = (totalSteps - idx) / ((totalSteps * (totalSteps + 1)) / 2);
+        const estimatedStopped = Math.round(totalDropped * stepDropWeight);
+        stepCounts[idx] = {
+          reached: Math.max(totalCompleted, totalVisitors - Math.round(totalDropped * (idx / totalSteps))),
+          completed: Math.max(totalCompleted, totalVisitors - Math.round(totalDropped * ((idx + 1) / totalSteps))),
+          stopped: estimatedStopped,
+        };
+      });
+    }
+
+    const stepFunnel = sortedCheckpoints.map((cp, idx) => {
+      const stats = stepCounts[idx] || { reached: 0, completed: 0, stopped: 0 };
+      const stoppedPercent = totalDropped > 0 ? Math.round((stats.stopped / totalDropped) * 100) : 0;
+      const retentionPercent = stats.reached > 0 ? Math.round((stats.completed / stats.reached) * 100) : 100;
+
+      return {
+        id: cp.id,
+        order: cp.order || idx + 1,
+        title: cp.title,
+        url: cp.url,
+        duration_seconds: cp.duration_seconds || 5,
+        step_index: idx,
+        reached_count: stats.reached,
+        completed_count: stats.completed,
+        stopped_count: stats.stopped,
+        stopped_percentage: stoppedPercent,
+        retention_percentage: retentionPercent,
+      };
+    });
+
+    const recentActivity = allLogs.slice(0, 60).map((l) => {
+      let description = "Visited checkpoint portal";
+      if (l.stage === "completed") description = "Completed all checkpoints & claimed key";
+      else if (l.stage === "step_completed") description = `Completed ${l.checkpoint_title || `Step ${(l.step_index ?? 0) + 1}`}`;
+      else if (l.stage === "step_started") description = `Started ${l.checkpoint_title || `Step ${(l.step_index ?? 0) + 1}`}`;
+      else if (l.stage === "started") description = "Opened checkpoint claim page";
+
+      return {
+        id: l.id,
+        ip_address: l.ip_address,
+        script_id: l.script_id,
+        stage: l.stage,
+        step_index: l.step_index,
+        checkpoint_title: l.checkpoint_title,
+        description,
+        created_at: l.created_at,
+      };
+    });
+
+    return {
+      total_visitors: totalVisitors,
+      unique_visitors: uniqueVisitors,
+      total_completed: totalCompleted,
+      unique_completed: uniqueCompleted,
+      completion_rate: completionRate,
+      total_dropped: totalDropped,
+      drop_rate: dropRate,
+      step_funnel: stepFunnel,
+      recent_activity: recentActivity,
+      active_checkpoints_count: sortedCheckpoints.length,
+    };
   },
 
   // Checkpoints Management

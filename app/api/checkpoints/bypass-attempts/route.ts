@@ -5,15 +5,19 @@ import { isAuthenticated } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   if (!isAuthenticated()) {
     return NextResponse.json({ error: "Unauthorized. Admin session required." }, { status: 401 });
   }
 
   try {
+    const { searchParams } = new URL(req.url);
+    const scriptId = searchParams.get("script_id") || searchParams.get("script") || undefined;
+
     const attempts = await dbService.getBypassAttempts();
     const bannedIps = await dbService.getBannedIps();
     const bannedHwids = await dbService.getBannedHwids();
+    const checkpointAnalytics = await dbService.getCheckpointAnalytics(scriptId);
 
     // Group attempts by IP and HWID for quick summary
     const ipCounts: Record<string, number> = {};
@@ -54,6 +58,7 @@ export async function GET() {
         total_locked_hwids: Object.keys(bannedHwids).length,
         lockout_threshold: 3,
       },
+      checkpoint_analytics: checkpointAnalytics,
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Error fetching bypass records";

@@ -191,7 +191,12 @@ ALTER TABLE public.sessions
 
 -- Migration for checkpoint_logs
 ALTER TABLE public.checkpoint_logs
-    ADD COLUMN IF NOT EXISTS script_id TEXT DEFAULT NULL;
+    ADD COLUMN IF NOT EXISTS script_id TEXT DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS step_index INTEGER DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS checkpoint_title TEXT DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS session_id TEXT DEFAULT NULL;
+
+ALTER TABLE public.checkpoint_logs DROP CONSTRAINT IF EXISTS checkpoint_logs_stage_check;
 
 -- ----------------------------------------------------------------------------
 -- 6. Global In-Game Announcements
