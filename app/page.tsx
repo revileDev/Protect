@@ -43,7 +43,7 @@ export default async function HomePage() {
     settings.discord_invite_url !== "https://discord.gg/" &&
     settings.discord_invite_url !== "https://discord.gg/yourserver"
       ? settings.discord_invite_url
-      : "https://discord.gg/AeCYnnQmq5";
+      : "https://discord.gg/kGtqH3k2wN";
 
   return (
     <div className="min-h-screen flex flex-col bg-obsidian-950 text-zinc-100 selection:bg-white selection:text-black">

@@ -45,7 +45,7 @@ export default function LoaderBuilderPage() {
   const [claimButtonText, setClaimButtonText] = useState("CLAIM YOUR KEY (COPY LINK)");
   const [showDiscordButton, setShowDiscordButton] = useState(false);
   const [discordButtonText, setDiscordButtonText] = useState("JOIN DISCORD");
-  const [discordInviteUrl, setDiscordInviteUrl] = useState("https://discord.gg/yourserver");
+  const [discordInviteUrl, setDiscordInviteUrl] = useState("https://discord.gg/kGtqH3k2wN");
   const [showWatermark, setShowWatermark] = useState(true);
   const [watermarkText, setWatermarkText] = useState("AtomProtect");
 
@@ -156,7 +156,7 @@ export default function LoaderBuilderPage() {
     setClaimButtonText(cfg.claim_button_text || "CLAIM YOUR KEY (COPY LINK)");
     setShowDiscordButton(Boolean(cfg.show_discord_button));
     setDiscordButtonText(cfg.discord_button_text || "JOIN DISCORD");
-    setDiscordInviteUrl(cfg.discord_invite_url || "https://discord.gg/yourserver");
+    setDiscordInviteUrl(cfg.discord_invite_url || "https://discord.gg/kGtqH3k2wN");
     setShowWatermark(cfg.show_watermark !== false);
     setWatermarkText(cfg.watermark_text || "AtomProtect");
     setStatusVerifying(cfg.status_verifying || "Checking license key...");

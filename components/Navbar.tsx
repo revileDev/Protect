@@ -10,7 +10,7 @@ interface Props {
   discordUrl?: string;
 }
 
-export default function Navbar({ scripts, discordUrl = "https://discord.gg/AeCYnnQmq5" }: Props) {
+export default function Navbar({ scripts, discordUrl = "https://discord.gg/kGtqH3k2wN" }: Props) {
   return (
     <header className="sticky top-0 z-40 border-b border-obsidian-700/80 bg-obsidian-950/90 backdrop-blur-md">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">

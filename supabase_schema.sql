@@ -369,7 +369,7 @@ INSERT INTO public.checkpoints (id, script_id, title, url, duration_seconds, "or
 VALUES 
     ('52097de7-6136-4da0-b9b9-f21612689848', 'all', 'Subscribe', 'https://www.youtube.com/@lollll-k5d', 10, 1),
     ('a5397f93-3f27-41b3-b68d-83ae68aa783b', 'all', 'Like the video', 'https://www.youtube.com/watch?v=Z6DbPPkLlq4', 45, 2),
-    ('add593ab-7e23-45a8-9d57-798c4cb0b9cd', 'all', 'Join the discord', 'https://discord.gg/AeCYnnQmq5', 45, 3)
+    ('add593ab-7e23-45a8-9d57-798c4cb0b9cd', 'all', 'Join the discord', 'https://discord.gg/kGtqH3k2wN', 45, 3)
 ON CONFLICT (id) DO NOTHING;
 
 -- ----------------------------------------------------------------------------
