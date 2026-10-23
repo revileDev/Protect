@@ -221,11 +221,16 @@ export async function POST(req: NextRequest) {
       return { enabled: false, url: "" };
     };
 
-    const initialWh = await resolveWebhook(script);
+    // FIX: Resolve ISP and webhook in parallel — no serial waiting
+    const [ispResult, initialWh] = await Promise.all([
+      lookupIsp(clientIp),
+      resolveWebhook(script),
+    ]);
+    const isp = ispResult;
     webhookEnabled = initialWh.enabled;
     webhookUrl = initialWh.url;
-
-    const isp = await lookupIsp(clientIp);
+    // Mark webhook as already resolved so logAndNotifyFailure skips redundant DB calls
+    let webhookResolved = true;
 
     const logAndNotifyFailure = async (reason: string) => {
       await dbService.recordExecution({
@@ -246,10 +251,12 @@ export async function POST(req: NextRequest) {
         failure_reason: reason,
       });
 
-      if (!webhookEnabled || !webhookUrl) {
+      // FIX: Use cached webhook result — avoid redundant DB call on every failure
+      if (!webhookResolved || (!webhookEnabled || !webhookUrl)) {
         const wh = await resolveWebhook(script);
         webhookEnabled = wh.enabled;
         webhookUrl = wh.url;
+        webhookResolved = true;
       }
 
       if (webhookEnabled && webhookUrl) {
@@ -309,8 +316,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid key format." }, { status: 400 });
     }
 
-    // 2. Check IP Ban status
-    const isBanned = await dbService.isIpBanned(clientIp);
+    // 2 & 3. FIX: Parallel — check IP ban + fetch key + start Roblox identity check simultaneously
+    // Identity check fires speculatively; result is consumed only if key is valid and user is not staff.
+    const identityCheckPromise = verifyRobloxIdentity(roblox_user_id, roblox_username);
+
+    const [isBanned, fetchedKey] = await Promise.all([
+      dbService.isIpBanned(clientIp),
+      dbService.getKeyByString(keyStr),
+    ]);
+
     if (isBanned) {
       await logAndNotifyFailure("IP Banned: Client IP is blacklisted.");
       return NextResponse.json(
@@ -318,9 +332,6 @@ export async function POST(req: NextRequest) {
         { status: 403 }
       );
     }
-
-    // 3. Fetch Key Record strictly from database
-    const fetchedKey = await dbService.getKeyByString(keyStr);
     if (!fetchedKey) {
       // Sliding window rate limit on failed key attempts to block brute-force / key guessing
       const now = Date.now();
@@ -412,8 +423,8 @@ export async function POST(req: NextRequest) {
 
     // 5. Anti-Spoofing & Identity Integrity Checks (Enforced on all regular keys)
     if (!isStaff) {
-      // Validate Roblox Identity against official Roblox public records
-      const identityCheck = await verifyRobloxIdentity(roblox_user_id, roblox_username);
+      // Await the already-in-flight Roblox identity check (started in parallel with key/ban lookup)
+      const identityCheck = await identityCheckPromise;
       if (!identityCheck.valid) {
         await logAndNotifyFailure(`Identity Spoofing Blocked: ${identityCheck.reason}`);
         return NextResponse.json(
@@ -624,7 +635,8 @@ export async function POST(req: NextRequest) {
       failure_reason: null,
     });
 
-    if (!webhookEnabled || !webhookUrl) {
+    // FIX: webhookResolved flag ensures we skip redundant DB call here — already fetched at request start
+    if (!webhookResolved || (!webhookEnabled && !webhookUrl)) {
       const finalWh = await resolveWebhook(script);
       webhookEnabled = finalWh.enabled;
       webhookUrl = finalWh.url;

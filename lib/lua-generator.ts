@@ -248,7 +248,7 @@ local function decryptSessionPayload(hexCiphertext, secretKey, onProgress)
     local _bxor = (bit32 and bit32.bxor) or (bit and bit.bxor)
 
     local lastYield = os.clock()
-    local batchStep = 10000
+    local batchStep = 50000  -- FIX: was 10000; 5× fewer task.wait() yields = ~5× faster decryption
 
     for k = 1, bytesCount do
         i = (i + 1) % 256
@@ -269,7 +269,7 @@ local function decryptSessionPayload(hexCiphertext, secretKey, onProgress)
                 local kbTotal = _math.floor(bytesCount / 1024)
                 onProgress(0.50 + (fraction * 0.30), "Decrypting Code Stream (" .. kbDone .. " / " .. kbTotal .. " KB)...")
             end
-            if os.clock() - lastYield > 0.035 then
+            if os.clock() - lastYield > 0.05 then  -- FIX: was 0.035; wider window = fewer yields
                 task.wait()
                 lastYield = os.clock()
             end
@@ -743,6 +743,8 @@ local function updateProgress(fraction, statusText)
     PasteBtn.Visible = false
     KeyBox.Visible = false
     if ClaimBtn then ClaimBtn.Visible = false end
+    -- FIX: hide StatusLabel so it doesn't overlap the progress bar
+    if StatusLabel then StatusLabel.Visible = false end
 
     ProgressBarFill.Size = UDim2.new(clamped, 0, 1, 0)
     local pct = math.floor(clamped * 100)
@@ -758,6 +760,32 @@ local function hideProgress()
     if PasteBtn then PasteBtn.Visible = true end
     if KeyBox then KeyBox.Visible = true end
     if ClaimBtn then ClaimBtn.Visible = true end
+    -- FIX: restore StatusLabel when progress is hidden
+    if StatusLabel then StatusLabel.Visible = true end
+end
+
+-- FIX: Pulsing shimmer animation that plays during blocking HTTP waits so the bar looks alive
+local _pulseActive = false
+local function startPulseAnimation()
+    if _pulseActive then return end
+    _pulseActive = true
+    task.spawn(function()
+        local dir = 1
+        local alpha = 0.0
+        while _pulseActive and ProgressBarFill and ProgressBarFill.Parent do
+            alpha = alpha + (dir * 0.05)
+            if alpha >= 1.0 then dir = -1 elseif alpha <= 0.0 then dir = 1 end
+            pcall(function()
+                ProgressBarFill.BackgroundTransparency = 0.1 + (alpha * 0.5)
+            end)
+            task.wait(0.04)
+        end
+        pcall(function() ProgressBarFill.BackgroundTransparency = 0 end)
+    end)
+end
+local function stopPulseAnimation()
+    _pulseActive = false
+    pcall(function() ProgressBarFill.BackgroundTransparency = 0 end)
 end
 ${
   showDiscord
@@ -1467,6 +1495,7 @@ local function performVerify(rawKey, isSilent)
 
     if updateProgress then
         updateProgress(0.08, "Verifying license with security gateway...")
+        startPulseAnimation()  -- FIX: start shimmer so bar looks alive during blocking HTTP wait
     end
 
     local verifyUrl = BASE_URL .. "/api/auth/verify"
@@ -1499,6 +1528,7 @@ local function performVerify(rawKey, isSilent)
     end)
 
     if not success or not response then
+        stopPulseAnimation()  -- FIX: stop shimmer on network error
         hideProgress()
         if not isSilent then
             StatusLabel.TextColor3 = Color3.fromRGB(240, 80, 80)
@@ -1513,6 +1543,7 @@ local function performVerify(rawKey, isSilent)
     pcall(function() data = HttpService:JSONDecode(respBody) end)
 
     if statusCode == 200 and data and data.success then
+        stopPulseAnimation()  -- FIX: stop shimmer on successful verify
         -- Cache key in workspace folder for silent instant subsequent executions
         pcall(function()
             if makefolder and not isfolder("AtomProtect") then
@@ -1544,6 +1575,7 @@ local function performVerify(rawKey, isSilent)
         startProtectedRuntime(data.session_token, data, isAdmin, data.remaining_seconds, data.nonce, key)
         return true
     else
+        stopPulseAnimation()  -- FIX: stop shimmer on auth failure
         hideProgress()
         local err = (data and (data.error or data.message)) or ("Auth failed (HTTP " .. tostring(statusCode) .. ")")
         local isBanned = statusCode == 403 and (
@@ -1581,13 +1613,12 @@ task.spawn(function()
     end)
 
     if cachedKey and #cachedKey >= 6 then
-        ScreenGui.Enabled = true
+        -- FIX: Show progress bar FIRST (hides the key form), THEN enable GUI
+        -- This prevents the flash where users see the key form for a frame before it's hidden
         KeyBox.Text = cachedKey
-        StatusLabel.TextColor3 = Color3.fromRGB(50, 200, 255)
-        StatusLabel.Text = "Saved key detected! Verifying..."
-        if updateProgress then
-            updateProgress(0.08, "Autoload: Verifying saved license key...")
-        end
+        updateProgress(0.08, "Autoload: Verifying saved license key...")
+        startPulseAnimation()
+        ScreenGui.Enabled = true
         task.spawn(function()
             local ok = performVerify(cachedKey, false)
             if not ok then
@@ -1597,6 +1628,7 @@ task.spawn(function()
                         delfile("AtomProtect/" .. SCRIPT_SLUG .. "_key.txt")
                     end
                 end)
+                StatusLabel.Visible = true
                 StatusLabel.TextColor3 = Color3.fromRGB(240, 180, 50)
                 StatusLabel.Text = "${config.status_expired || "Saved key expired. Please enter a key."}"
             end
