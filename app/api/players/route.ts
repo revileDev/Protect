@@ -12,7 +12,7 @@ export async function GET() {
 
   const now = Date.now();
   const HEARTBEAT_TIMEOUT_MS = 15000;  // 15s no ping → mark as disconnected
-  const DISCONNECT_REMOVAL_GRACE_MS = 60000; // Keep disconnected card visible for 60s, then hide it
+  const DISCONNECT_REMOVAL_GRACE_MS = 5000; // Keep disconnected card visible for 5s, then auto-clear
 
   const enriched = [];
 
@@ -34,7 +34,7 @@ export async function GET() {
     const timeSinceDisconnect = isTimedOut ? pingElapsed - HEARTBEAT_TIMEOUT_MS : 0;
 
     // Kicked/banned sessions: always keep visible until admin removes them manually
-    const isPermanentStatus = s.status === "kicked" || s.status === "tampered" || s.status === "banned";
+    const isPermanentStatus = s.status === "kicked" || s.status === "tampered";
 
     // For plain disconnects: hide after grace period to keep the dashboard clean.
     // The session record stays in the DB — we just stop surfacing it.
@@ -42,7 +42,9 @@ export async function GET() {
       continue;
     }
 
-    const derivedStatus = isOnline
+    const derivedStatus = s.status === "loading" && isOnline
+      ? "loading"
+      : isOnline
       ? "active"
       : s.status === "kicked"
       ? "kicked"

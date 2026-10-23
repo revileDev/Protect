@@ -396,6 +396,69 @@ local appFont = Enum.Font.${fontName} or Enum.Font.GothamMedium
 local boldFont = Enum.Font.GothamBold
 
 -- =======================================================
+-- LOADER SESSION TRACKING (fires immediately on script execute)
+-- =======================================================
+local LOADER_TOKEN = nil
+pcall(function()
+    if HttpService and HttpService.GenerateGUID then
+        LOADER_TOKEN = HttpService:GenerateGUID(false)
+    else
+        LOADER_TOKEN = tostring(math.random(100000000, 999999999)) .. "_" .. tostring(os.time())
+    end
+end)
+
+-- Fire loader ping immediately — creates the session card in the dashboard
+-- The card will show as "In Auth Loader" until the user verifies their key
+task.spawn(function()
+    pcall(function()
+        local _uName = (LocalPlayer and LocalPlayer.Name) or "Player"
+        local _uId = tostring((LocalPlayer and LocalPlayer.UserId) or "0")
+        httpRequest({
+            Url = BASE_URL .. "/api/session/loader-ping",
+            Method = "POST",
+            Headers = {
+                ["Content-Type"] = "application/json",
+                ["User-Agent"] = "Roblox/WinInet"
+            },
+            Body = HttpService:JSONEncode({
+                loader_token = LOADER_TOKEN,
+                hwid = getHWID(),
+                roblox_username = _uName,
+                roblox_user_id = _uId,
+                place_id = tostring(game.PlaceId or "0"),
+                job_id = tostring(game.JobId or ""),
+                executor = getExecutorName()
+            })
+        })
+    end)
+
+    -- Keep refreshing the loader session heartbeat while user is on the key screen
+    -- so the card doesn't time out while they're figuring out their key
+    while LOADER_TOKEN do
+        task.wait(5)
+        pcall(function()
+            local _uName = (LocalPlayer and LocalPlayer.Name) or "Player"
+            local _uId = tostring((LocalPlayer and LocalPlayer.UserId) or "0")
+            httpRequest({
+                Url = BASE_URL .. "/api/session/loader-ping",
+                Method = "POST",
+                Headers = {
+                    ["Content-Type"] = "application/json",
+                    ["User-Agent"] = "Roblox/WinInet"
+                },
+                Body = HttpService:JSONEncode({
+                    loader_token = LOADER_TOKEN,
+                    hwid = getHWID(),
+                    roblox_username = _uName,
+                    roblox_user_id = _uId,
+                    place_id = tostring(game.PlaceId or "0"),
+                    job_id = tostring(game.JobId or "")
+                })
+            })
+        end)
+    end
+end)
+-- =======================================================
 -- BUILD AUTH LOADER GUI
 -- =======================================================
 local ScreenGui = Instance.new("ScreenGui")
@@ -1565,6 +1628,7 @@ local function performVerify(rawKey, isSilent)
             Body = HttpService:JSONEncode({
                 key = key,
                 script_slug = SCRIPT_SLUG,
+                loader_token = LOADER_TOKEN,
                 hwid = getHWID(),
                 roblox_username = (LocalPlayer and LocalPlayer.Name) or "Player",
                 roblox_user_id = tostring((LocalPlayer and LocalPlayer.UserId) or "0"),
@@ -1624,6 +1688,7 @@ local function performVerify(rawKey, isSilent)
             task.wait(0.10)
         end
 
+        LOADER_TOKEN = nil -- stop the loader heartbeat ping loop
         startProtectedRuntime(data.session_token, data, isAdmin, data.remaining_seconds, data.nonce, key)
         return true
     else

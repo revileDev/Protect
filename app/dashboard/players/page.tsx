@@ -80,7 +80,7 @@ interface SessionItem {
   place_id?: string | null;
   place_name?: string | null;
   job_id?: string | null;
-  status: "active" | "kicked" | "tampered" | "expired" | "disconnected";
+  status: "loading" | "active" | "kicked" | "tampered" | "expired" | "disconnected";
   tamper_flags: string[];
   session_started: string;
   last_heartbeat: string;
@@ -521,8 +521,9 @@ export default function PlayersPage() {
 
     // Timeout threshold is 15 seconds, matching server HEARTBEAT_TIMEOUT_MS
     const isTimedOut = pingElapsedMs >= 15000;
-    const isDisconnected = s.status === "kicked" || s.status === "disconnected" || (!s.is_online && isTimedOut);
-    const isOnline = !isDisconnected && (s.is_online ?? true) && s.status === "active";
+    const isLoading = s.status === "loading" && !isTimedOut;
+    const isDisconnected = s.status === "kicked" || s.status === "disconnected" || (!s.is_online && isTimedOut && s.status !== "loading");
+    const isOnline = !isDisconnected && (s.is_online ?? true) && (s.status === "active" || s.status === "loading");
 
     // Duration timer is FROZEN once disconnected
     const effectiveEndTime = isOnline ? adjustedNow : lastPingTime;
@@ -534,6 +535,7 @@ export default function PlayersPage() {
     return {
       ...s,
       is_online: isOnline,
+      is_loading: isLoading,
       duration_seconds: durationSeconds,
       ping_sec: Math.floor(pingElapsedMs / 1000),
       time_since_disconnect_sec: timeSinceDisconnectSec,
@@ -906,7 +908,9 @@ export default function PlayersPage() {
                 <div
                   key={s.id}
                   className={`bg-[#0f1118] border rounded-2xl p-4 flex flex-col justify-between transition-all duration-300 relative overflow-hidden shadow-xl ${
-                    s.is_online
+                    s.is_online && s.status === "loading"
+                      ? "border-yellow-500/40 hover:border-yellow-500/60 shadow-yellow-500/5"
+                      : s.is_online
                       ? s.is_farming
                         ? "border-amber-500/40 hover:border-amber-500/60 shadow-amber-500/5"
                         : "border-emerald-500/30 hover:border-emerald-500/50 shadow-emerald-500/5"
@@ -944,10 +948,15 @@ export default function PlayersPage() {
 
                     {/* Status Pill */}
                     <div className="shrink-0 flex items-center gap-1.5">
-                      {s.is_online ? (
+                      {s.is_online && s.status === "loading" ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-yellow-500/10 text-yellow-300 border border-yellow-500/30">
+                          <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse"></span>
+                          In Auth Loader
+                        </span>
+                      ) : s.is_online ? (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                          Online
+                          Active
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30">
@@ -970,12 +979,20 @@ export default function PlayersPage() {
                     </div>
                   </div>
 
+                  {/* In Auth Loader Notice Banner */}
+                  {s.is_online && s.status === "loading" && (
+                    <div className="mt-3 p-2 rounded-xl bg-yellow-500/10 border border-yellow-500/25 text-[11px] text-yellow-200 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse shrink-0"></span>
+                      User is on the key verification screen — not yet authenticated.
+                    </div>
+                  )}
+
                   {/* Disconnected Notice Banner on Card */}
                   {!s.is_online && (
                     <div className="mt-3 p-2 rounded-xl bg-rose-500/10 border border-rose-500/25 text-[11px] text-rose-300 flex items-center justify-between">
                       <span className="flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
-                        User stopped using script.
+                        Session ended.
                       </span>
                       <span className="text-[10px] text-gray-400 font-mono">
                         Clearing in {s.removal_countdown_sec}s

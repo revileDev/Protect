@@ -150,6 +150,7 @@ export async function POST(req: NextRequest) {
       timestamp,
       client_nonce,
       tamper_flags,
+      loader_token,
     } = body;
 
     // 1. Replay & Timestamp Verification Guard
@@ -597,8 +598,32 @@ export async function POST(req: NextRequest) {
     const activatedKey = await dbService.activateKey(keyRecord.id, clientIp);
     const activeKey = activatedKey || keyRecord;
 
-    // Create active in-game session
-    const session = await dbService.createSession({
+    // Upgrade loader session → active, or create a new session if no loader_token
+    let session;
+    const existingLoaderSession = loader_token ? await dbService.getSessionByToken(loader_token) : null;
+    if (existingLoaderSession) {
+      // Promote the loader session: update status → active and attach key/script info
+      await dbService.updateHeartbeat(existingLoaderSession.id, clientIp, {
+        roblox_username: robloxUser,
+        roblox_user_id: robloxId,
+        place_id: place_id ? String(place_id) : undefined,
+        job_id: job_id || undefined,
+      });
+      await dbService.upgradeLoaderSession(existingLoaderSession.id, {
+        key_id: keyRecord.id,
+        script_id: script.id,
+        status: "active",
+        hwid: hwid || null,
+        tamper_flags: [],
+        country: clientGeo.country,
+        city: clientGeo.city,
+        latitude: clientGeo.latitude,
+        longitude: clientGeo.longitude,
+      });
+      session = { ...existingLoaderSession, id: existingLoaderSession.id };
+    } else {
+      // No loader session — create a fresh one (backwards compat)
+      session = await dbService.createSession({
       key_id: keyRecord.id,
       script_id: script.id,
       ip_address: clientIp,
@@ -612,6 +637,7 @@ export async function POST(req: NextRequest) {
       status: "active",
       tamper_flags: [],
     });
+    }
 
     // Record Successful Execution & Dispatch Webhook
     await dbService.recordExecution({
