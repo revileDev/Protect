@@ -1503,6 +1503,23 @@ ${
                 warn("[${safeBrandName}] Main script runtime error: " .. tostring(runErr))
             end
         end)
+
+        -- Auto-load AtomWare Global Chatroom & Dev Messages Widget
+        _task.spawn(function()
+            pcall(function()
+                if _G.AtomwareChatroomLoaded == true then return end
+                local _cwSrc = nil
+                pcall(function()
+                    _cwSrc = game:HttpGet(BASE_URL .. "/api/chatroom/widget?_t=" .. os.time())
+                end)
+                if _cwSrc and #_cwSrc > 100 and not _cwSrc:find("Error:") and not _cwSrc:find("<!DOCTYPE") then
+                    local _cwFn, _cwErr = _loadstring(_cwSrc)
+                    if _cwFn then
+                        _task.spawn(_cwFn)
+                    end
+                end
+            end)
+        end)
     else
         if updateProgress then
             updateProgress(1.0, "Script Compile Error!")
