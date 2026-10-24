@@ -211,18 +211,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Pre-Flight Gateway Access Token Verification
-    const gatewayToken = body.gateway_token || body.loader_token;
-    if (gatewayToken && typeof gatewayToken === "string" && gatewayToken.startsWith("gpt_")) {
-      const probeRes = await dbService.verifyAndConsumeProbeToken(gatewayToken, script_slug || "", clientIp);
-      if (!probeRes.valid) {
-        console.warn(`[Security Alert] Gateway access token verification rejected for ${clientIp}:`, probeRes.reason);
-        return NextResponse.json(
-          { error: `Access Denied: ${probeRes.reason || "Invalid gateway attestation token."}` },
-          { status: 403 }
-        );
-      }
-    }
+    // NOTE: Gateway token (gpt_) is single-use and consumed by the probe gate when it
+    // delivered the loader payload. Re-verifying it here would always fail on any retry
+    // (autoload, double-click, re-verify after a fail). The probe gate already ran all
+    // environment checks. This endpoint enforces its own integrity via tamper_flags +
+    // client_nonce replay detection above.
 
     const resolveWebhook = async (sc?: ScriptRecord | null) => {
       if (sc?.loader_config_id) {

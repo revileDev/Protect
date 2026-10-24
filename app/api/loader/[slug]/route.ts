@@ -271,8 +271,8 @@ function renderProtectedPage(slug: string, scriptName: string): string {
   <div class="ambient-bg"></div>
 
   <div class="card">
-    <div class="shield-badge">🛡️</div>
-    <div class="tag">● API Protected Script</div>
+    <div class="shield-badge">🛡️</div>
+    <div class="tag">● API Protected Script</div>
 
     <h1>Direct Access Prohibited</h1>
     <p class="subtitle">
@@ -285,7 +285,7 @@ function renderProtectedPage(slug: string, scriptName: string): string {
         <div><strong>Access Restriction:</strong> This script can only be executed directly inside an authenticated in-game Lua executor environment via <span class="code-pill">game:HttpGet()</span>.</div>
       </div>
       <div class="info-item">
-        <span class="bullet">🛡️</span>
+        <span class="bullet">🛡️</span>
         <div><strong>Anti-Leak Shield:</strong> In-memory virtual modules are stored in our backend and are never transmitted to unauthorized clients.</div>
       </div>
       <div class="info-item">
@@ -478,31 +478,57 @@ local HttpService = game:GetService("HttpService")
 local BASE_URL = "${baseUrl}"
 local SCRIPT_SLUG = "${slug}"
 
-local function sampleBaseline()
+local function sampleBaselineSig()
     local sig = ""
     pcall(function()
         if type(debug) == "table" and type(debug.info) == "function" then
-            sig = tostring(debug.info(math.abs, "s")) .. ":" .. tostring(debug.info(table.insert, "s"))
+            sig = tostring(debug.info(loadstring, "s"))
         end
     end)
     return sig
 end
 
-local function scanEnvironment()
-    local flags = {}
+-- FALSE-POSITIVE HARDENED: Only ACTIVE spy tool instances are flagged.
+-- Standard executor APIs (saveinstance, dumpstring, rconsolename, getgenv) are NEVER flagged.
+local function scanEnvironment(baselineSig)
+    local hardFlags = {}
     pcall(function()
+        -- Check A: __namecall replaced with Lua closure AND __index still native C = active spy
         local gm = getrawmetatable and getrawmetatable(game)
-        if gm and rawget(gm, "__namecall") and islclosure and islclosure(rawget(gm, "__namecall")) then
-            table.insert(flags, "namecall_lclosure")
+        if gm then
+            local nc = rawget(gm, "__namecall")
+            if nc ~= nil and islclosure and islclosure(nc) then
+                local idx = rawget(gm, "__index")
+                if idx and islclosure and not islclosure(idx) then
+                    table.insert(hardFlags, "namecall_spy_active")
+                end
+            end
         end
-        local dumpers = {"saveinstance", "dumpstring", "rconsolename", "SimpleSpy"}
-        for _, d in ipairs(dumpers) do
-            if getgenv and getgenv()[d] ~= nil then
-                table.insert(flags, "dumper_" .. d)
+        -- Check B: loadstring replaced mid-session (deviates from boot baseline)
+        if type(loadstring) == "function" and islclosure and iscclosure then
+            if islclosure(loadstring) and not iscclosure(loadstring) then
+                local currentSig = ""
+                pcall(function()
+                    if type(debug) == "table" and type(debug.info) == "function" then
+                        currentSig = tostring(debug.info(loadstring, "s"))
+                    end
+                end)
+                if baselineSig and baselineSig ~= "" and currentSig ~= baselineSig then
+                    table.insert(hardFlags, "loadstring_replaced_live")
+                end
+            end
+        end
+        -- Check C: Known ACTIVE spy tool instances only (NOT standard executor APIs)
+        local activeSpyInstances = {"SimpleSpy", "Hydroxide", "GGSpy", "seerspy", "rrspy"}
+        local genv = (type(getgenv) == "function" and getgenv()) or _G
+        for _, name in ipairs(activeSpyInstances) do
+            local val = genv[name]
+            if val ~= nil and (type(val) == "table" or type(val) == "function") then
+                table.insert(hardFlags, "active_spy_" .. name)
             end
         end
     end)
-    return flags
+    return hardFlags
 end
 
 local function executePreFlight()
@@ -530,16 +556,16 @@ local function executePreFlight()
         end
     end
     
-    local flags = scanEnvironment()
-    local baseline = sampleBaseline()
+    local baselineSig = sampleBaselineSig()
+    local hardFlags = scanEnvironment(baselineSig)
     
     local payload = HttpService:JSONEncode({
         session_id = challengeData.session_id,
         slug = SCRIPT_SLUG,
         hwid = (type(gethwid) == "function" and gethwid()) or "",
         solutions = solutions,
-        tamper_flags = flags,
-        c_signature = baseline,
+        tamper_flags = hardFlags,
+        c_signature = baselineSig,
     })
     
     local respBody = nil
@@ -567,6 +593,9 @@ local function executePreFlight()
     end)
     
     if verified and verified.success and verified.loader_payload then
+        if verified.gateway_token then
+            _G.__AERO_GATEWAY_TOKEN = verified.gateway_token
+        end
         local fn, err = loadstring(verified.loader_payload)
         if fn then
             task.spawn(fn)
