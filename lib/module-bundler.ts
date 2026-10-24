@@ -52,9 +52,9 @@ export function bundleModularScript(bundle: ModuleBundle): string {
     if (filePath === entryFile || filePath === cleanEntry) continue;
 
     const cleanKey = filePath.replace(/\\/g, "/");
-    const keyWithoutExt = cleanKey.replace(/\.lua$/i, "");
+    const keyWithoutExt = cleanKey.replace(/\.(lua|txt)$/i, "");
     const baseName = cleanKey.split("/").pop() || cleanKey;
-    const baseNameWithoutExt = baseName.replace(/\.lua$/i, "");
+    const baseNameWithoutExt = baseName.replace(/\.(lua|txt)$/i, "");
 
     let modVar = contentToVarMap.get(content);
     if (!modVar) {
@@ -71,9 +71,24 @@ export function bundleModularScript(bundle: ModuleBundle): string {
     };
 
     registerKey(cleanKey);
-    if (keyWithoutExt !== cleanKey) registerKey(keyWithoutExt);
-    if (baseName !== cleanKey) registerKey(baseName);
-    if (baseNameWithoutExt !== keyWithoutExt && baseNameWithoutExt !== baseName) registerKey(baseNameWithoutExt);
+    registerKey(keyWithoutExt);
+    registerKey(keyWithoutExt + ".lua");
+    registerKey(keyWithoutExt + ".txt");
+    registerKey(baseName);
+    registerKey(baseNameWithoutExt);
+    registerKey(baseNameWithoutExt + ".lua");
+    registerKey(baseNameWithoutExt + ".txt");
+
+    // Handle features / fetaures typo alias
+    if (baseNameWithoutExt === "fetaures") {
+      registerKey("features");
+      registerKey("features.lua");
+      registerKey("features.txt");
+    } else if (baseNameWithoutExt === "features") {
+      registerKey("fetaures");
+      registerKey("fetaures.lua");
+      registerKey("fetaures.txt");
+    }
   }
 
   const streamingRequireLogic = dynamicStreaming && slug && sessionToken
@@ -85,7 +100,7 @@ export function bundleModularScript(bundle: ModuleBundle): string {
     local _http = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
     
     if _http then
-        local _cleanMod = normalized:gsub("%.lua$", "")
+        local _cleanMod = normalized:gsub("%.lua$", ""):gsub("%.txt$", "")
         local _targetUrl = _streamBase .. _cleanMod .. ".lua?session=" .. _sessionToken .. "&key=" .. _licenseKey
         local _res = _http({
             Url = _targetUrl,
@@ -94,6 +109,18 @@ export function bundleModularScript(bundle: ModuleBundle): string {
         })
         local _statusCode = (_res and (_res.StatusCode or _res.Status or _res.status_code or _res.status)) or 0
         local _bodyStr = (_res and (_res.Body or _res.body)) or ""
+        
+        -- If .lua fails, try .txt
+        if (_statusCode ~= 200 or _bodyStr:find("Error:")) and _cleanMod then
+            local _altUrl = _streamBase .. _cleanMod .. ".txt?session=" .. _sessionToken .. "&key=" .. _licenseKey
+            local _resAlt = _http({ Url = _altUrl, Method = "GET", Headers = { ["User-Agent"] = "Roblox/WinInet" } })
+            if _resAlt and (_resAlt.StatusCode == 200 or _resAlt.Status == 200) and _resAlt.Body and not _resAlt.Body:find("Error:") then
+                _res = _resAlt
+                _statusCode = 200
+                _bodyStr = _resAlt.Body
+            end
+        end
+
         if _statusCode == 200 and _bodyStr ~= "" and not _bodyStr:find("Error:") then
             local _fn, _err = loadstring(_bodyStr)
             _bodyStr = nil
@@ -101,6 +128,7 @@ export function bundleModularScript(bundle: ModuleBundle): string {
                 local _dynResult = _fn()
                 if _dynResult == nil then _dynResult = true end
                 __VFS_CACHE[normalized] = _dynResult
+                __VFS_CACHE[_cleanMod] = _dynResult
                 return _dynResult
             end
         end
@@ -123,15 +151,27 @@ local __VFS_CACHE = {}
 local original_require = require
 local function __vfs_require(moduleName)
     local normalized = tostring(moduleName):gsub(string.char(92), "/")
+    local cleanMod = normalized:gsub("%.lua$", ""):gsub("%.txt$", "")
+
     if __VFS_CACHE[normalized] then
         return __VFS_CACHE[normalized]
     end
+    if __VFS_CACHE[cleanMod] then
+        return __VFS_CACHE[cleanMod]
+    end
 
-    local loader = __VFS_MODULES[normalized] or __VFS_MODULES[normalized .. ".lua"]
+    local loader = __VFS_MODULES[normalized] 
+        or __VFS_MODULES[cleanMod] 
+        or __VFS_MODULES[cleanMod .. ".lua"] 
+        or __VFS_MODULES[cleanMod .. ".txt"]
+        or (cleanMod == "features" and (__VFS_MODULES["fetaures"] or __VFS_MODULES["fetaures.txt"] or __VFS_MODULES["fetaures.lua"]))
+        or (cleanMod == "fetaures" and (__VFS_MODULES["features"] or __VFS_MODULES["features.txt"] or __VFS_MODULES["features.lua"]))
+
     if loader then
         local result = loader()
         if result == nil then result = true end
         __VFS_CACHE[normalized] = result
+        __VFS_CACHE[cleanMod] = result
         return result
     end
 ${streamingRequireLogic}

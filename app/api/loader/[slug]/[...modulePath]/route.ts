@@ -105,31 +105,40 @@ export async function GET(
   }
 
   const requestedPath = (modulePath || []).join("/").replace(/\\/g, "/");
-  const cleanRequested = requestedPath.replace(/\.lua$/i, "");
+  const cleanRequested = requestedPath.replace(/\.(lua|txt)$/i, "");
   const requestedBase = requestedPath.split("/").pop() || requestedPath;
-  const requestedBaseNoExt = requestedBase.replace(/\.lua$/i, "");
+  const requestedBaseNoExt = requestedBase.replace(/\.(lua|txt)$/i, "");
 
   const modules = script.modules || {};
 
-  // 1. Direct match
+  // 1. Direct match with all extension variations
   let matchedContent =
     modules[requestedPath] ||
     modules[cleanRequested] ||
-    modules[requestedPath + ".lua"];
+    modules[cleanRequested + ".lua"] ||
+    modules[cleanRequested + ".txt"] ||
+    modules[requestedPath + ".lua"] ||
+    modules[requestedPath + ".txt"];
 
   // 2. Basename search across stored keys
   if (!matchedContent) {
     for (const [key, content] of Object.entries(modules)) {
       const normalizedKey = key.replace(/\\/g, "/");
       const base = normalizedKey.split("/").pop() || normalizedKey;
-      const baseNoExt = base.replace(/\.lua$/i, "");
+      const baseNoExt = base.replace(/\.(lua|txt)$/i, "");
 
       if (
         normalizedKey === requestedPath ||
         normalizedKey === cleanRequested ||
+        normalizedKey === cleanRequested + ".txt" ||
+        normalizedKey === cleanRequested + ".lua" ||
         base === requestedBase ||
         baseNoExt === requestedBaseNoExt ||
-        normalizedKey.endsWith("/" + requestedPath)
+        (requestedBaseNoExt === "features" && baseNoExt === "fetaures") ||
+        (requestedBaseNoExt === "fetaures" && baseNoExt === "features") ||
+        normalizedKey.endsWith("/" + requestedPath) ||
+        normalizedKey.endsWith("/" + cleanRequested + ".txt") ||
+        normalizedKey.endsWith("/" + cleanRequested + ".lua")
       ) {
         matchedContent = content;
         break;
