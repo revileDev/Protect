@@ -3617,7 +3617,11 @@ export const dbService = {
 
       cached.is_used = true;
       if (isSupabaseConfigured && supabase) {
-        supabase.from("auth_probe_tokens").update({ is_used: true }).eq("token", token).catch(() => {});
+        try {
+          await supabase.from("auth_probe_tokens").update({ is_used: true }).eq("token", token);
+        } catch {
+          // ignore
+        }
       }
       return { valid: true };
     }
