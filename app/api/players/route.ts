@@ -41,8 +41,8 @@ export async function GET() {
       continue;
     }
 
-    // Must be in active or loading state
-    if (s.status !== "active" && s.status !== "loading") {
+    // Strictly active authenticated sessions only (ignore loader pings)
+    if (s.status !== "active") {
       continue;
     }
 
@@ -57,7 +57,7 @@ export async function GET() {
 
     const isOnline = true;
     const durationSeconds = Math.max(0, Math.floor((now - startTime) / 1000));
-    const derivedStatus = s.status === "loading" ? "loading" : "active";
+    const derivedStatus = "active";
     const avatarUrl = s.avatar_url || (s.roblox_user_id ? `/api/roblox/avatar?userId=${s.roblox_user_id}` : null);
 
     enriched.push({

@@ -1269,7 +1269,7 @@ export const dbService = {
         if (options?.activeOnly) {
           const maxAge = options.maxAgeMs || 30000;
           const cutoffIso = new Date(Date.now() - maxAge).toISOString();
-          query = query.in("status", ["active", "loading"]).gte("last_heartbeat", cutoffIso);
+          query = query.eq("status", "active").gte("last_heartbeat", cutoffIso);
         }
         const { data, error } = await query
           .order("session_started", { ascending: false })
@@ -1288,7 +1288,7 @@ export const dbService = {
         if (options?.activeOnly) {
           const maxAge = options.maxAgeMs || 30000;
           const pingTime = new Date(s.last_heartbeat).getTime();
-          if ((s.status === "active" || s.status === "loading") && Date.now() - pingTime <= maxAge) {
+          if (s.status === "active" && Date.now() - pingTime <= maxAge) {
             sessionMap.set(s.id, s);
           }
         } else {

@@ -523,8 +523,8 @@ export default function PlayersPage() {
 
       // Timeout threshold is 15 seconds, matching server HEARTBEAT_TIMEOUT_MS
       const isTimedOut = pingElapsedMs >= 15000;
-      const isLoading = s.status === "loading" && !isTimedOut;
-      const isOnline = (s.status === "active" || s.status === "loading") && !isTimedOut && (s.is_online !== false);
+      const isLoading = false;
+      const isOnline = s.status === "active" && !isTimedOut && (s.is_online !== false);
 
       const effectiveEndTime = isOnline ? adjustedNow : lastPingTime;
       const durationSeconds = Math.max(0, Math.floor((effectiveEndTime - startTime) / 1000));
@@ -906,13 +906,9 @@ export default function PlayersPage() {
                 <div
                   key={s.id}
                   className={`bg-[#0f1118] border rounded-2xl p-4 flex flex-col justify-between transition-all duration-300 relative overflow-hidden shadow-xl ${
-                    s.is_online && s.status === "loading"
-                      ? "border-yellow-500/40 hover:border-yellow-500/60 shadow-yellow-500/5"
-                      : s.is_online
-                      ? s.is_farming
-                        ? "border-amber-500/40 hover:border-amber-500/60 shadow-amber-500/5"
-                        : "border-emerald-500/30 hover:border-emerald-500/50 shadow-emerald-500/5"
-                      : "border-rose-500/40 bg-rose-950/10 opacity-80"
+                    s.is_farming
+                      ? "border-amber-500/40 hover:border-amber-500/60 shadow-amber-500/5"
+                      : "border-emerald-500/30 hover:border-emerald-500/50 shadow-emerald-500/5"
                   }`}
                 >
                   {/* Card Header: Avatar, Name, Status */}
@@ -946,44 +942,12 @@ export default function PlayersPage() {
 
                     {/* Status Pill */}
                     <div className="shrink-0 flex items-center gap-1.5">
-                      {s.is_online && s.status === "loading" ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-yellow-500/10 text-yellow-300 border border-yellow-500/30">
-                          <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse"></span>
-                          In Auth Loader
-                        </span>
-                      ) : s.is_online ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                          Active
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30">
-                          <WifiOff className="w-3 h-3" />
-                          Disconnected
-                        </span>
-                      )}
-
-                      {/* Manual Dismiss button */}
-                      {!s.is_online && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveCard(s.id)}
-                          className="p-1 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
-                          title="Remove card now"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                        Active
+                      </span>
                     </div>
                   </div>
-
-                  {/* In Auth Loader Notice Banner */}
-                  {s.is_online && s.status === "loading" && (
-                    <div className="mt-3 p-2 rounded-xl bg-yellow-500/10 border border-yellow-500/25 text-[11px] text-yellow-200 flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse shrink-0"></span>
-                      User is on the key verification screen — not yet authenticated.
-                    </div>
-                  )}
 
                   {/* Disconnected Notice Banner on Card */}
                   {!s.is_online && (
@@ -1160,17 +1124,10 @@ export default function PlayersPage() {
                         }`}
                       >
                         <td className="p-3.5">
-                          {s.status === "loading" ? (
-                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-yellow-500/10 text-yellow-300 border border-yellow-500/20">
-                              <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse"></span>
-                              In Loader
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                              Online
-                            </span>
-                          )}
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                            Active
+                          </span>
                         </td>
                         <td className="p-3.5 font-medium text-white">
                           <div className="flex items-center gap-2.5">
