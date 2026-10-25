@@ -204,7 +204,7 @@ export default function ChatroomScreen() {
             </div>
 
             {/* Conversation Messages */}
-            <div className="space-y-2 max-h-[50vh] overflow-y-auto p-1">
+            <div className="space-y-2 max-h-[55vh] overflow-y-auto p-1 overscroll-contain touch-pan-y scroll-container">
               {(userThreads.find((t) => t.userId === selectedUser)?.msgs || []).map((m) => (
                 <div
                   key={m.id}
@@ -303,7 +303,7 @@ export default function ChatroomScreen() {
           </form>
 
           {/* Messages Feed */}
-          <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+          <div className="space-y-2 max-h-[55vh] overflow-y-auto overscroll-contain touch-pan-y scroll-container">
             {messages.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-zinc-800 p-8 text-center text-zinc-500">
                 <MessageSquare className="w-8 h-8 mx-auto text-zinc-600 mb-2" />

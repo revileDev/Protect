@@ -42,7 +42,7 @@ export default function ServerConfigModal({ isOpen, onClose, onSaved }: ServerCo
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-      <div className="w-full max-w-sm rounded-2xl bg-[#0e1118] border border-zinc-800 p-5 shadow-2xl text-zinc-100 animate-in fade-in zoom-in-95 duration-150">
+      <div className="w-full max-w-sm rounded-2xl bg-[#0e1118] border border-zinc-800 p-5 shadow-2xl text-zinc-100 animate-in fade-in zoom-in-95 duration-150 max-h-[85vh] overflow-y-auto scroll-container">
         <div className="flex items-center justify-between pb-3 border-b border-zinc-800/80">
           <div className="flex items-center gap-2">
             <Globe className="w-4 h-4 text-cyan-400" />
@@ -85,17 +85,17 @@ export default function ServerConfigModal({ isOpen, onClose, onSaved }: ServerCo
             <div className="flex flex-wrap gap-1.5">
               <button
                 type="button"
-                onClick={() => handlePreset("http://10.0.2.2:3000")}
-                className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-300 hover:text-white hover:border-cyan-500/50"
+                onClick={() => handlePreset("http://192.168.4.113:3000")}
+                className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-cyan-800/60 text-[10px] font-mono text-cyan-300 hover:text-white hover:border-cyan-500"
               >
-                Emulator (10.0.2.2:3000)
+                PC Wi-Fi (192.168.4.113)
               </button>
               <button
                 type="button"
-                onClick={() => handlePreset("http://localhost:3000")}
+                onClick={() => handlePreset("http://10.0.2.2:3000")}
                 className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-300 hover:text-white hover:border-cyan-500/50"
               >
-                Localhost (3000)
+                Emulator (10.0.2.2)
               </button>
             </div>
           </div>

@@ -275,7 +275,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    if (action === "broadcast_announcement") {
+    if (action === "broadcast_announcement" || action === "broadcast") {
       if (!title || !message) return NextResponse.json({ error: "Missing title or message" }, { status: 400 });
       const record = await dbService.broadcastAnnouncement({
         script_id: script_id || "all",

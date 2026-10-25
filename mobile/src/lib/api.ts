@@ -148,8 +148,9 @@ export class ApiService {
   }
 
   public static async sendPlayerAction(payload: {
-    action: "kick" | "message" | "execute_code" | "teleport" | "ban_ip" | "broadcast" | "delete_announcement";
+    action: "kick" | "message" | "execute_code" | "teleport" | "ban_ip" | "broadcast" | "broadcast_announcement" | "delete_announcement" | "kick_farm" | "remove_card";
     session_id?: string;
+    session_ids?: string[];
     ip_address?: string;
     reason?: string;
     message?: string;

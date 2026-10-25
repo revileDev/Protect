@@ -47,6 +47,61 @@ interface SessionItem {
   farm_type?: "ip" | "hwid";
 }
 
+function PlayerAvatar({ player }: { player: SessionItem }) {
+  const [imgError, setImgError] = useState(false);
+  const serverUrl = ApiService.getServerUrl();
+
+  const avatarUrl = React.useMemo(() => {
+    // 1. If explicit avatar_url is provided
+    if (player.avatar_url) {
+      if (player.avatar_url.startsWith("http://") || player.avatar_url.startsWith("https://")) {
+        return player.avatar_url;
+      }
+      return `${serverUrl}${player.avatar_url.startsWith("/") ? "" : "/"}${player.avatar_url}`;
+    }
+    // 2. If roblox_user_id exists and is valid
+    if (player.roblox_user_id && player.roblox_user_id !== "0" && /^\d+$/.test(player.roblox_user_id)) {
+      return `${serverUrl}/api/roblox/avatar?userId=${player.roblox_user_id}`;
+    }
+    // 3. Fallback to username lookup if available
+    if (
+      player.roblox_username &&
+      player.roblox_username !== "Unknown" &&
+      player.roblox_username !== "Player" &&
+      player.roblox_username !== "Anonymous"
+    ) {
+      return `${serverUrl}/api/roblox/avatar?username=${encodeURIComponent(player.roblox_username)}`;
+    }
+    return null;
+  }, [player.avatar_url, player.roblox_user_id, player.roblox_username, serverUrl]);
+
+  const initials = (player.roblox_username || "PL")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .slice(0, 2)
+    .toUpperCase() || "PL";
+
+  if (avatarUrl && !imgError) {
+    return (
+      <div className="w-11 h-11 rounded-xl bg-zinc-900 border border-zinc-800 overflow-hidden relative shrink-0 flex items-center justify-center shadow-inner">
+        <img
+          src={avatarUrl}
+          alt={player.roblox_username || "Roblox Avatar"}
+          className="w-full h-full object-cover"
+          referrerPolicy="no-referrer"
+          onError={() => setImgError(true)}
+          loading="lazy"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-cyan-950/80 via-blue-950/60 to-purple-950/80 border border-cyan-500/30 flex items-center justify-center font-mono font-bold text-xs text-cyan-300 shrink-0 shadow-inner">
+      {initials}
+    </div>
+  );
+}
+
 export default function PlayersScreen() {
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [farmingClusters, setFarmingClusters] = useState<any[]>([]);
@@ -211,13 +266,33 @@ export default function PlayersScreen() {
           </div>
           <div className="text-[11px] text-zinc-300">
             {farmingClusters.map((fc, i) => (
-              <div key={i} className="flex items-center justify-between py-1 border-t border-amber-900/40 first:border-0">
-                <span className="font-mono text-amber-300">
-                  {fc.type.toUpperCase()}: {fc.identifier.slice(0, 16)}... ({fc.count} accounts)
+              <div key={i} className="flex items-center justify-between py-1.5 border-t border-amber-900/40 first:border-0 gap-2">
+                <span className="font-mono text-amber-300 text-[11px] shrink-0">
+                  {fc.type.toUpperCase()}: {fc.identifier.slice(0, 14)}... ({fc.count} accs)
                 </span>
-                <span className="text-[10px] text-zinc-400">
-                  {fc.accounts?.map((a: any) => a.username).join(", ")}
-                </span>
+                <div className="flex items-center gap-2 overflow-hidden">
+                  <span className="text-[10px] text-zinc-400 truncate max-w-[140px]">
+                    {fc.accounts?.map((a: any) => a.username).join(", ")}
+                  </span>
+                  <button
+                    onClick={async () => {
+                      if (!confirm(`Kick all ${fc.count} accounts in this farm cluster?`)) return;
+                      try {
+                        await ApiService.sendPlayerAction({
+                          action: "kick_farm",
+                          session_ids: fc.session_ids,
+                          ip_address: fc.type === "ip" ? fc.identifier : undefined,
+                        });
+                        fetchPlayers();
+                      } catch (err: any) {
+                        alert(err.message || "Failed to kick cluster");
+                      }
+                    }}
+                    className="px-2 py-0.5 rounded bg-rose-950 border border-rose-700/60 text-[10px] font-mono text-rose-300 shrink-0 active:scale-95 transition-all"
+                  >
+                    Kick All
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -251,10 +326,6 @@ export default function PlayersScreen() {
       ) : (
         <div className="space-y-2.5">
           {filteredSessions.map((player) => {
-            const avatarSrc =
-              player.avatar_url ||
-              (player.roblox_user_id ? `${ApiService.getServerUrl()}/api/roblox/avatar?userId=${player.roblox_user_id}` : null);
-
             return (
               <div
                 key={player.id}
@@ -263,20 +334,7 @@ export default function PlayersScreen() {
                 {/* Status Dot */}
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-xl bg-zinc-900 border border-zinc-800 overflow-hidden relative shrink-0 flex items-center justify-center">
-                      {avatarSrc ? (
-                        <img
-                          src={avatarSrc}
-                          alt={player.roblox_username || "Player"}
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            (e.target as HTMLElement).style.display = "none";
-                          }}
-                        />
-                      ) : (
-                        <Users className="w-5 h-5 text-zinc-600" />
-                      )}
-                    </div>
+                    <PlayerAvatar player={player} />
                     <div>
                       <div className="flex items-center gap-1.5">
                         <span className="font-bold text-xs text-white">
@@ -392,7 +450,7 @@ export default function PlayersScreen() {
       {/* Action Drawer Modal */}
       {selectedSession && actionType && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-t-3xl sm:rounded-2xl bg-[#0e1118] border border-zinc-800 p-5 space-y-4 shadow-2xl text-zinc-100 animate-in slide-in-from-bottom duration-200 safe-bottom">
+          <div className="w-full max-w-sm rounded-t-3xl sm:rounded-2xl bg-[#0e1118] border border-zinc-800 p-5 space-y-4 shadow-2xl text-zinc-100 animate-in slide-in-from-bottom duration-200 safe-bottom max-h-[85vh] overflow-y-auto scroll-container">
             <div className="flex items-center justify-between pb-2 border-b border-zinc-800">
               <div>
                 <h3 className="font-bold text-sm text-white uppercase font-mono">
@@ -542,7 +600,7 @@ export default function PlayersScreen() {
       {/* Global Broadcast Modal */}
       {showBroadcastModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-2xl bg-[#0e1118] border border-zinc-800 p-5 space-y-4 shadow-2xl text-zinc-100 safe-bottom">
+          <div className="w-full max-w-sm rounded-2xl bg-[#0e1118] border border-zinc-800 p-5 space-y-4 shadow-2xl text-zinc-100 safe-bottom max-h-[85vh] overflow-y-auto scroll-container">
             <div className="flex items-center justify-between pb-2 border-b border-zinc-800">
               <div className="flex items-center gap-2">
                 <Megaphone className="w-4 h-4 text-cyan-400" />

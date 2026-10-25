@@ -59,14 +59,14 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#07080c] text-zinc-100 flex flex-col font-sans">
+    <div className="h-full w-full bg-[#07080c] text-zinc-100 flex flex-col overflow-hidden font-sans">
       <TopHeader
         onRefresh={() => setRefreshKey((k) => k + 1)}
         onLogout={handleLogout}
         onOpenServerConfig={() => setServerModalOpen(true)}
       />
 
-      <main className="flex-1 overflow-y-auto" key={refreshKey}>
+      <main className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain pb-24 scroll-container" key={refreshKey}>
         {currentTab === "players" && <PlayersScreen />}
         {currentTab === "scripts" && <ScriptsScreen />}
         {currentTab === "keys" && <KeysScreen />}

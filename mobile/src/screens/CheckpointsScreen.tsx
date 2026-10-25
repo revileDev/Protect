@@ -285,7 +285,7 @@ export default function CheckpointsScreen() {
       {/* Add Step Modal */}
       {showAddStep && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-2xl bg-[#0e1118] border border-zinc-800 p-5 space-y-4 shadow-2xl text-zinc-100 safe-bottom">
+          <div className="w-full max-w-sm rounded-2xl bg-[#0e1118] border border-zinc-800 p-5 space-y-4 shadow-2xl text-zinc-100 safe-bottom max-h-[85vh] overflow-y-auto scroll-container">
             <h3 className="font-bold text-sm text-white">Add Checkpoint Monetization Step</h3>
             <form onSubmit={handleAddStep} className="space-y-3">
               <div>

@@ -300,7 +300,7 @@ export default function KeysScreen() {
       {/* Generator Modal */}
       {showGenModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-2xl bg-[#0e1118] border border-zinc-800 p-5 space-y-4 shadow-2xl text-zinc-100 safe-bottom">
+          <div className="w-full max-w-sm rounded-2xl bg-[#0e1118] border border-zinc-800 p-5 space-y-4 shadow-2xl text-zinc-100 safe-bottom max-h-[85vh] overflow-y-auto scroll-container">
             <div className="flex items-center justify-between pb-2 border-b border-zinc-800">
               <h3 className="font-bold text-sm text-white flex items-center gap-2">
                 <Key className="w-4 h-4 text-amber-400" />
