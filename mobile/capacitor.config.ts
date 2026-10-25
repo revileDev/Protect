@@ -1,6 +1,5 @@
-import type { CapacitorConfig } from "@capacitor/cli";
-
-const config: CapacitorConfig = {
+// capacitor.config.ts
+const config = {
   appId: "com.atomprotect.admin",
   appName: "AtomProtect",
   webDir: "dist",
