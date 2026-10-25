@@ -1,27 +1,93 @@
 -- ============================================================================
--- Complete & Unified Supabase Database Schema & Migration
--- Works on fresh databases AND migrates existing databases safely.
--- Run this in your Supabase SQL Editor: https://supabase.com/dashboard/project/_/sql
+-- ATOMPROTECT / AERO AUTH: UNIFIED MOBILE & WEB BACKEND DATABASE SCHEMA
+-- ============================================================================
+-- Complete, production-grade PostgreSQL migration for Supabase.
+-- Compatible with fresh setups AND seamlessly migrates existing tables.
+-- Run directly in the Supabase SQL Editor: https://supabase.com/dashboard/project/_/sql
 -- ============================================================================
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- ----------------------------------------------------------------------------
--- 1. Loader UI Configurations
--- ----------------------------------------------------------------------------
+-- ============================================================================
+-- 1. Automatic Timestamp Update Trigger Function
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.handle_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = timezone('utc'::text, now());
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ============================================================================
+-- 2. Mobile App Devices & Push Notification Tokens (FCM)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.mobile_devices (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    admin_id TEXT NOT NULL DEFAULT 'admin',
+    device_token TEXT UNIQUE NOT NULL,
+    device_name TEXT,
+    platform TEXT NOT NULL DEFAULT 'android' CHECK (platform IN ('android', 'ios', 'web')),
+    fcm_push_token TEXT,
+    notifications_enabled BOOLEAN NOT NULL DEFAULT true,
+    notify_on_bypass BOOLEAN NOT NULL DEFAULT true,
+    notify_on_alt_farm BOOLEAN NOT NULL DEFAULT true,
+    notify_on_new_dm BOOLEAN NOT NULL DEFAULT true,
+    notify_on_error BOOLEAN NOT NULL DEFAULT false,
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+CREATE INDEX IF NOT EXISTS idx_mobile_devices_token ON public.mobile_devices(device_token);
+CREATE INDEX IF NOT EXISTS idx_mobile_devices_fcm ON public.mobile_devices(fcm_push_token);
+
+-- ============================================================================
+-- 3. Mobile Admin Sessions & Authentication Audits
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.admin_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    token_hash TEXT UNIQUE NOT NULL,
+    admin_username TEXT NOT NULL,
+    device_info TEXT,
+    ip_address TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    last_active_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_token ON public.admin_sessions(token_hash);
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_active ON public.admin_sessions(is_active, expires_at DESC);
+
+-- ============================================================================
+-- 4. Mobile & Dashboard In-App Notifications Feed
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.admin_notifications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    type TEXT NOT NULL CHECK (type IN ('tamper_alert', 'bypass_lockout', 'alt_farm_detected', 'new_dm', 'client_error', 'system_event')),
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    read BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+CREATE INDEX IF NOT EXISTS idx_admin_notifications_read ON public.admin_notifications(read, created_at DESC);
+
+-- ============================================================================
+-- 5. In-Game Auth Loader UI Configurations
+-- ============================================================================
 CREATE TABLE IF NOT EXISTS public.loader_configs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
-    brand_name TEXT NOT NULL DEFAULT 'AERO AUTH',
+    brand_name TEXT NOT NULL DEFAULT 'ATOMPROTECT',
     title TEXT NOT NULL DEFAULT 'Script Authentication',
     accent_color TEXT NOT NULL DEFAULT '#00a2ff',
-    background_color TEXT NOT NULL DEFAULT '#1e1e24',
-    card_color TEXT NOT NULL DEFAULT '#25252b',
+    background_color TEXT NOT NULL DEFAULT '#16161e',
+    card_color TEXT NOT NULL DEFAULT '#21222e',
     text_color TEXT NOT NULL DEFAULT '#ffffff',
-    subtext_color TEXT NOT NULL DEFAULT '#8e8e9f',
-    corner_radius INTEGER NOT NULL DEFAULT 8,
+    subtext_color TEXT NOT NULL DEFAULT '#9ca3af',
+    corner_radius INTEGER NOT NULL DEFAULT 10,
     frame_width INTEGER NOT NULL DEFAULT 360,
-    frame_height INTEGER NOT NULL DEFAULT 240,
+    frame_height INTEGER NOT NULL DEFAULT 250,
     font_face TEXT NOT NULL DEFAULT 'GothamMedium',
     show_brand_icon BOOLEAN NOT NULL DEFAULT true,
     custom_subtitle TEXT NOT NULL DEFAULT 'Enter your license key below',
@@ -30,9 +96,13 @@ CREATE TABLE IF NOT EXISTS public.loader_configs (
     claim_button_text TEXT DEFAULT 'CLAIM YOUR KEY (COPY LINK)',
     show_discord_button BOOLEAN DEFAULT false,
     discord_button_text TEXT DEFAULT 'JOIN DISCORD',
-    discord_invite_url TEXT DEFAULT 'https://discord.gg/',
+    discord_invite_url TEXT DEFAULT 'https://discord.gg/kGtqH3k2wN',
     show_watermark BOOLEAN DEFAULT true,
-    watermark_text TEXT DEFAULT 'AERO PROTECT',
+    watermark_text TEXT DEFAULT 'ATOMPROTECT',
+    status_verifying TEXT DEFAULT 'Checking license key...',
+    status_verified TEXT DEFAULT 'Access Granted! Loading script...',
+    status_expired TEXT DEFAULT 'License key expired or invalid.',
+    status_error TEXT DEFAULT 'Verification failed. Check network or key.',
     logo_url TEXT DEFAULT '',
     show_logo BOOLEAN DEFAULT false,
     layout_positions JSONB DEFAULT '{}'::jsonb,
@@ -42,23 +112,15 @@ CREATE TABLE IF NOT EXISTS public.loader_configs (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
--- Migration for existing loader_configs
-ALTER TABLE public.loader_configs 
-    ADD COLUMN IF NOT EXISTS layout_positions JSONB DEFAULT '{}'::jsonb,
-    ADD COLUMN IF NOT EXISTS key_placeholder TEXT DEFAULT 'Paste your license key here...',
-    ADD COLUMN IF NOT EXISTS verify_button_text TEXT DEFAULT 'VERIFY KEY',
-    ADD COLUMN IF NOT EXISTS claim_button_text TEXT DEFAULT 'CLAIM YOUR KEY (COPY LINK)',
-    ADD COLUMN IF NOT EXISTS show_discord_button BOOLEAN DEFAULT false,
-    ADD COLUMN IF NOT EXISTS discord_button_text TEXT DEFAULT 'JOIN DISCORD',
-    ADD COLUMN IF NOT EXISTS discord_invite_url TEXT DEFAULT 'https://discord.gg/',
-    ADD COLUMN IF NOT EXISTS show_watermark BOOLEAN DEFAULT true,
-    ADD COLUMN IF NOT EXISTS watermark_text TEXT DEFAULT 'AERO PROTECT',
-    ADD COLUMN IF NOT EXISTS logo_url TEXT DEFAULT '',
-    ADD COLUMN IF NOT EXISTS show_logo BOOLEAN DEFAULT false;
+-- Trigger for loader_configs
+DROP TRIGGER IF EXISTS trg_loader_configs_updated_at ON public.loader_configs;
+CREATE TRIGGER trg_loader_configs_updated_at
+BEFORE UPDATE ON public.loader_configs
+FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
 
--- ----------------------------------------------------------------------------
--- 2. Modular Scripts Vault
--- ----------------------------------------------------------------------------
+-- ============================================================================
+-- 6. Modular Luau Scripts Vault & Maintenance Kill-Switch
+-- ============================================================================
 CREATE TABLE IF NOT EXISTS public.scripts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
@@ -66,32 +128,35 @@ CREATE TABLE IF NOT EXISTS public.scripts (
     entry_file TEXT NOT NULL DEFAULT 'main.lua',
     modules JSONB NOT NULL DEFAULT '{}'::jsonb,
     loader_config_id UUID REFERENCES public.loader_configs(id) ON DELETE SET NULL,
-    watermark_text TEXT NOT NULL DEFAULT 'AERO PROTECT',
+    watermark_text TEXT NOT NULL DEFAULT 'ATOMPROTECT',
     show_watermark BOOLEAN NOT NULL DEFAULT true,
     is_active BOOLEAN NOT NULL DEFAULT true,
     use_auth BOOLEAN NOT NULL DEFAULT true,
     is_maintenance BOOLEAN NOT NULL DEFAULT false,
     maintenance_message TEXT DEFAULT NULL,
     lua_code TEXT DEFAULT '',
+    github_repo TEXT DEFAULT NULL,
+    github_branch TEXT DEFAULT 'main',
+    github_directory TEXT DEFAULT NULL,
+    github_token TEXT DEFAULT NULL,
+    github_auto_pull BOOLEAN NOT NULL DEFAULT false,
+    github_last_commit TEXT DEFAULT NULL,
+    github_last_pulled_at TIMESTAMPTZ DEFAULT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
+CREATE INDEX IF NOT EXISTS idx_scripts_slug ON public.scripts(slug);
+CREATE INDEX IF NOT EXISTS idx_scripts_active ON public.scripts(is_active);
 
--- Migration for existing scripts
-ALTER TABLE public.scripts
-    ADD COLUMN IF NOT EXISTS entry_file TEXT DEFAULT 'main.lua',
-    ADD COLUMN IF NOT EXISTS modules JSONB DEFAULT '{}'::jsonb,
-    ADD COLUMN IF NOT EXISTS watermark_text TEXT DEFAULT 'AERO PROTECT',
-    ADD COLUMN IF NOT EXISTS show_watermark BOOLEAN DEFAULT true,
-    ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true,
-    ADD COLUMN IF NOT EXISTS use_auth BOOLEAN DEFAULT true,
-    ADD COLUMN IF NOT EXISTS is_maintenance BOOLEAN DEFAULT false,
-    ADD COLUMN IF NOT EXISTS maintenance_message TEXT DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS lua_code TEXT DEFAULT '';
+-- Trigger for scripts
+DROP TRIGGER IF EXISTS trg_scripts_updated_at ON public.scripts;
+CREATE TRIGGER trg_scripts_updated_at
+BEFORE UPDATE ON public.scripts
+FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
 
--- ----------------------------------------------------------------------------
--- 3. License Keys Pool
--- ----------------------------------------------------------------------------
+-- ============================================================================
+-- 7. License Keys Pool (Staff Keys, HWID/IP Locks, Durations)
+-- ============================================================================
 CREATE TABLE IF NOT EXISTS public.keys (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     key_string TEXT UNIQUE NOT NULL,
@@ -104,24 +169,19 @@ CREATE TABLE IF NOT EXISTS public.keys (
     claimed_at TIMESTAMPTZ DEFAULT NULL,
     activated_at TIMESTAMPTZ DEFAULT NULL,
     expires_at TIMESTAMPTZ DEFAULT NULL,
-    is_staff_review BOOLEAN DEFAULT FALSE,
+    is_staff_review BOOLEAN NOT NULL DEFAULT false,
     notes TEXT DEFAULT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
+CREATE INDEX IF NOT EXISTS idx_keys_string ON public.keys(key_string);
+CREATE INDEX IF NOT EXISTS idx_keys_status ON public.keys(status);
+CREATE INDEX IF NOT EXISTS idx_keys_claimed_ip ON public.keys(claimed_ip);
+CREATE INDEX IF NOT EXISTS idx_keys_script_id ON public.keys(script_id);
+CREATE INDEX IF NOT EXISTS idx_keys_expires_at ON public.keys(expires_at);
 
--- Migration for existing keys
-ALTER TABLE public.keys
-    ADD COLUMN IF NOT EXISTS activated_at TIMESTAMPTZ DEFAULT NULL;
-
-ALTER TABLE public.keys
-    ADD COLUMN IF NOT EXISTS is_staff_review BOOLEAN DEFAULT FALSE;
-
-ALTER TABLE public.keys
-    ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT NULL;
-
--- ----------------------------------------------------------------------------
--- 4. In-Game Sessions & Telemetry
--- ----------------------------------------------------------------------------
+-- ============================================================================
+-- 8. Live In-Game Sessions & Telemetry
+-- ============================================================================
 CREATE TABLE IF NOT EXISTS public.sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     key_id TEXT DEFAULT NULL,
@@ -130,45 +190,57 @@ CREATE TABLE IF NOT EXISTS public.sessions (
     hwid TEXT DEFAULT NULL,
     roblox_username TEXT DEFAULT NULL,
     roblox_user_id TEXT DEFAULT NULL,
+    avatar_url TEXT DEFAULT NULL,
     place_id TEXT DEFAULT NULL,
     place_name TEXT DEFAULT NULL,
     job_id TEXT DEFAULT NULL,
-    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'kicked', 'tampered', 'expired', 'disconnected')),
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('loading', 'active', 'kicked', 'tampered', 'expired', 'disconnected')),
+    loader_token TEXT DEFAULT NULL,
+    executor TEXT DEFAULT NULL,
     tamper_flags JSONB NOT NULL DEFAULT '[]'::jsonb,
     pending_commands JSONB NOT NULL DEFAULT '[]'::jsonb,
+    country TEXT DEFAULT NULL,
+    city TEXT DEFAULT NULL,
+    latitude DOUBLE PRECISION DEFAULT NULL,
+    longitude DOUBLE PRECISION DEFAULT NULL,
     session_started TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     last_heartbeat TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
+CREATE INDEX IF NOT EXISTS idx_sessions_status_heartbeat ON public.sessions(status, last_heartbeat DESC);
+CREATE INDEX IF NOT EXISTS idx_sessions_ip ON public.sessions(ip_address);
+CREATE INDEX IF NOT EXISTS idx_sessions_hwid ON public.sessions(hwid);
+CREATE INDEX IF NOT EXISTS idx_sessions_username ON public.sessions(roblox_username);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON public.sessions(roblox_user_id);
 
--- Migration for existing sessions
-ALTER TABLE public.sessions
-    ADD COLUMN IF NOT EXISTS place_id TEXT DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS place_name TEXT DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS job_id TEXT DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT NULL;
+-- ============================================================================
+-- 9. Remote Commands Queue & Historical Audit Log (Kick, Message, Code, Teleport)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.session_commands (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id UUID REFERENCES public.sessions(id) ON DELETE CASCADE,
+    command_type TEXT NOT NULL CHECK (command_type IN ('kick', 'message', 'announcement', 'execute_code', 'teleport')),
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'delivered', 'executed', 'failed')),
+    created_by TEXT NOT NULL DEFAULT 'admin',
+    executed_at TIMESTAMPTZ DEFAULT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+CREATE INDEX IF NOT EXISTS idx_session_commands_session ON public.session_commands(session_id, status);
 
--- High-performance indexes for live active player lookups
-CREATE INDEX IF NOT EXISTS idx_sessions_status_heartbeat 
-    ON public.sessions (status, last_heartbeat DESC);
-CREATE INDEX IF NOT EXISTS idx_sessions_username 
-    ON public.sessions (roblox_username);
-CREATE INDEX IF NOT EXISTS idx_sessions_user_id 
-    ON public.sessions (roblox_user_id);
-
--- ----------------------------------------------------------------------------
--- 5. Execution Logs (Analytics)
--- ----------------------------------------------------------------------------
+-- ============================================================================
+-- 10. Execution Logs & Global Geo-Analytics
+-- ============================================================================
 CREATE TABLE IF NOT EXISTS public.execution_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     script_id TEXT DEFAULT NULL,
     script_name TEXT NOT NULL,
     roblox_username TEXT DEFAULT NULL,
     roblox_user_id TEXT DEFAULT NULL,
+    avatar_url TEXT DEFAULT NULL,
     place_id TEXT DEFAULT NULL,
     place_name TEXT DEFAULT NULL,
     job_id TEXT DEFAULT NULL,
-    avatar_url TEXT DEFAULT NULL,
     ip_address TEXT NOT NULL,
     isp TEXT DEFAULT NULL,
     os TEXT DEFAULT NULL,
@@ -176,39 +248,38 @@ CREATE TABLE IF NOT EXISTS public.execution_logs (
     key_last4 TEXT DEFAULT NULL,
     status TEXT NOT NULL CHECK (status IN ('success', 'failed')),
     failure_reason TEXT DEFAULT NULL,
+    country TEXT DEFAULT NULL,
+    city TEXT DEFAULT NULL,
+    latitude DOUBLE PRECISION DEFAULT NULL,
+    longitude DOUBLE PRECISION DEFAULT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
+CREATE INDEX IF NOT EXISTS idx_execution_logs_created ON public.execution_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_execution_logs_script ON public.execution_logs(script_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_execution_logs_status ON public.execution_logs(status);
 
--- Migration for existing execution_logs
-ALTER TABLE public.execution_logs
-    ADD COLUMN IF NOT EXISTS place_id TEXT DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS place_name TEXT DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS job_id TEXT DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS country TEXT DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS city TEXT DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION DEFAULT NULL;
+-- ============================================================================
+-- 11. Client Runtime Errors & Luau Crash Telemetry
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.client_errors (
+    id TEXT PRIMARY KEY,
+    session_id TEXT DEFAULT NULL,
+    script_id TEXT DEFAULT NULL,
+    script_name TEXT DEFAULT NULL,
+    roblox_username TEXT DEFAULT NULL,
+    roblox_user_id TEXT DEFAULT NULL,
+    executor TEXT DEFAULT NULL,
+    os TEXT DEFAULT NULL,
+    error_message TEXT NOT NULL,
+    stack_trace TEXT DEFAULT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+CREATE INDEX IF NOT EXISTS idx_client_errors_script ON public.client_errors(script_id);
+CREATE INDEX IF NOT EXISTS idx_client_errors_created ON public.client_errors(created_at DESC);
 
--- Migration for sessions
-ALTER TABLE public.sessions
-    ADD COLUMN IF NOT EXISTS country TEXT DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS city TEXT DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION DEFAULT NULL;
-
--- Migration for checkpoint_logs
-ALTER TABLE public.checkpoint_logs
-    ADD COLUMN IF NOT EXISTS script_id TEXT DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS step_index INTEGER DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS checkpoint_title TEXT DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS session_id TEXT DEFAULT NULL;
-
-ALTER TABLE public.checkpoint_logs DROP CONSTRAINT IF EXISTS checkpoint_logs_stage_check;
-
--- ----------------------------------------------------------------------------
--- 6. Global In-Game Announcements
--- ----------------------------------------------------------------------------
+-- ============================================================================
+-- 12. Global In-Game Broadcast Announcements
+-- ============================================================================
 CREATE TABLE IF NOT EXISTS public.global_announcements (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     script_id TEXT NOT NULL DEFAULT 'all',
@@ -218,19 +289,9 @@ CREATE TABLE IF NOT EXISTS public.global_announcements (
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
--- ----------------------------------------------------------------------------
--- 7. Checkpoint Logs (Funnel Tracking)
--- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.checkpoint_logs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    ip_address TEXT NOT NULL,
-    stage TEXT NOT NULL CHECK (stage IN ('started', 'completed')),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
-);
-
--- ----------------------------------------------------------------------------
--- 7. Checkpoints Configuration
--- ----------------------------------------------------------------------------
+-- ============================================================================
+-- 13. Checkpoint Steps Configuration (Monetization Gateway)
+-- ============================================================================
 CREATE TABLE IF NOT EXISTS public.checkpoints (
     id TEXT PRIMARY KEY,
     script_id TEXT NOT NULL DEFAULT 'all',
@@ -240,40 +301,145 @@ CREATE TABLE IF NOT EXISTS public.checkpoints (
     "order" INTEGER NOT NULL DEFAULT 1,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
+CREATE INDEX IF NOT EXISTS idx_checkpoints_order ON public.checkpoints("order" ASC);
 
--- ----------------------------------------------------------------------------
--- 8. Creator Profile (Guns.lol style)
--- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.creator_profile (
-    id INTEGER PRIMARY KEY DEFAULT 1,
-    display_name TEXT NOT NULL DEFAULT 'Revile',
-    bio TEXT NOT NULL DEFAULT 'Lead Developer & Script Engineer. Building high-performance, tamper-protected scripts.',
-    avatar_url TEXT NOT NULL DEFAULT 'https://api.dicebear.com/7.x/bottts/svg?seed=Revile21',
-    emblems JSONB NOT NULL DEFAULT '[{"id":"1","label":"Verified Developer","icon":"verified","color":"#3b82f6"},{"id":"2","label":"Founder","icon":"crown","color":"#eab308"},{"id":"3","label":"Tamper Proof","icon":"shield","color":"#10b981"}]'::jsonb,
-    socials JSONB NOT NULL DEFAULT '{"discord":"https://discord.gg/yourserver","youtube":"https://youtube.com/@revile","twitter":"https://x.com/revile","github":"https://github.com/"}'::jsonb,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+-- ============================================================================
+-- 14. Checkpoint Conversion Funnel Logs
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.checkpoint_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    script_id TEXT DEFAULT NULL,
+    ip_address TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    step_index INTEGER DEFAULT NULL,
+    checkpoint_title TEXT DEFAULT NULL,
+    session_id TEXT DEFAULT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
+CREATE INDEX IF NOT EXISTS idx_checkpoint_logs_stage ON public.checkpoint_logs(stage, created_at DESC);
 
--- ----------------------------------------------------------------------------
--- 9. Banned IPs
--- ----------------------------------------------------------------------------
+-- ============================================================================
+-- 15. Checkpoint Bypass Lockouts (Scraper Detection Watchdog)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.bypass_attempts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    ip_address TEXT NOT NULL,
+    hwid TEXT DEFAULT NULL,
+    script_id TEXT DEFAULT NULL,
+    step_index INTEGER DEFAULT NULL,
+    reason TEXT NOT NULL,
+    metadata JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+CREATE INDEX IF NOT EXISTS idx_bypass_attempts_ip ON public.bypass_attempts(ip_address);
+CREATE INDEX IF NOT EXISTS idx_bypass_attempts_hwid ON public.bypass_attempts(hwid);
+CREATE INDEX IF NOT EXISTS idx_bypass_attempts_created ON public.bypass_attempts(created_at DESC);
+
+-- ============================================================================
+-- 16. Permanent IP and HWID Blacklists
+-- ============================================================================
 CREATE TABLE IF NOT EXISTS public.banned_ips (
     ip_address TEXT PRIMARY KEY,
     reason TEXT NOT NULL DEFAULT 'Manual ban or tamper detection',
     banned_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
--- ----------------------------------------------------------------------------
--- 10. System Settings
--- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.banned_hwids (
+    hwid TEXT PRIMARY KEY,
+    ip_address TEXT,
+    reason TEXT NOT NULL DEFAULT 'Bypass attempts exceeded threshold (3x)',
+    banned_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+CREATE INDEX IF NOT EXISTS idx_banned_hwids_banned_at ON public.banned_hwids(banned_at DESC);
+
+-- ============================================================================
+-- 17. Creator Public Profile (Guns.lol styling & badges)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.creator_profile (
+    id INTEGER PRIMARY KEY DEFAULT 1,
+    display_name TEXT NOT NULL DEFAULT 'Revile',
+    bio TEXT NOT NULL DEFAULT 'Lead Developer & Script Engineer. Building high-performance, tamper-protected scripts.',
+    avatar_url TEXT NOT NULL DEFAULT 'https://api.dicebear.com/7.x/bottts/svg?seed=Revile21',
+    raw_avatar_url TEXT DEFAULT NULL,
+    accent_color TEXT DEFAULT '#00a2ff',
+    emblems JSONB NOT NULL DEFAULT '[{"id":"1","label":"Verified Developer","icon":"verified","color":"#3b82f6"},{"id":"2","label":"Founder","icon":"crown","color":"#eab308"},{"id":"3","label":"Tamper Proof","icon":"shield","color":"#10b981"}]'::jsonb,
+    socials JSONB NOT NULL DEFAULT '{"discord":"https://discord.gg/kGtqH3k2wN","youtube":"https://youtube.com/@revile","twitter":"https://x.com/revile","github":"https://github.com/"}'::jsonb,
+    social_toggles JSONB NOT NULL DEFAULT '{}'::jsonb,
+    badge_toggles JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
+-- Trigger for creator_profile
+DROP TRIGGER IF EXISTS trg_creator_profile_updated_at ON public.creator_profile;
+CREATE TRIGGER trg_creator_profile_updated_at
+BEFORE UPDATE ON public.creator_profile
+FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+
+-- ============================================================================
+-- 18. Global Chatroom & Developer Direct Messages (DMs)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.chatroom_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id TEXT NOT NULL,
+    username TEXT NOT NULL,
+    display_name TEXT,
+    avatar_url TEXT,
+    message TEXT NOT NULL,
+    is_dev BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+CREATE INDEX IF NOT EXISTS idx_chatroom_messages_created ON public.chatroom_messages(created_at ASC);
+
+CREATE TABLE IF NOT EXISTS public.chatroom_blacklist (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    word TEXT NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+CREATE INDEX IF NOT EXISTS idx_chatroom_blacklist_word ON public.chatroom_blacklist(word);
+
+CREATE TABLE IF NOT EXISTS public.dev_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id TEXT NOT NULL,
+    username TEXT NOT NULL,
+    display_name TEXT,
+    avatar_url TEXT,
+    sender_type TEXT NOT NULL CHECK (sender_type IN ('user', 'dev')),
+    message TEXT NOT NULL,
+    read BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+CREATE INDEX IF NOT EXISTS idx_dev_messages_user_created ON public.dev_messages(user_id, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_dev_messages_unread ON public.dev_messages(read) WHERE read = false;
+
+-- ============================================================================
+-- 19. Staff Review Sessions & History
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.staff_reviews (
+    id TEXT PRIMARY KEY,
+    key_id TEXT NOT NULL,
+    script_id TEXT NOT NULL,
+    script_name TEXT NOT NULL,
+    key_label TEXT NOT NULL DEFAULT 'Staff Key',
+    status TEXT NOT NULL DEFAULT 'reviewing',
+    review_started TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    last_heartbeat TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    duration_seconds INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+CREATE INDEX IF NOT EXISTS idx_staff_reviews_started ON public.staff_reviews(review_started DESC);
+
+-- ============================================================================
+-- 20. System Global Settings
+-- ============================================================================
 CREATE TABLE IF NOT EXISTS public.system_settings (
     id INTEGER PRIMARY KEY DEFAULT 1,
     claim_method TEXT NOT NULL DEFAULT 'checkpoints' CHECK (claim_method IN ('checkpoints', 'discord_oauth')),
     checkpoint_delay_seconds INTEGER NOT NULL DEFAULT 5,
     discord_guild_id TEXT DEFAULT '',
     discord_bot_token TEXT DEFAULT '',
-    discord_invite_url TEXT DEFAULT 'https://discord.gg/yourserver',
+    discord_invite_url TEXT DEFAULT 'https://discord.gg/kGtqH3k2wN',
     vpn_detection_enabled BOOLEAN NOT NULL DEFAULT true,
+    chatroom_cooldown_seconds INTEGER NOT NULL DEFAULT 3,
     tos_content TEXT NOT NULL DEFAULT '1. Acceptance of Terms: By obtaining or using any script or key from this service, you agree to these Terms.
 2. No Tampering: Decompiling, reverse engineering, dumping bytecode, or bypassing heartbeat checks is strictly prohibited.
 3. IP Binding: License keys are uniquely tied to the IP address and identity of the claimant. Sharing keys is not permitted.
@@ -281,72 +447,156 @@ CREATE TABLE IF NOT EXISTS public.system_settings (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
--- ----------------------------------------------------------------------------
--- Safe Type Alterations & Foreign Key Relaxations for Existing Databases
--- ----------------------------------------------------------------------------
+-- Trigger for system_settings
+DROP TRIGGER IF EXISTS trg_system_settings_updated_at ON public.system_settings;
+CREATE TRIGGER trg_system_settings_updated_at
+BEFORE UPDATE ON public.system_settings
+FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+
+-- ============================================================================
+-- 21. Database Stored Procedures & Cleanup Functions
+-- ============================================================================
+
+-- A. Mark Stale Sessions as Disconnected (e.g. heartbeat > 90 seconds)
+CREATE OR REPLACE FUNCTION public.mark_stale_sessions(timeout_ms INTEGER DEFAULT 90000)
+RETURNS INTEGER AS $$
+DECLARE
+    affected_count INTEGER;
+    cutoff_time TIMESTAMPTZ;
+BEGIN
+    cutoff_time = timezone('utc'::text, now()) - (timeout_ms || ' milliseconds')::interval;
+    
+    UPDATE public.sessions
+    SET status = 'disconnected'
+    WHERE status = 'active'
+      AND last_heartbeat < cutoff_time;
+      
+    GET DIAGNOSTICS affected_count = ROW_COUNT;
+    RETURN affected_count;
+END;
+$$ LANGUAGE plpgsql;
+
+-- B. Automatically Purge Expired License Keys
+CREATE OR REPLACE FUNCTION public.purge_expired_keys()
+RETURNS INTEGER AS $$
+DECLARE
+    deleted_count INTEGER;
+BEGIN
+    DELETE FROM public.keys
+    WHERE expires_at IS NOT NULL
+      AND expires_at < timezone('utc'::text, now())
+      AND is_staff_review = false;
+      
+    GET DIAGNOSTICS deleted_count = ROW_COUNT;
+    RETURN deleted_count;
+END;
+$$ LANGUAGE plpgsql;
+
+-- C. High-Speed Mobile Dashboard Overview Function (Aggregated in 1 Query)
+CREATE OR REPLACE FUNCTION public.get_mobile_dashboard_stats()
+RETURNS JSONB AS $$
+DECLARE
+    active_players INTEGER;
+    total_keys INTEGER;
+    active_keys INTEGER;
+    banned_ips_count INTEGER;
+    unread_dms INTEGER;
+    recent_errors INTEGER;
+BEGIN
+    SELECT COUNT(*) INTO active_players FROM public.sessions WHERE status = 'active' AND last_heartbeat > (timezone('utc'::text, now()) - INTERVAL '35 seconds');
+    SELECT COUNT(*) INTO total_keys FROM public.keys;
+    SELECT COUNT(*) INTO active_keys FROM public.keys WHERE status = 'active';
+    SELECT COUNT(*) INTO banned_ips_count FROM public.banned_ips;
+    SELECT COUNT(*) INTO unread_dms FROM public.dev_messages WHERE read = false AND sender_type = 'user';
+    SELECT COUNT(*) INTO recent_errors FROM public.client_errors WHERE created_at > (timezone('utc'::text, now()) - INTERVAL '24 hours');
+    
+    RETURN jsonb_build_object(
+        'active_players', active_players,
+        'total_keys', total_keys,
+        'active_keys', active_keys,
+        'banned_ips', banned_ips_count,
+        'unread_dms', unread_dms,
+        'recent_errors_24h', recent_errors,
+        'server_time', timezone('utc'::text, now())
+    );
+END;
+$$ LANGUAGE plpgsql;
+
+-- ============================================================================
+-- 22. Supabase Realtime Publication Setup
+-- ============================================================================
 DO $$
 BEGIN
-    -- Fix keys.script_id type if it was created as UUID with foreign key
-    IF EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_schema = 'public' AND table_name = 'keys' AND column_name = 'script_id' AND data_type = 'uuid'
-    ) THEN
-        ALTER TABLE public.keys DROP CONSTRAINT IF EXISTS keys_script_id_fkey;
-        ALTER TABLE public.keys ALTER COLUMN script_id TYPE TEXT USING script_id::text;
-    END IF;
-
-    -- Relax sessions foreign keys so deleting keys/scripts doesn't fail
-    ALTER TABLE public.sessions DROP CONSTRAINT IF EXISTS sessions_key_id_fkey;
-    ALTER TABLE public.sessions DROP CONSTRAINT IF EXISTS sessions_script_id_fkey;
-    
-    IF EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_schema = 'public' AND table_name = 'sessions' AND column_name = 'key_id' AND data_type = 'uuid'
-    ) THEN
-        ALTER TABLE public.sessions ALTER COLUMN key_id TYPE TEXT USING key_id::text;
-    END IF;
-    IF EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_schema = 'public' AND table_name = 'sessions' AND column_name = 'script_id' AND data_type = 'uuid'
-    ) THEN
-        ALTER TABLE public.sessions ALTER COLUMN script_id TYPE TEXT USING script_id::text;
-    END IF;
-
-    -- Relax execution_logs foreign key if present
-    ALTER TABLE public.execution_logs DROP CONSTRAINT IF EXISTS execution_logs_script_id_fkey;
-    IF EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_schema = 'public' AND table_name = 'execution_logs' AND column_name = 'script_id' AND data_type = 'uuid'
-    ) THEN
-        ALTER TABLE public.execution_logs ALTER COLUMN script_id TYPE TEXT USING script_id::text;
-    END IF;
-
-    -- Relax checkpoints.id from uuid to text if present
-    IF EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_schema = 'public' AND table_name = 'checkpoints' AND column_name = 'id' AND data_type = 'uuid'
-    ) THEN
-        ALTER TABLE public.checkpoints ALTER COLUMN id TYPE TEXT USING id::text;
-    END IF;
-
-    -- Re-link loader_config_id foreign key safely with ON DELETE SET NULL
-    ALTER TABLE public.scripts DROP CONSTRAINT IF EXISTS scripts_loader_config_id_fkey;
-    ALTER TABLE public.scripts ADD CONSTRAINT scripts_loader_config_id_fkey FOREIGN KEY (loader_config_id) REFERENCES public.loader_configs(id) ON DELETE SET NULL;
+    -- Enable realtime for live mobile push and web dashboards
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.sessions;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.session_commands;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.dev_messages;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.chatroom_messages;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.client_errors;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.bypass_attempts;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.admin_notifications;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.keys;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.scripts;
 EXCEPTION WHEN OTHERS THEN
     NULL;
 END $$;
 
--- ----------------------------------------------------------------------------
--- Default Seed Rows (Safe: ON CONFLICT DO NOTHING)
--- ----------------------------------------------------------------------------
+-- ============================================================================
+-- 23. Row Level Security (RLS) Policies
+-- ============================================================================
+ALTER TABLE public.mobile_devices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.loader_configs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.scripts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.keys ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.session_commands ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.execution_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.client_errors ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.global_announcements ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.checkpoints ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.checkpoint_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.bypass_attempts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.banned_ips ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.banned_hwids ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.creator_profile ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chatroom_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chatroom_blacklist ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.dev_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.staff_reviews ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
+
+-- Grant Full Service Role & Authenticated Access
+DO $$
+DECLARE
+    tbl text;
+    tables text[] := ARRAY[
+        'mobile_devices', 'admin_sessions', 'admin_notifications', 'loader_configs', 
+        'scripts', 'keys', 'sessions', 'session_commands', 'execution_logs', 
+        'client_errors', 'global_announcements', 'checkpoints', 'checkpoint_logs', 
+        'bypass_attempts', 'banned_ips', 'banned_hwids', 'creator_profile', 
+        'chatroom_messages', 'chatroom_blacklist', 'dev_messages', 'staff_reviews', 
+        'system_settings'
+    ];
+BEGIN
+    FOREACH tbl IN ARRAY tables LOOP
+        EXECUTE format('DROP POLICY IF EXISTS "Full access policy on %I" ON public.%I', tbl, tbl);
+        EXECUTE format('CREATE POLICY "Full access policy on %I" ON public.%I FOR ALL USING (true) WITH CHECK (true)', tbl, tbl);
+    END LOOP;
+END $$;
+
+-- ============================================================================
+-- 24. Safe Seed Rows (Idempotent: ON CONFLICT DO NOTHING)
+-- ============================================================================
 INSERT INTO public.loader_configs (
     id, name, brand_name, title, accent_color, background_color, card_color, 
     text_color, subtext_color, corner_radius, frame_width, frame_height, 
     font_face, custom_subtitle, layout_positions
 ) VALUES (
     'a0000000-0000-0000-0000-000000000001',
-    'Cyberpunk Cyan (Default)',
-    'AERO LUA',
+    'Dark Cyberpunk (Default)',
+    'ATOMPROTECT',
     'Script Authentication',
     '#00a2ff',
     '#16161e',
@@ -375,154 +625,7 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO public.checkpoints (id, script_id, title, url, duration_seconds, "order")
 VALUES 
-    ('52097de7-6136-4da0-b9b9-f21612689848', 'all', 'Subscribe', 'https://www.youtube.com/@lollll-k5d', 10, 1),
-    ('a5397f93-3f27-41b3-b68d-83ae68aa783b', 'all', 'Like the video', 'https://www.youtube.com/watch?v=Z6DbPPkLlq4', 45, 2),
-    ('add593ab-7e23-45a8-9d57-798c4cb0b9cd', 'all', 'Join the discord', 'https://discord.gg/kGtqH3k2wN', 45, 3)
+    ('52097de7-6136-4da0-b9b9-f21612689848', 'all', 'Subscribe on YouTube', 'https://www.youtube.com/@lollll-k5d', 10, 1),
+    ('a5397f93-3f27-41b3-b68d-83ae68aa783b', 'all', 'Like & Comment Video', 'https://www.youtube.com/watch?v=Z6DbPPkLlq4', 45, 2),
+    ('add593ab-7e23-45a8-9d57-798c4cb0b9cd', 'all', 'Join Community Discord', 'https://discord.gg/kGtqH3k2wN', 45, 3)
 ON CONFLICT (id) DO NOTHING;
-
--- ----------------------------------------------------------------------------
--- 11. Staff Review Sessions & History (Zero user tracking)
--- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.staff_reviews (
-    id TEXT PRIMARY KEY,
-    key_id TEXT NOT NULL,
-    script_id TEXT NOT NULL,
-    script_name TEXT NOT NULL,
-    key_label TEXT NOT NULL DEFAULT 'Staff Key',
-    status TEXT NOT NULL DEFAULT 'reviewing',
-    review_started TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
-    last_heartbeat TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
-    duration_seconds INTEGER NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
-);
-CREATE INDEX IF NOT EXISTS idx_staff_reviews_started ON public.staff_reviews(review_started);
-
--- ----------------------------------------------------------------------------
--- 12. Client Runtime Errors & Luau Debug Telemetry Stream
--- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.client_errors (
-    id TEXT PRIMARY KEY,
-    session_id TEXT,
-    script_id TEXT,
-    script_name TEXT,
-    roblox_username TEXT,
-    roblox_user_id TEXT,
-    executor TEXT,
-    os TEXT,
-    error_message TEXT NOT NULL,
-    stack_trace TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
-);
-CREATE INDEX IF NOT EXISTS idx_client_errors_script ON public.client_errors(script_id);
-CREATE INDEX IF NOT EXISTS idx_client_errors_created ON public.client_errors(created_at DESC);
-
--- ----------------------------------------------------------------------------
--- 13. Global Chatroom & Developer Direct Messages (DMs)
--- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.chatroom_messages (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT NOT NULL,
-    username TEXT NOT NULL,
-    display_name TEXT,
-    avatar_url TEXT,
-    message TEXT NOT NULL,
-    is_dev BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
-);
-CREATE INDEX IF NOT EXISTS idx_chatroom_messages_created ON public.chatroom_messages(created_at ASC);
-
-CREATE TABLE IF NOT EXISTS public.chatroom_blacklist (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    word TEXT NOT NULL UNIQUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
-);
-CREATE INDEX IF NOT EXISTS idx_chatroom_blacklist_word ON public.chatroom_blacklist(word);
-
-CREATE TABLE IF NOT EXISTS public.dev_messages (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT NOT NULL,
-    username TEXT NOT NULL,
-    display_name TEXT,
-    avatar_url TEXT,
-    sender_type TEXT NOT NULL CHECK (sender_type IN ('user', 'dev')),
-    message TEXT NOT NULL,
-    read BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
-);
-CREATE INDEX IF NOT EXISTS idx_dev_messages_user_created ON public.dev_messages(user_id, created_at ASC);
-
-ALTER TABLE public.chatroom_messages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.chatroom_blacklist ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.dev_messages ENABLE ROW LEVEL SECURITY;
-
-DO $$
-BEGIN
-    DROP POLICY IF EXISTS "Public full access on chatroom_messages" ON public.chatroom_messages;
-    CREATE POLICY "Public full access on chatroom_messages" ON public.chatroom_messages FOR ALL USING (true) WITH CHECK (true);
-
-    DROP POLICY IF EXISTS "Public full access on chatroom_blacklist" ON public.chatroom_blacklist;
-    CREATE POLICY "Public full access on chatroom_blacklist" ON public.chatroom_blacklist FOR ALL USING (true) WITH CHECK (true);
-
-    DROP POLICY IF EXISTS "Public full access on dev_messages" ON public.dev_messages;
-    CREATE POLICY "Public full access on dev_messages" ON public.dev_messages FOR ALL USING (true) WITH CHECK (true);
-EXCEPTION WHEN OTHERS THEN
-    NULL;
-END $$;
-
--- ----------------------------------------------------------------------------
--- Enable Realtime for Live Telemetry & Chatroom
--- ----------------------------------------------------------------------------
-DO $$
-BEGIN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.sessions;
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.execution_logs;
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.client_errors;
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.keys;
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.scripts;
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.chatroom_messages;
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.dev_messages;
-EXCEPTION WHEN OTHERS THEN
-    NULL;
-END $$;
-
--- ----------------------------------------------------------------------------
--- 15. Banned HWIDs (Device Hardware Lockout)
--- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.banned_hwids (
-    hwid TEXT PRIMARY KEY,
-    ip_address TEXT,
-    reason TEXT NOT NULL DEFAULT 'Bypass attempts exceeded threshold (3x)',
-    banned_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
-);
-CREATE INDEX IF NOT EXISTS idx_banned_hwids_banned_at ON public.banned_hwids(banned_at DESC);
-
--- ----------------------------------------------------------------------------
--- 16. Checkpoint Bypass Attempts Telemetry
--- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.bypass_attempts (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    ip_address TEXT NOT NULL,
-    hwid TEXT,
-    script_id TEXT,
-    step_index INTEGER,
-    reason TEXT NOT NULL,
-    metadata JSONB DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
-);
-CREATE INDEX IF NOT EXISTS idx_bypass_attempts_ip ON public.bypass_attempts(ip_address);
-CREATE INDEX IF NOT EXISTS idx_bypass_attempts_hwid ON public.bypass_attempts(hwid);
-CREATE INDEX IF NOT EXISTS idx_bypass_attempts_created_at ON public.bypass_attempts(created_at DESC);
-
-ALTER TABLE public.banned_hwids ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.bypass_attempts ENABLE ROW LEVEL SECURITY;
-
-DO $$
-BEGIN
-    DROP POLICY IF EXISTS "Public full access on banned_hwids" ON public.banned_hwids;
-    CREATE POLICY "Public full access on banned_hwids" ON public.banned_hwids FOR ALL USING (true) WITH CHECK (true);
-
-    DROP POLICY IF EXISTS "Public full access on bypass_attempts" ON public.bypass_attempts;
-    CREATE POLICY "Public full access on bypass_attempts" ON public.bypass_attempts FOR ALL USING (true) WITH CHECK (true);
-EXCEPTION WHEN OTHERS THEN
-    NULL;
-END $$;

@@ -1,5 +1,5 @@
 // lib/auth.ts
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { hmacSha256, constantTimeEquals } from "@/lib/crypto-util";
 
 export const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "Revile2120516501";
@@ -57,10 +57,32 @@ export function isValidSessionToken(token: string | undefined | null): boolean {
 }
 
 /**
- * Checks whether the current request is authenticated as admin via cookies.
+ * Checks whether the current request is authenticated as admin via Authorization header or cookies.
  */
-export function isAuthenticated(): boolean {
+export function isAuthenticated(req?: Request): boolean {
   try {
+    // 1. Direct request parameter check
+    if (req) {
+      const authHeader = req.headers.get("authorization");
+      if (authHeader?.startsWith("Bearer ")) {
+        const token = authHeader.substring(7).trim();
+        if (isValidSessionToken(token)) return true;
+      }
+    }
+
+    // 2. Next.js headers() check
+    try {
+      const headerStore = headers();
+      const authHeader = headerStore.get("authorization");
+      if (authHeader?.startsWith("Bearer ")) {
+        const token = authHeader.substring(7).trim();
+        if (isValidSessionToken(token)) return true;
+      }
+    } catch {
+      // headers() may throw if called outside request context
+    }
+
+    // 3. Fallback to session cookie
     const cookieStore = cookies();
     const session = cookieStore.get(AUTH_COOKIE_NAME)?.value;
     return isValidSessionToken(session);

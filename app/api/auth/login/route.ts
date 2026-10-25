@@ -13,9 +13,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid username or password" }, { status: 401 });
     }
 
-    const response = NextResponse.json({ success: true, redirect: "/dashboard/scripts" });
-    const isHttps = req.nextUrl.protocol === "https:" || req.headers.get("x-forwarded-proto") === "https";
     const sessionToken = createSessionToken();
+    const response = NextResponse.json({
+      success: true,
+      token: sessionToken,
+      redirect: "/dashboard/scripts",
+    });
+    const isHttps = req.nextUrl.protocol === "https:" || req.headers.get("x-forwarded-proto") === "https";
 
     response.cookies.set({
       name: AUTH_COOKIE_NAME,

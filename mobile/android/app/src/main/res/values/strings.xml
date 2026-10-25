@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">AtomProtect</string>
+    <string name="title_activity_main">AtomProtect</string>
+    <string name="package_name">com.atomprotect.admin</string>
+    <string name="custom_url_scheme">com.atomprotect.admin</string>
+</resources>

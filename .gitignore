@@ -48,3 +48,13 @@ fetch_scripts.js
 scraper_app.py
 
 luau_bin/
+
+# github workflows (prevent oauth scope error during push)
+.github/
+
+# mobile build artifacts
+mobile/dist/
+mobile/android/.gradle/
+mobile/android/build/
+mobile/android/app/build/
+*.apk
