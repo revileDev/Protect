@@ -1260,16 +1260,20 @@ export const dbService = {
   },
 
   // Sessions
-  async getSessions(): Promise<SessionRecord[]> {
+  async getSessions(options?: { activeOnly?: boolean; maxAgeMs?: number }): Promise<SessionRecord[]> {
     const db = readLocalDb();
     let remote: SessionRecord[] = [];
     if (isSupabaseConfigured && supabase) {
       try {
-        const { data, error } = await supabase
-          .from("sessions")
-          .select("*")
+        let query = supabase.from("sessions").select("*");
+        if (options?.activeOnly) {
+          const maxAge = options.maxAgeMs || 30000;
+          const cutoffIso = new Date(Date.now() - maxAge).toISOString();
+          query = query.in("status", ["active", "loading"]).gte("last_heartbeat", cutoffIso);
+        }
+        const { data, error } = await query
           .order("session_started", { ascending: false })
-          .limit(1000);
+          .limit(options?.activeOnly ? 200 : 1000);
         if (data && !error && data.length > 0) {
           remote = data as SessionRecord[];
         }
@@ -1280,11 +1284,49 @@ export const dbService = {
     const sessionMap = new Map<string, SessionRecord>();
     for (const s of remote) sessionMap.set(s.id, s);
     for (const s of db.sessions || []) {
-      if (!sessionMap.has(s.id)) sessionMap.set(s.id, s);
+      if (!sessionMap.has(s.id)) {
+        if (options?.activeOnly) {
+          const maxAge = options.maxAgeMs || 30000;
+          const pingTime = new Date(s.last_heartbeat).getTime();
+          if ((s.status === "active" || s.status === "loading") && Date.now() - pingTime <= maxAge) {
+            sessionMap.set(s.id, s);
+          }
+        } else {
+          sessionMap.set(s.id, s);
+        }
+      }
     }
     return Array.from(sessionMap.values()).sort(
       (a, b) => new Date(b.session_started).getTime() - new Date(a.session_started).getTime()
     );
+  },
+
+  async markStaleSessionsDisconnected(cutoffMs: number = 25000): Promise<number> {
+    const cutoffIso = new Date(Date.now() - cutoffMs).toISOString();
+    let count = 0;
+    const db = readLocalDb();
+    let changed = false;
+    for (const s of db.sessions || []) {
+      if ((s.status === "active" || s.status === "loading") && new Date(s.last_heartbeat).getTime() < Date.now() - cutoffMs) {
+        s.status = "disconnected";
+        changed = true;
+        count++;
+      }
+    }
+    if (changed) writeLocalDb(db);
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase
+          .from("sessions")
+          .update({ status: "disconnected" })
+          .in("status", ["active", "loading"])
+          .lt("last_heartbeat", cutoffIso);
+      } catch (err) {
+        console.error("Supabase markStaleSessionsDisconnected error:", err);
+      }
+    }
+    return count;
   },
 
   async getSessionByToken(loaderToken: string): Promise<SessionRecord | null> {

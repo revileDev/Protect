@@ -148,6 +148,14 @@ ALTER TABLE public.sessions
     ADD COLUMN IF NOT EXISTS job_id TEXT DEFAULT NULL,
     ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT NULL;
 
+-- High-performance indexes for live active player lookups
+CREATE INDEX IF NOT EXISTS idx_sessions_status_heartbeat 
+    ON public.sessions (status, last_heartbeat DESC);
+CREATE INDEX IF NOT EXISTS idx_sessions_username 
+    ON public.sessions (roblox_username);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id 
+    ON public.sessions (roblox_user_id);
+
 -- ----------------------------------------------------------------------------
 -- 5. Execution Logs (Analytics)
 -- ----------------------------------------------------------------------------

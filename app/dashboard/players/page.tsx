@@ -192,9 +192,9 @@ export default function PlayersPage() {
         serverSkewRef.current = Date.now() - new Date(data.server_time).getTime();
       }
       if (data.sessions) {
-        // Exclude sessions already pruned locally
+        // Exclude sessions already pruned locally and ensure only online sessions
         const fresh = (data.sessions as SessionItem[]).filter(
-          (s) => !removedSessionIdsRef.current.has(s.id)
+          (s) => !removedSessionIdsRef.current.has(s.id) && s.is_online !== false
         );
         setSessions(fresh);
       }
@@ -513,35 +513,33 @@ export default function PlayersPage() {
   };
 
   // Compute live properties for each player based on current timestamp
-  const processedSessions = sessions.map((s) => {
-    const adjustedNow = now - (serverSkewRef.current || 0);
-    const lastPingTime = new Date(s.last_heartbeat).getTime();
-    const startTime = new Date(s.session_started).getTime();
-    const pingElapsedMs = Math.max(0, adjustedNow - lastPingTime);
+  // Filter strictly to ACTIVE online players only (no disconnected cards)
+  const processedSessions = sessions
+    .map((s) => {
+      const adjustedNow = now - (serverSkewRef.current || 0);
+      const lastPingTime = new Date(s.last_heartbeat).getTime();
+      const startTime = s.session_started ? new Date(s.session_started).getTime() : lastPingTime;
+      const pingElapsedMs = Math.max(0, adjustedNow - lastPingTime);
 
-    // Timeout threshold is 15 seconds, matching server HEARTBEAT_TIMEOUT_MS
-    const isTimedOut = pingElapsedMs >= 15000;
-    const isLoading = s.status === "loading" && !isTimedOut;
-    const isDisconnected = s.status === "kicked" || s.status === "disconnected" || (!s.is_online && isTimedOut && s.status !== "loading");
-    const isOnline = !isDisconnected && (s.is_online ?? true) && (s.status === "active" || s.status === "loading");
+      // Timeout threshold is 15 seconds, matching server HEARTBEAT_TIMEOUT_MS
+      const isTimedOut = pingElapsedMs >= 15000;
+      const isLoading = s.status === "loading" && !isTimedOut;
+      const isOnline = (s.status === "active" || s.status === "loading") && !isTimedOut && (s.is_online !== false);
 
-    // Duration timer is FROZEN once disconnected
-    const effectiveEndTime = isOnline ? adjustedNow : lastPingTime;
-    const durationSeconds = Math.max(0, Math.floor((effectiveEndTime - startTime) / 1000));
+      const effectiveEndTime = isOnline ? adjustedNow : lastPingTime;
+      const durationSeconds = Math.max(0, Math.floor((effectiveEndTime - startTime) / 1000));
 
-    const timeSinceDisconnectSec = isDisconnected ? Math.floor(Math.max(0, pingElapsedMs - 15000) / 1000) : 0;
-    const removalCountdownSec = Math.max(0, 15 - timeSinceDisconnectSec);
-
-    return {
-      ...s,
-      is_online: isOnline,
-      is_loading: isLoading,
-      duration_seconds: durationSeconds,
-      ping_sec: Math.floor(pingElapsedMs / 1000),
-      time_since_disconnect_sec: timeSinceDisconnectSec,
-      removal_countdown_sec: removalCountdownSec,
-    };
-  });
+      return {
+        ...s,
+        is_online: isOnline,
+        is_loading: isLoading,
+        duration_seconds: durationSeconds,
+        ping_sec: Math.floor(pingElapsedMs / 1000),
+        removal_countdown_sec: 0,
+        time_since_disconnect_sec: 0,
+      };
+    })
+    .filter((s) => s.is_online);
 
   const onlineCount = processedSessions.filter((s) => s.is_online).length;
   const bannedCount = Object.keys(bannedIps).length;
@@ -1162,20 +1160,16 @@ export default function PlayersPage() {
                         }`}
                       >
                         <td className="p-3.5">
-                          {s.is_online ? (
+                          {s.status === "loading" ? (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-yellow-500/10 text-yellow-300 border border-yellow-500/20">
+                              <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse"></span>
+                              In Loader
+                            </span>
+                          ) : (
                             <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
                               Online
                             </span>
-                          ) : (
-                            <div className="flex items-center gap-1.5">
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/25">
-                                Disconnected
-                              </span>
-                              <span className="text-[10px] text-gray-500 font-mono">
-                                ({s.removal_countdown_sec}s)
-                              </span>
-                            </div>
                           )}
                         </td>
                         <td className="p-3.5 font-medium text-white">

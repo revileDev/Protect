@@ -7,51 +7,57 @@ export async function GET() {
   if (!isAuthenticated()) {
     return NextResponse.json({ error: "Unauthorized. Admin session required." }, { status: 401 });
   }
-  const sessions = await dbService.getSessions();
+
+  // Trigger background cleanup of stale sessions in DB
+  dbService.markStaleSessionsDisconnected(25000).catch(() => {});
+
+  // Fetch only active/loading sessions from the last 25 seconds
+  const sessions = await dbService.getSessions({ activeOnly: true, maxAgeMs: 25000 });
   const bannedIps = await dbService.getBannedIps();
 
   const now = Date.now();
-  const HEARTBEAT_TIMEOUT_MS = 15000;  // 15s no ping → mark as disconnected
-  const DISCONNECT_REMOVAL_GRACE_MS = 5000; // Keep disconnected card visible for 5s, then auto-clear
+  const HEARTBEAT_TIMEOUT_MS = 15000;  // 15s no ping → player is disconnected
 
   const enriched = [];
+  const seenUserKeys = new Set<string>();
 
-  for (const s of sessions) {
+  // Sort by last_heartbeat DESC so the freshest session for any player takes precedence
+  const sortedSessions = [...sessions].sort(
+    (a, b) => new Date(b.last_heartbeat).getTime() - new Date(a.last_heartbeat).getTime()
+  );
+
+  for (const s of sortedSessions) {
     if (s.id && s.id.startsWith("staff_review")) continue;
+    if (!s.last_heartbeat) continue;
+
     const lastPing = new Date(s.last_heartbeat).getTime();
-    const startTime = new Date(s.session_started).getTime();
+    if (isNaN(lastPing)) continue;
+
+    const startTime = s.session_started ? new Date(s.session_started).getTime() : lastPing;
     const pingElapsed = Math.max(0, now - lastPing);
 
-    // After 15 seconds if no heartbeat, determine user is disconnected
-    const isTimedOut = pingElapsed >= HEARTBEAT_TIMEOUT_MS;
-    const isOnline = s.status === "active" && !isTimedOut;
-
-    // Freeze timer when disconnected
-    const effectiveEndTime = isOnline ? now : lastPing;
-    const durationSeconds = Math.max(0, Math.floor((effectiveEndTime - startTime) / 1000));
-
-    // Time since disconnection was triggered
-    const timeSinceDisconnect = isTimedOut ? pingElapsed - HEARTBEAT_TIMEOUT_MS : 0;
-
-    // Kicked/banned sessions: always keep visible until admin removes them manually
-    const isPermanentStatus = s.status === "kicked" || s.status === "tampered";
-
-    // For plain disconnects: hide after grace period to keep the dashboard clean.
-    // The session record stays in the DB — we just stop surfacing it.
-    if (isTimedOut && !isPermanentStatus && timeSinceDisconnect > DISCONNECT_REMOVAL_GRACE_MS) {
+    // Hard timeout: player must have pinged within the last 15 seconds
+    if (pingElapsed >= HEARTBEAT_TIMEOUT_MS) {
       continue;
     }
 
-    const derivedStatus = s.status === "loading" && isOnline
-      ? "loading"
-      : isOnline
-      ? "active"
-      : s.status === "kicked"
-      ? "kicked"
-      : s.status === "tampered"
-      ? "tampered"
-      : "disconnected";
+    // Must be in active or loading state
+    if (s.status !== "active" && s.status !== "loading") {
+      continue;
+    }
 
+    // Deduplicate: if the user hopped servers or reconnected, only keep the newest active session
+    const dedupeKey = s.roblox_user_id || s.roblox_username || s.id;
+    if (dedupeKey && dedupeKey !== "Unknown" && dedupeKey !== "Executor User" && dedupeKey !== "Player") {
+      if (seenUserKeys.has(dedupeKey)) {
+        continue;
+      }
+      seenUserKeys.add(dedupeKey);
+    }
+
+    const isOnline = true;
+    const durationSeconds = Math.max(0, Math.floor((now - startTime) / 1000));
+    const derivedStatus = s.status === "loading" ? "loading" : "active";
     const avatarUrl = s.avatar_url || (s.roblox_user_id ? `/api/roblox/avatar?userId=${s.roblox_user_id}` : null);
 
     enriched.push({
@@ -62,7 +68,7 @@ export async function GET() {
       duration_seconds: durationSeconds,
       is_banned: Boolean(bannedIps[s.ip_address]),
       last_ping_sec: Math.floor(pingElapsed / 1000),
-      time_since_disconnect_sec: Math.floor(timeSinceDisconnect / 1000),
+      time_since_disconnect_sec: 0,
     });
   }
 
@@ -214,6 +220,7 @@ export async function GET() {
     staff_active: staffActive,
     staff_history: staffReviews,
     announcements,
+    server_time: new Date().toISOString(),
   });
 }
 
