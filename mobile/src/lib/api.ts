@@ -81,11 +81,16 @@ export class ApiService {
       headers["Authorization"] = `Bearer ${this.token}`;
     }
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+
     try {
       const res = await fetch(url, {
         ...options,
         headers,
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
 
       if (res.status === 401) {
         if (cleanEndpoint !== "/api/auth/login") {
@@ -103,7 +108,11 @@ export class ApiService {
 
       return data;
     } catch (err: any) {
+      clearTimeout(timeout);
       console.error(`API Error [${endpoint}]:`, err);
+      if (err.name === "AbortError") {
+        throw new Error("Request timed out (12s). The server did not respond. Check your server URL.");
+      }
       throw err;
     }
   }
