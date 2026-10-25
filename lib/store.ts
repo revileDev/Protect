@@ -1267,12 +1267,12 @@ export const dbService = {
       try {
         let query = supabase.from("sessions").select("*");
         if (options?.activeOnly) {
-          const maxAge = options.maxAgeMs || 30000;
+          const maxAge = options.maxAgeMs || 35000;
           const cutoffIso = new Date(Date.now() - maxAge).toISOString();
           query = query.eq("status", "active").gte("last_heartbeat", cutoffIso);
         }
         const { data, error } = await query
-          .order("session_started", { ascending: false })
+          .order("last_heartbeat", { ascending: false })
           .limit(options?.activeOnly ? 200 : 1000);
         if (data && !error && data.length > 0) {
           remote = data as SessionRecord[];
@@ -1286,7 +1286,7 @@ export const dbService = {
     for (const s of db.sessions || []) {
       if (!sessionMap.has(s.id)) {
         if (options?.activeOnly) {
-          const maxAge = options.maxAgeMs || 30000;
+          const maxAge = options.maxAgeMs || 35000;
           const pingTime = new Date(s.last_heartbeat).getTime();
           if (s.status === "active" && Date.now() - pingTime <= maxAge) {
             sessionMap.set(s.id, s);
@@ -1297,17 +1297,24 @@ export const dbService = {
       }
     }
     return Array.from(sessionMap.values()).sort(
-      (a, b) => new Date(b.session_started).getTime() - new Date(a.session_started).getTime()
+      (a, b) => new Date(b.last_heartbeat).getTime() - new Date(a.last_heartbeat).getTime()
     );
   },
 
-  async markStaleSessionsDisconnected(cutoffMs: number = 25000): Promise<number> {
-    const cutoffIso = new Date(Date.now() - cutoffMs).toISOString();
+  async markStaleSessionsDisconnected(cutoffMs: number = 90000, force: boolean = false): Promise<number> {
+    const now = Date.now();
+    // Throttle cleanup to at most once per 60 seconds to avoid database locks and thrashing
+    if (!force && (global as any).__lastStaleCleanup && now - (global as any).__lastStaleCleanup < 60000) {
+      return 0;
+    }
+    (global as any).__lastStaleCleanup = now;
+
+    const cutoffIso = new Date(now - cutoffMs).toISOString();
     let count = 0;
     const db = readLocalDb();
     let changed = false;
     for (const s of db.sessions || []) {
-      if ((s.status === "active" || s.status === "loading") && new Date(s.last_heartbeat).getTime() < Date.now() - cutoffMs) {
+      if (s.status === "active" && new Date(s.last_heartbeat).getTime() < now - cutoffMs) {
         s.status = "disconnected";
         changed = true;
         count++;
@@ -1320,7 +1327,7 @@ export const dbService = {
         await supabase
           .from("sessions")
           .update({ status: "disconnected" })
-          .in("status", ["active", "loading"])
+          .eq("status", "active")
           .lt("last_heartbeat", cutoffIso);
       } catch (err) {
         console.error("Supabase markStaleSessionsDisconnected error:", err);

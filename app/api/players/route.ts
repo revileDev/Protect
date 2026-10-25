@@ -8,16 +8,14 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized. Admin session required." }, { status: 401 });
   }
 
-  // Trigger background cleanup of stale sessions in DB
-  dbService.markStaleSessionsDisconnected(25000).catch(() => {});
+  // Periodic throttled DB cleanup of truly stale sessions (90s cutoff, runs at most once every 60s)
+  dbService.markStaleSessionsDisconnected(90000).catch(() => {});
 
-  // Fetch only active/loading sessions from the last 25 seconds
-  const sessions = await dbService.getSessions({ activeOnly: true, maxAgeMs: 25000 });
+  const ACTIVE_TIMEOUT_MS = 35000; // 35s resilient window (buffers Roblox executor lag, asset loading, and server transitions)
+  const sessions = await dbService.getSessions({ activeOnly: true, maxAgeMs: ACTIVE_TIMEOUT_MS });
   const bannedIps = await dbService.getBannedIps();
 
   const now = Date.now();
-  const HEARTBEAT_TIMEOUT_MS = 15000;  // 15s no ping → player is disconnected
-
   const enriched = [];
   const seenUserKeys = new Set<string>();
 
@@ -33,29 +31,33 @@ export async function GET() {
     const lastPing = new Date(s.last_heartbeat).getTime();
     if (isNaN(lastPing)) continue;
 
-    const startTime = s.session_started ? new Date(s.session_started).getTime() : lastPing;
     const pingElapsed = Math.max(0, now - lastPing);
 
-    // Hard timeout: player must have pinged within the last 15 seconds
-    if (pingElapsed >= HEARTBEAT_TIMEOUT_MS) {
+    // Hard timeout: player must have pinged within the last 35 seconds
+    if (pingElapsed > ACTIVE_TIMEOUT_MS) {
       continue;
     }
 
-    // Strictly active authenticated sessions only (ignore loader pings)
+    // Strictly active authenticated sessions only
     if (s.status !== "active") {
       continue;
     }
 
     // Deduplicate: if the user hopped servers or reconnected, only keep the newest active session
-    const dedupeKey = s.roblox_user_id || s.roblox_username || s.id;
-    if (dedupeKey && dedupeKey !== "Unknown" && dedupeKey !== "Executor User" && dedupeKey !== "Player") {
-      if (seenUserKeys.has(dedupeKey)) {
-        continue;
-      }
-      seenUserKeys.add(dedupeKey);
-    }
+    const hasValidUid = Boolean(s.roblox_user_id && s.roblox_user_id !== "0" && s.roblox_user_id !== "");
+    const validUsername = s.roblox_username && s.roblox_username !== "Player" && s.roblox_username !== "Unknown" && s.roblox_username !== "Executor User" ? s.roblox_username : null;
+    const dedupeKey = hasValidUid
+      ? `uid_${s.roblox_user_id}`
+      : validUsername
+      ? `user_${validUsername.toLowerCase()}`
+      : s.id;
 
-    const isOnline = true;
+    if (seenUserKeys.has(dedupeKey)) {
+      continue;
+    }
+    seenUserKeys.add(dedupeKey);
+
+    const startTime = s.session_started ? new Date(s.session_started).getTime() : lastPing;
     const durationSeconds = Math.max(0, Math.floor((now - startTime) / 1000));
     const derivedStatus = "active";
     const avatarUrl = s.avatar_url || (s.roblox_user_id ? `/api/roblox/avatar?userId=${s.roblox_user_id}` : null);
@@ -64,7 +66,7 @@ export async function GET() {
       ...s,
       avatar_url: avatarUrl,
       status: derivedStatus,
-      is_online: isOnline,
+      is_online: true,
       duration_seconds: durationSeconds,
       is_banned: Boolean(bannedIps[s.ip_address]),
       last_ping_sec: Math.floor(pingElapsed / 1000),

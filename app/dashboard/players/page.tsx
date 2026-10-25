@@ -513,35 +513,24 @@ export default function PlayersPage() {
   };
 
   // Compute live properties for each player based on current timestamp
-  // Filter strictly to ACTIVE online players only (no disconnected cards)
-  const processedSessions = sessions
-    .map((s) => {
-      const adjustedNow = now - (serverSkewRef.current || 0);
-      const lastPingTime = new Date(s.last_heartbeat).getTime();
-      const startTime = s.session_started ? new Date(s.session_started).getTime() : lastPingTime;
-      const pingElapsedMs = Math.max(0, adjustedNow - lastPingTime);
+  // Ticker updates duration and ping smoothly; server poll sets the active player list
+  const processedSessions = sessions.map((s) => {
+    const adjustedNow = now - (serverSkewRef.current || 0);
+    const lastPingTime = new Date(s.last_heartbeat).getTime();
+    const startTime = s.session_started ? new Date(s.session_started).getTime() : lastPingTime;
+    const pingElapsedMs = Math.max(0, adjustedNow - lastPingTime);
 
-      // Timeout threshold is 15 seconds, matching server HEARTBEAT_TIMEOUT_MS
-      const isTimedOut = pingElapsedMs >= 15000;
-      const isLoading = false;
-      const isOnline = s.status === "active" && !isTimedOut && (s.is_online !== false);
+    return {
+      ...s,
+      is_online: true,
+      duration_seconds: Math.max(0, Math.floor((adjustedNow - startTime) / 1000)),
+      ping_sec: Math.max(0, Math.floor(pingElapsedMs / 1000)),
+      removal_countdown_sec: 0,
+      time_since_disconnect_sec: 0,
+    };
+  });
 
-      const effectiveEndTime = isOnline ? adjustedNow : lastPingTime;
-      const durationSeconds = Math.max(0, Math.floor((effectiveEndTime - startTime) / 1000));
-
-      return {
-        ...s,
-        is_online: isOnline,
-        is_loading: isLoading,
-        duration_seconds: durationSeconds,
-        ping_sec: Math.floor(pingElapsedMs / 1000),
-        removal_countdown_sec: 0,
-        time_since_disconnect_sec: 0,
-      };
-    })
-    .filter((s) => s.is_online);
-
-  const onlineCount = processedSessions.filter((s) => s.is_online).length;
+  const onlineCount = processedSessions.length;
   const bannedCount = Object.keys(bannedIps).length;
 
   return (
@@ -902,9 +891,15 @@ export default function PlayersPage() {
           ) : viewMode === "cards" ? (
             /* CARDS GRID VIEW */
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {processedSessions.map((s) => (
+              {processedSessions.map((s) => {
+                const cardKey = s.roblox_user_id && s.roblox_user_id !== "0"
+                  ? `card_uid_${s.roblox_user_id}`
+                  : s.roblox_username && s.roblox_username !== "Player"
+                  ? `card_user_${s.roblox_username}`
+                  : `card_id_${s.id}`;
+                return (
                 <div
-                  key={s.id}
+                  key={cardKey}
                   className={`bg-[#0f1118] border rounded-2xl p-4 flex flex-col justify-between transition-all duration-300 relative overflow-hidden shadow-xl ${
                     s.is_farming
                       ? "border-amber-500/40 hover:border-amber-500/60 shadow-amber-500/5"
@@ -1097,7 +1092,8 @@ export default function PlayersPage() {
                     </button>
                   </div>
                 </div>
-              ))}
+              );
+            })}
             </div>
           ) : (
             /* TABLE LIST VIEW */
@@ -1116,12 +1112,16 @@ export default function PlayersPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-800/60">
-                    {processedSessions.map((s) => (
+                    {processedSessions.map((s) => {
+                      const rowKey = s.roblox_user_id && s.roblox_user_id !== "0"
+                        ? `row_uid_${s.roblox_user_id}`
+                        : s.roblox_username && s.roblox_username !== "Player"
+                        ? `row_user_${s.roblox_username}`
+                        : `row_id_${s.id}`;
+                      return (
                       <tr
-                        key={s.id}
-                        className={`transition-colors ${
-                          s.is_online ? "hover:bg-gray-800/30" : "bg-rose-950/10 hover:bg-rose-950/20"
-                        }`}
+                        key={rowKey}
+                        className="transition-colors hover:bg-gray-800/30"
                       >
                         <td className="p-3.5">
                           <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
@@ -1254,7 +1254,8 @@ export default function PlayersPage() {
                           </div>
                         </td>
                       </tr>
-                    ))}
+                    );
+                  })}
                   </tbody>
                 </table>
               </div>
