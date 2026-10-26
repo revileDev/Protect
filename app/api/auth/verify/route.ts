@@ -309,7 +309,7 @@ export async function POST(req: NextRequest) {
         clientIp,
         "Privilege Escalation / Parameter Tampering: Client attempted to forge duration or privilege fields"
       );
-      await logAndNotifyFailure("Security Alert: Unauthorized duration/privilege parameter tampering detected.");
+      await logAndNotifyFailure("Security Integrity Violation: Tampering detected");
       return NextResponse.json(
         {
           error:
@@ -320,7 +320,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!key || typeof key !== "string" || key.trim() === "") {
-      await logAndNotifyFailure("Missing Key: No license key provided.");
+      // Missing key check
       return NextResponse.json({ error: "License key is required." }, { status: 400 });
     }
 
@@ -328,7 +328,7 @@ export async function POST(req: NextRequest) {
 
     // Check for malformed length or invalid characters
     if (keyStr.length < 6 || keyStr.length > 64 || !/^[A-Za-z0-9_-]+$/.test(keyStr)) {
-      await logAndNotifyFailure(`Malformed Key: Invalid key syntax ('${keyStr.slice(0, 20)}')`);
+      // Reject malformed key format immediately without cluttering analytics logs
       return NextResponse.json({ error: "Invalid key format." }, { status: 400 });
     }
 
@@ -378,7 +378,7 @@ export async function POST(req: NextRequest) {
             clientIp,
             `Brute-Force Key Guessing Attack (${probeRecord.count} invalid key probes in 5 minutes)`
           );
-          await logAndNotifyFailure(`Brute-Force Key Guessing Attack (${probeRecord.count} probes)`);
+          await logAndNotifyFailure("Brute-Force Key Guessing Attack");
           return NextResponse.json(
             {
               error:
@@ -427,7 +427,7 @@ export async function POST(req: NextRequest) {
           `Critical Client Tampering Detected (Verify from unauthorized IP): ${tamper_flags.join("; ")}`
         );
       }
-      await logAndNotifyFailure(`Security Integrity Violation: Tampering detected (${tamper_flags.join(", ")})`);
+      await logAndNotifyFailure("Security Integrity Violation: Tampering detected");
       return NextResponse.json(
         {
           error:
@@ -442,7 +442,7 @@ export async function POST(req: NextRequest) {
       // Await the already-in-flight Roblox identity check (started in parallel with key/ban lookup)
       const identityCheck = await identityCheckPromise;
       if (!identityCheck.valid) {
-        await logAndNotifyFailure(`Identity Spoofing Blocked: ${identityCheck.reason}`);
+        await logAndNotifyFailure("Identity Spoofing Blocked");
         return NextResponse.json(
           {
             error: `[AERO AUTH] Verification Error: ${identityCheck.reason}. Please make sure you are executing from your own Roblox account.`,
@@ -509,7 +509,7 @@ export async function POST(req: NextRequest) {
 
       if (normalizedClaimed && normalizedClaimed !== normalizedClient) {
         const isLifetime = keyRecord.duration_hours === null || keyRecord.duration_hours === undefined;
-        const reason = `IP Mismatch (Bound to ${normalizedClaimed.slice(0, 8)}..., executed from ${normalizedClient})`;
+        const reason = "IP Mismatch (Bound to different device)";
         await logAndNotifyFailure(reason);
         return NextResponse.json(
           {
@@ -549,7 +549,7 @@ export async function POST(req: NextRequest) {
       const allScripts = await dbService.getScripts();
       const claimedForScript = allScripts.find((s) => s.id === keyRecord.script_id);
       const claimedForName = claimedForScript ? claimedForScript.name : "another script";
-      const reason = `Script Mismatch: Key was claimed for "${claimedForName}", but executed on "${script.name}"`;
+      const reason = "Script Mismatch (Key claimed for different script)";
       if (!isStaff) await logAndNotifyFailure(reason);
       return NextResponse.json(
         {
@@ -562,7 +562,7 @@ export async function POST(req: NextRequest) {
     // 7c. Maintenance Mode Kill-Switch: Block access unless using staff review key
     if (script.is_maintenance && !isStaff) {
       const mMsg = script.maintenance_message || "This script is currently under scheduled maintenance. Please check our Discord for updates.";
-      await logAndNotifyFailure(`Maintenance Mode: Blocked execution (${mMsg})`);
+      await logAndNotifyFailure("Maintenance Mode: Script under maintenance");
       return NextResponse.json({ error: mMsg }, { status: 403 });
     }
 

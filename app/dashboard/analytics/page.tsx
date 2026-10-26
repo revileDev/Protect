@@ -79,6 +79,17 @@ function RobloxAvatar({
   );
 }
 
+function formatCompactNumber(num: number): string {
+  if (num === null || num === undefined || isNaN(num)) return "0";
+  if (num < 1000) return String(num);
+  if (num < 1000000) {
+    const val = num / 1000;
+    return `${parseFloat(val.toFixed(1))}k`;
+  }
+  const val = num / 1000000;
+  return `${parseFloat(val.toFixed(1))}M`;
+}
+
 interface TimelinePoint {
   key: string;
   label: string;
@@ -439,7 +450,7 @@ export default function AnalyticsPage() {
             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Total Runs</span>
             <Activity className="w-4 h-4 text-cyan-400" />
           </div>
-          <p className="text-2xl font-bold text-white mt-1.5">{total}</p>
+          <p className="text-2xl font-bold text-white mt-1.5" title={total.toLocaleString()}>{formatCompactNumber(total)}</p>
           <span className="text-[10px] text-zinc-500 mt-1 block">
             {timeframe === "day" ? "Past 24 hours" : timeframe === "week" ? "Past 7 days" : "Recorded total"}
           </span>
@@ -451,7 +462,7 @@ export default function AnalyticsPage() {
             <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">Passed Auth</span>
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
           </div>
-          <p className="text-2xl font-bold text-emerald-400 mt-1.5">{passed}</p>
+          <p className="text-2xl font-bold text-emerald-400 mt-1.5" title={passed.toLocaleString()}>{formatCompactNumber(passed)}</p>
           <span className="text-[10px] text-emerald-400/90 mt-1 block font-semibold">
             {passRate}% Success Rate
           </span>
@@ -463,7 +474,7 @@ export default function AnalyticsPage() {
             <span className="text-[10px] font-bold text-rose-400 uppercase tracking-wider">Rejected Auth</span>
             <XCircle className="w-4 h-4 text-rose-400" />
           </div>
-          <p className="text-2xl font-bold text-rose-400 mt-1.5">{failed}</p>
+          <p className="text-2xl font-bold text-rose-400 mt-1.5" title={failed.toLocaleString()}>{formatCompactNumber(failed)}</p>
           <span className="text-[10px] text-rose-400/90 mt-1 block">
             {total > 0 ? Math.round((failed / total) * 100) : 0}% Rejection Rate
           </span>
@@ -475,9 +486,9 @@ export default function AnalyticsPage() {
             <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider">Unique Players</span>
             <Users className="w-4 h-4 text-purple-400" />
           </div>
-          <p className="text-2xl font-bold text-purple-300 mt-1.5">{uniqueUsers}</p>
-          <span className="text-[10px] text-zinc-400 mt-1 block">
-            {uniqueIps} Distinct IPs
+          <p className="text-2xl font-bold text-purple-300 mt-1.5" title={uniqueUsers.toLocaleString()}>{formatCompactNumber(uniqueUsers)}</p>
+          <span className="text-[10px] text-zinc-400 mt-1 block" title={`${uniqueIps.toLocaleString()} Distinct IPs`}>
+            {formatCompactNumber(uniqueIps)} Distinct IPs
           </span>
         </div>
 
@@ -488,7 +499,7 @@ export default function AnalyticsPage() {
             <Zap className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="flex items-baseline gap-2 mt-1.5">
-            <p className="text-2xl font-bold text-emerald-300">{activeSessions.filter(s => s.status === "active").length}</p>
+            <p className="text-2xl font-bold text-emerald-300">{formatCompactNumber(activeSessions.filter(s => s.status === "active").length)}</p>
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
           </div>
           <span className="text-[10px] text-zinc-500 mt-1 block">
@@ -613,8 +624,8 @@ export default function AnalyticsPage() {
                           <Compass className="w-2.5 h-2.5" />
                         </a>
                       </div>
-                      <span className="text-zinc-400 shrink-0 text-[11px]">
-                        {g.count} ({g.percentage}%)
+                      <span className="text-zinc-400 shrink-0 text-[11px] whitespace-nowrap font-mono">
+                        {formatCompactNumber(g.count)} ({g.percentage}%)
                       </span>
                     </div>
                     <div className="w-full bg-zinc-900 h-1.5 rounded-full overflow-hidden border border-zinc-800">
@@ -638,20 +649,22 @@ export default function AnalyticsPage() {
             <p className="text-xs text-zinc-500 py-4">No executor data logged yet.</p>
           ) : (
             <div className="space-y-2.5">
-              {Object.entries(data?.executors || {}).map(([exec, count]) => {
-                const pct = total > 0 ? Math.round((count / total) * 100) : 0;
-                return (
-                  <div key={exec} className="space-y-1">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-zinc-200 font-semibold truncate max-w-[180px]">{exec}</span>
-                      <span className="text-zinc-400 text-[11px]">{count} ({pct}%)</span>
+              {Object.entries(data?.executors || {})
+                .sort(([, a], [, b]) => b - a)
+                .map(([exec, count]) => {
+                  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+                  return (
+                    <div key={exec} className="space-y-1">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-zinc-200 font-semibold truncate pr-2" title={exec}>{exec}</span>
+                        <span className="text-zinc-400 text-[11px] whitespace-nowrap font-mono">{formatCompactNumber(count)} ({pct}%)</span>
+                      </div>
+                      <div className="w-full bg-zinc-900 h-1.5 rounded-full overflow-hidden border border-zinc-800">
+                        <div className="bg-cyan-500 h-1.5 rounded-full" style={{ width: `${pct}%` }} />
+                      </div>
                     </div>
-                    <div className="w-full bg-zinc-900 h-1.5 rounded-full overflow-hidden border border-zinc-800">
-                      <div className="bg-cyan-500 h-1.5 rounded-full" style={{ width: `${pct}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
             </div>
           )}
         </div>
@@ -667,20 +680,22 @@ export default function AnalyticsPage() {
             <p className="text-xs text-zinc-500 py-4">No OS telemetry logged yet.</p>
           ) : (
             <div className="space-y-2.5">
-              {Object.entries(data?.operatingSystems || {}).map(([os, count]) => {
-                const pct = total > 0 ? Math.round((count / total) * 100) : 0;
-                return (
-                  <div key={os} className="space-y-1">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-zinc-200 font-semibold truncate max-w-[180px]">{os}</span>
-                      <span className="text-zinc-400 text-[11px]">{count} ({pct}%)</span>
+              {Object.entries(data?.operatingSystems || {})
+                .sort(([, a], [, b]) => b - a)
+                .map(([os, count]) => {
+                  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+                  return (
+                    <div key={os} className="space-y-1">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-zinc-200 font-semibold truncate pr-2" title={os}>{os}</span>
+                        <span className="text-zinc-400 text-[11px] whitespace-nowrap font-mono">{formatCompactNumber(count)} ({pct}%)</span>
+                      </div>
+                      <div className="w-full bg-zinc-900 h-1.5 rounded-full overflow-hidden border border-zinc-800">
+                        <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${pct}%` }} />
+                      </div>
                     </div>
-                    <div className="w-full bg-zinc-900 h-1.5 rounded-full overflow-hidden border border-zinc-800">
-                      <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${pct}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
             </div>
           )}
         </div>
@@ -696,20 +711,22 @@ export default function AnalyticsPage() {
             <p className="text-xs text-zinc-500 py-4">No script executions logged yet.</p>
           ) : (
             <div className="space-y-2.5">
-              {Object.entries(data.scriptsBreakdown).map(([sName, stats]) => {
-                const pct = total > 0 ? Math.round((stats.total / total) * 100) : 0;
-                return (
-                  <div key={sName} className="space-y-1">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-zinc-200 font-semibold truncate max-w-[180px]">{sName}</span>
-                      <span className="text-zinc-400 text-[11px]">{stats.total} ({pct}%)</span>
+              {Object.entries(data.scriptsBreakdown)
+                .sort(([, a], [, b]) => b.total - a.total)
+                .map(([sName, stats]) => {
+                  const pct = total > 0 ? Math.round((stats.total / total) * 100) : 0;
+                  return (
+                    <div key={sName} className="space-y-1">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-zinc-200 font-semibold truncate pr-2" title={sName}>{sName}</span>
+                        <span className="text-zinc-400 text-[11px] whitespace-nowrap font-mono">{formatCompactNumber(stats.total)} ({pct}%)</span>
+                      </div>
+                      <div className="w-full bg-zinc-900 h-1.5 rounded-full overflow-hidden border border-zinc-800">
+                        <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${pct}%` }} />
+                      </div>
                     </div>
-                    <div className="w-full bg-zinc-900 h-1.5 rounded-full overflow-hidden border border-zinc-800">
-                      <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${pct}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
             </div>
           )}
         </div>
@@ -725,20 +742,22 @@ export default function AnalyticsPage() {
             <p className="text-xs text-zinc-500 py-4">Zero security rejections recorded.</p>
           ) : (
             <div className="space-y-2.5">
-              {Object.entries(data?.failureReasons || {}).map(([reason, count]) => {
-                const pct = failed > 0 ? Math.round((count / failed) * 100) : 0;
-                return (
-                  <div key={reason} className="space-y-1">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-zinc-300 truncate max-w-[180px]">{reason}</span>
-                      <span className="text-zinc-400 text-[11px]">{count} ({pct}%)</span>
+              {Object.entries(data?.failureReasons || {})
+                .sort(([, a], [, b]) => b - a)
+                .map(([reason, count]) => {
+                  const pct = failed > 0 ? Math.round((count / failed) * 100) : 0;
+                  return (
+                    <div key={reason} className="space-y-1">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-zinc-300 truncate pr-2 font-medium" title={reason}>{reason}</span>
+                        <span className="text-zinc-400 text-[11px] whitespace-nowrap font-mono">{formatCompactNumber(count)} ({pct}%)</span>
+                      </div>
+                      <div className="w-full bg-zinc-900 h-1.5 rounded-full overflow-hidden border border-zinc-800">
+                        <div className="bg-rose-500 h-1.5 rounded-full transition-all duration-300" style={{ width: `${Math.min(100, pct)}%` }} />
+                      </div>
                     </div>
-                    <div className="w-full bg-zinc-900 h-1.5 rounded-full overflow-hidden border border-zinc-800">
-                      <div className="bg-rose-500 h-1.5 rounded-full" style={{ width: `${pct}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
             </div>
           )}
         </div>

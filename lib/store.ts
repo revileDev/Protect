@@ -2377,21 +2377,66 @@ export const dbService = {
     let executions: ExecutionLog[] = [];
     let checkpoints: CheckpointLog[] = [];
 
-    // 1. Fetch remote logs from Supabase if configured
+    // Resolve script filter early so Supabase count & log queries can filter accurately
+    let matchedScriptId: string | null = null;
+    let matchedScriptName: string | null = null;
+    if (scriptId && scriptId !== "all") {
+      const allScripts = await dbService.getScripts();
+      const matched = allScripts.find(
+        (s) => s.id === scriptId || s.slug === scriptId || s.name.toLowerCase() === scriptId.toLowerCase()
+      );
+      if (matched) {
+        matchedScriptId = matched.id;
+        matchedScriptName = matched.name;
+      } else {
+        matchedScriptId = scriptId;
+      }
+    }
+
+    // Exact count metrics directly from Supabase (bypasses PostgREST 1,000 max-rows limit)
+    let exactTotal: number | null = null;
+    let exactPassed: number | null = null;
+    let exactFailed: number | null = null;
+    let exactCpStarted: number | null = null;
+    let exactCpCompleted: number | null = null;
+
+    // 1. Fetch remote logs and exact counts from Supabase if configured
     if (isSupabaseConfigured && supabase) {
       try {
+        const cutoffIso = cutoff ? new Date(cutoff).toISOString() : null;
+
+        let totalCountQ = supabase.from("execution_logs").select("*", { count: "exact", head: true });
+        let passedCountQ = supabase.from("execution_logs").select("*", { count: "exact", head: true }).eq("status", "success");
+        let failedCountQ = supabase.from("execution_logs").select("*", { count: "exact", head: true }).eq("status", "failed");
+        let cpStartedQ = supabase.from("checkpoint_logs").select("*", { count: "exact", head: true }).eq("stage", "started");
+        let cpCompletedQ = supabase.from("checkpoint_logs").select("*", { count: "exact", head: true }).eq("stage", "completed");
+
+        if (cutoffIso) {
+          totalCountQ = totalCountQ.gte("created_at", cutoffIso);
+          passedCountQ = passedCountQ.gte("created_at", cutoffIso);
+          failedCountQ = failedCountQ.gte("created_at", cutoffIso);
+          cpStartedQ = cpStartedQ.gte("created_at", cutoffIso);
+          cpCompletedQ = cpCompletedQ.gte("created_at", cutoffIso);
+        }
+
+        if (matchedScriptId) {
+          totalCountQ = totalCountQ.eq("script_id", matchedScriptId);
+          passedCountQ = passedCountQ.eq("script_id", matchedScriptId);
+          failedCountQ = failedCountQ.eq("script_id", matchedScriptId);
+          cpStartedQ = cpStartedQ.eq("script_id", matchedScriptId);
+          cpCompletedQ = cpCompletedQ.eq("script_id", matchedScriptId);
+        }
+
         let execQuery = supabase
           .from("execution_logs")
           .select("*")
           .order("created_at", { ascending: false });
 
-        if (cutoff) {
-          execQuery = execQuery.gte("created_at", new Date(cutoff).toISOString());
+        if (cutoffIso) {
+          execQuery = execQuery.gte("created_at", cutoffIso);
         }
-
-        const { data: remoteLogs, error: execErr } = await execQuery.limit(2500);
-        if (remoteLogs && !execErr) {
-          executions = remoteLogs;
+        if (matchedScriptId) {
+          execQuery = execQuery.eq("script_id", matchedScriptId);
         }
 
         let cpQuery = supabase
@@ -2399,13 +2444,42 @@ export const dbService = {
           .select("*")
           .order("created_at", { ascending: false });
 
-        if (cutoff) {
-          cpQuery = cpQuery.gte("created_at", new Date(cutoff).toISOString());
+        if (cutoffIso) {
+          cpQuery = cpQuery.gte("created_at", cutoffIso);
+        }
+        if (matchedScriptId) {
+          cpQuery = cpQuery.eq("script_id", matchedScriptId);
         }
 
-        const { data: remoteCp, error: cpErr } = await cpQuery.limit(2500);
-        if (remoteCp && !cpErr) {
-          checkpoints = remoteCp;
+        const [
+          totalRes,
+          passedRes,
+          failedRes,
+          cpStartedRes,
+          cpCompletedRes,
+          logsRes,
+          cpLogsRes,
+        ] = await Promise.all([
+          totalCountQ,
+          passedCountQ,
+          failedCountQ,
+          cpStartedQ,
+          cpCompletedQ,
+          execQuery.limit(1000),
+          cpQuery.limit(1000),
+        ]);
+
+        if (typeof totalRes.count === "number") exactTotal = totalRes.count;
+        if (typeof passedRes.count === "number") exactPassed = passedRes.count;
+        if (typeof failedRes.count === "number") exactFailed = failedRes.count;
+        if (typeof cpStartedRes.count === "number") exactCpStarted = cpStartedRes.count;
+        if (typeof cpCompletedRes.count === "number") exactCpCompleted = cpCompletedRes.count;
+
+        if (logsRes.data && !logsRes.error) {
+          executions = logsRes.data;
+        }
+        if (cpLogsRes.data && !cpLogsRes.error) {
+          checkpoints = cpLogsRes.data;
         }
       } catch (err) {
         console.error("Supabase getAnalytics error:", err);
@@ -2427,17 +2501,11 @@ export const dbService = {
     );
 
     // Filter by specific script if requested
-    if (scriptId && scriptId !== "all") {
-      const allScripts = await dbService.getScripts();
-      const matchedScript = allScripts.find(
-        (s) => s.id === scriptId || s.slug === scriptId || s.name.toLowerCase() === scriptId.toLowerCase()
-      );
+    if (matchedScriptId) {
       allExecs = allExecs.filter(
         (e) =>
-          e.script_id === scriptId ||
-          (matchedScript && (e.script_id === matchedScript.id || e.script_id === matchedScript.slug)) ||
-          e.script_name?.toLowerCase() === scriptId.toLowerCase() ||
-          (matchedScript && e.script_name?.toLowerCase() === matchedScript.name.toLowerCase())
+          e.script_id === matchedScriptId ||
+          (matchedScriptName && e.script_name?.toLowerCase() === matchedScriptName.toLowerCase())
       );
     }
 
@@ -2450,14 +2518,17 @@ export const dbService = {
       }
     }
     let allCps = Array.from(cpMap.values());
-    if (scriptId && scriptId !== "all") {
-      allCps = allCps.filter((c) => !c.script_id || c.script_id === scriptId);
+    if (matchedScriptId) {
+      allCps = allCps.filter((c) => !c.script_id || c.script_id === matchedScriptId);
     }
 
-    // 3. Compute KPI Metrics
-    const totalExecutions = allExecs.length;
-    const passedExecutions = allExecs.filter((e) => e.status === "success").length;
-    const failedExecutions = allExecs.filter((e) => e.status === "failed").length;
+    // 3. Compute KPI Metrics (Prioritizing exact database counts)
+    const localPassed = allExecs.filter((e) => e.status === "success").length;
+    const localFailed = allExecs.filter((e) => e.status === "failed").length;
+
+    const totalExecutions = exactTotal !== null ? Math.max(exactTotal, allExecs.length) : allExecs.length;
+    const passedExecutions = exactPassed !== null ? exactPassed : localPassed;
+    const failedExecutions = exactFailed !== null ? exactFailed : localFailed;
     const passRate = totalExecutions > 0 ? Math.round((passedExecutions / totalExecutions) * 100) : 100;
 
     const uniqueUsers = new Set(
@@ -2466,17 +2537,61 @@ export const dbService = {
     const uniqueIps = new Set(allExecs.map((e) => e.ip_address).filter(Boolean)).size;
 
     // Checkpoint metrics
-    const checkpointsStarted = allCps.filter((c) => c.stage === "started").length;
-    const checkpointsCompleted = allCps.filter((c) => c.stage === "completed").length;
+    const localCpStarted = allCps.filter((c) => c.stage === "started").length;
+    const localCpCompleted = allCps.filter((c) => c.stage === "completed").length;
+
+    const checkpointsStarted = exactCpStarted !== null ? Math.max(exactCpStarted, localCpStarted) : localCpStarted;
+    const checkpointsCompleted = exactCpCompleted !== null ? Math.max(exactCpCompleted, localCpCompleted) : localCpCompleted;
     const checkpointConversionRate =
       checkpointsStarted > 0 ? Math.round((checkpointsCompleted / checkpointsStarted) * 100) : 100;
 
-    // Failure reason breakdown
+    // Failure reason breakdown (Normalized & filtered to remove malformed key clutter)
     const failureReasons: Record<string, number> = {};
     allExecs
       .filter((e) => e.status === "failed" && e.failure_reason)
       .forEach((e) => {
-        const reason = e.failure_reason || "Unknown";
+        let reason = (e.failure_reason || "Unknown Security Rejection").trim();
+
+        // Exclude malformed keys completely as requested
+        if (
+          reason.startsWith("Malformed Key") ||
+          reason.startsWith("Missing Key") ||
+          reason.includes("Invalid key syntax")
+        ) {
+          return;
+        }
+
+        // Normalize dynamic variations into clean security buckets
+        if (reason.startsWith("Brute-Force")) {
+          reason = "Brute-Force Key Guessing Attack";
+        } else if (reason.startsWith("IP Mismatch")) {
+          reason = "IP Mismatch (Bound to different device)";
+        } else if (reason.startsWith("Script Mismatch")) {
+          reason = "Script Mismatch (Key claimed for different script)";
+        } else if (reason.startsWith("Identity Spoofing")) {
+          reason = "Identity Spoofing Blocked";
+        } else if (
+          reason.startsWith("Security Integrity Violation") ||
+          reason.startsWith("Critical Client Tampering") ||
+          reason.startsWith("Security Tampering")
+        ) {
+          reason = "Security Tampering Detected";
+        } else if (reason.startsWith("Security Alert: Missing or forged executor")) {
+          reason = "Invalid / Forged Executor";
+        } else if (reason.startsWith("Invalid Key")) {
+          reason = "Invalid Key (Key does not exist)";
+        } else if (reason.startsWith("Expired Key")) {
+          reason = "Expired License Key";
+        } else if (reason.startsWith("Revoked Key")) {
+          reason = "Revoked / Banned Key";
+        } else if (reason.startsWith("Unclaimed Key")) {
+          reason = "Unclaimed Key (Not claimed from site)";
+        } else if (reason.startsWith("IP Banned")) {
+          reason = "IP Banned (Blacklisted)";
+        } else if (reason.startsWith("Maintenance Mode")) {
+          reason = "Maintenance Mode Block";
+        }
+
         failureReasons[reason] = (failureReasons[reason] || 0) + 1;
       });
 
